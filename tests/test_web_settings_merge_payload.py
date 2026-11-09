@@ -1,5 +1,6 @@
 import pytest
 
+from app.contracts.llm_catalog import MAX_STEPS_LIMIT
 from app.web import _settings_merge_payload
 
 
@@ -942,8 +943,8 @@ def test_settings_merge_stores_a_max_steps_limit_and_a_blank_follows_the_default
     assert merged["llm"]["max_steps"] == 60
 
 
-@pytest.mark.parametrize("value", ["0", "501", "lots", "2.5", "-3"])
+@pytest.mark.parametrize("value", ["0", str(MAX_STEPS_LIMIT + 1), "lots", "2.5", "-3"])
 def test_settings_merge_rejects_a_max_steps_outside_the_range(value):
     merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_max_steps": value})
-    assert error == "Max steps per message must be a whole number from 1 to 500."
+    assert error == f"Max steps per message must be a whole number from 1 to {MAX_STEPS_LIMIT}."
     assert "llm" not in merged

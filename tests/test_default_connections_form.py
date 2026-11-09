@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.datastructures import FormData
 
-from app.contracts.llm_catalog import DEFAULT_CONTEXT_SIZE, DEFAULT_REASONING_EFFORT
+from app.contracts.llm_catalog import (
+    DEFAULT_CONTEXT_SIZE,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_REASONING_EFFORT,
+    MAX_STEPS_LIMIT,
+)
 from app.db import Base
 from app.models import User
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
@@ -574,8 +579,8 @@ def test_the_step_limit_field_names_the_runtime_default_as_its_placeholder():
     html = _panel_html()
 
     assert 'name="llm_max_steps"' in html
-    assert 'placeholder="Default 30"' in html
-    assert 'max="500"' in html
+    assert f'placeholder="Default {DEFAULT_MAX_STEPS}"' in html
+    assert f'max="{MAX_STEPS_LIMIT}"' in html
 
 
 def test_a_seeded_step_limit_comes_back_into_the_form():
@@ -586,5 +591,5 @@ def test_a_seeded_step_limit_comes_back_into_the_form():
 
 def test_max_steps_is_stored_as_a_number_within_range():
     assert _seed_config_from_form(_form({"llm_max_steps": "60"}))["llm"]["max_steps"] == 60
-    for value in ("", "0", "501", "lots"):
+    for value in ("", "0", str(MAX_STEPS_LIMIT + 1), "lots"):
         assert "max_steps" not in _seed_config_from_form(_form({"llm_max_steps": value})).get("llm", {}), value

@@ -1,7 +1,7 @@
 """The Model provider's step limit: Max steps per message.
 
 One chat message may take many model calls; the native runtime stops at a cap
-(30 by default) and the Portal offers Continue. The cap is a Model provider
+(``DEFAULT_MAX_STEPS`` by default) and the Portal offers Continue. The cap is a Model provider
 connector setting: the administrator's Default connectors hold the default,
 every member may set their own, and a member who sets none follows the
 administrator's, now and when it changes. It is stored as ``llm.max_steps``
@@ -14,6 +14,7 @@ import re
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.contracts.llm_catalog import DEFAULT_MAX_STEPS, MAX_STEPS_LIMIT
 from app.models import AuditLog
 from app.services.connector_defaults_service import (
     changed_connector_types,
@@ -31,7 +32,7 @@ from tests.test_connector_modes import _CountingSecrets, _session, _user
 from tests.test_web_connector_settings import _bind_profile, _build_env, _saved
 
 SEED = {"llm": {"provider": "github_copilot", "model": "gpt-6-sol", "max_steps": 60}}
-OUT_OF_RANGE = "Max steps per message must be a whole number from 1 to 500."
+OUT_OF_RANGE = f"Max steps per message must be a whole number from 1 to {MAX_STEPS_LIMIT}."
 
 
 # ------------------------------------------------------------- the service
@@ -139,7 +140,7 @@ def test_the_members_panel_shows_their_own_value_and_the_default_as_the_placehol
         # No administrator default yet: the runtime's own.
         resp = env.client.get("/app/connectors/llm/panel")
         assert resp.status_code == 200
-        assert re.search(r'name="llm_max_steps"[^>]*value=""[^>]*placeholder="Default 30"', resp.text)
+        assert re.search(rf'name="llm_max_steps"[^>]*value=""[^>]*placeholder="Default {DEFAULT_MAX_STEPS}"', resp.text)
 
         RuntimeProfileSeedService(env.db).save_seed(SEED)
         resp = env.client.get("/app/connectors/llm/panel")

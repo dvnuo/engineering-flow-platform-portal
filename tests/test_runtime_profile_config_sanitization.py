@@ -1,5 +1,6 @@
 import json
 
+from app.contracts.llm_catalog import MAX_STEPS_LIMIT
 from app.schemas.runtime_profile import (
     dump_runtime_profile_config_json,
     parse_runtime_profile_config_json,
@@ -816,7 +817,7 @@ def test_llm_max_steps_is_kept_within_range_and_dropped_otherwise():
     # The Model provider's step limit: a whole number the form's range allows,
     # from a string as the form posts it or an int as the row stores it.
     assert sanitize_runtime_profile_config_dict({"llm": {"max_steps": " 60 "}})["llm"] == {"max_steps": 60}
-    assert sanitize_runtime_profile_config_dict({"llm": {"max_steps": 500}})["llm"] == {"max_steps": 500}
+    assert sanitize_runtime_profile_config_dict({"llm": {"max_steps": MAX_STEPS_LIMIT}})["llm"] == {"max_steps": MAX_STEPS_LIMIT}
     # Nothing else is stored: no 0 for "unlimited", no float, no flag.
-    for nonsense in (0, -1, 501, "lots", "2.5", 2.5, True, None):
+    for nonsense in (0, -1, MAX_STEPS_LIMIT + 1, "lots", "2.5", 2.5, True, None):
         assert "llm" not in sanitize_runtime_profile_config_dict({"llm": {"max_steps": nonsense}}), nonsense
