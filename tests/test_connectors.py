@@ -512,9 +512,14 @@ def test_browser_pill_keeps_its_name_and_says_what_a_click_does():
     # word nor a window suffix is in the text.
     for label in ('t("Browser on")', 't("Browser off")', 'own window")'):
         assert label not in js
-    # Off is a plain pill, like Attach; only on is tinted.
+    # Off is a plain pill, like Attach; only on is tinted. On is not colour
+    # alone: it is set heavier too, and keeps a cue of its own where the
+    # system replaces colours.
     assert '.composer-connector-toggle[data-state="off"]' not in css
-    assert '.composer-connector-toggle[data-state="on"]' in css
+    on_rule_start = css.index('.composer-connector-toggle[data-state="on"] {')
+    assert "font-weight: 600;" in css[on_rule_start:css.index("}", on_rule_start)]
+    forced = css.index("@media (forced-colors: active)", on_rule_start)
+    assert '.composer-connector-toggle[data-state="on"]' in css[forced:css.index("}", forced)]
     # The text changes only where a click does something other than
     # switching: setting the connector up, starting the browser.
     assert 't("Set up browser")' in js and 't("Start browser")' in js
