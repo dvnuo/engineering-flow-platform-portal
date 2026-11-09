@@ -26,6 +26,7 @@ BRIDGE_FUNCTIONS = [
     "candidatePorts",
     "readSharedProbe",
     "writeSharedProbe",
+    "forgetSharedProbe",
     "probeView",
     "applyPing",
     "mobileState",
@@ -86,10 +87,13 @@ globalThis.localStorage = {
   setItem: (key, value) => { store[key] = String(value); },
   removeItem: (key) => { delete store[key]; },
 };
+// Timers are recorded, never run: `timers` holds each wait scheduled,
+// `cleared` each id cleared.
 const timers = [];
+const cleared = [];
 globalThis.window = {
   setTimeout: (fn, ms) => { timers.push(ms); return timers.length; },
-  clearTimeout() {},
+  clearTimeout: (id) => { if (id) cleared.push(id); },
   location: { pathname: "/app" },
 };
 globalThis.document = { visibilityState: "visible" };
@@ -105,9 +109,11 @@ function renderToggle() {}
 let alivePorts = {};
 const pings = [];
 async function pingPort(port) { pings.push(port); return alivePorts[port] || null; }
-// Every /run body the page sent.
+// Every /run body the page sent; runFails makes the bridge unreachable.
 const runCalls = [];
+let runFails = false;
 async function fetchWithTimeout(url, options) {
+  if (runFails) throw new TypeError("Failed to fetch");
   runCalls.push(JSON.parse(options.body));
   return { ok: true, status: 200, json: async () => ({ ok: true, data: { tabs: [] } }) };
 }
@@ -155,18 +161,22 @@ def test_the_page_asks_the_known_port_first_and_shares_the_answer_between_tabs()
           probe = await probeLocalBridge({ force: true });
           assert.deepEqual(pings, [8767]);
 
-          // Nothing answers: six requests, the last known port first; a
-          // request in flight asks two ports only. The empty answer is shared.
+          // Nothing answers: six requests, the last known port first, and the
+          // empty answer is shared. A request in flight asks two ports only,
+          // and its miss is kept to itself: the other tabs may still trust
+          // a sweep.
           pings.length = 0;
           alivePorts = {};
           probe = await probeLocalBridge({ force: true });
           assert.equal(probe.alive, false);
           assert.equal(pings.length, 6);
           assert.equal(pings[0], 8767);
+          assert.equal(JSON.parse(store[PROBE_KEY]).data, null);
+          store[PROBE_KEY] = JSON.stringify({ at: Date.now(), port: 8767, data: oldBridge });
           pings.length = 0;
           await probeLocalBridge({ force: true, quick: true });
           assert.deepEqual(pings, [8767, 8765]);
-          assert.equal(JSON.parse(store[PROBE_KEY]).data, null);
+          assert.equal(JSON.parse(store[PROBE_KEY]).port, 8767, "a quick miss is not published");
 
           // Another tab's fresh answer serves this one without a request; a
           // stale one does not.
@@ -195,12 +205,24 @@ def test_the_page_asks_the_known_port_first_and_shares_the_answer_between_tabs()
 def test_offline_looks_back_off_and_the_launch_wait_asks_the_expected_port():
     _run(_script(r"""
         (async () => {
-          // 15 s, 30 s, 60 s, then 120 s at most; anything the member does
-          // starts over at 15 s.
-          const delays = [scheduleOfflineRecheck(), scheduleOfflineRecheck(), scheduleOfflineRecheck(), scheduleOfflineRecheck(), scheduleOfflineRecheck()];
+          // 15 s, 30 s, 60 s, then 120 s at most, one look at a time: a
+          // redraw while a look is pending schedules nothing more, and
+          // anything the member does cancels the pending look and starts
+          // over at 15 s.
+          assert.equal(scheduleOfflineRecheck(), 15000);
+          assert.equal(scheduleOfflineRecheck(), 0, "a pending look is kept as it is");
+          assert.equal(timers.length, 1);
+          const delays = [15000];
+          for (const expected of [30000, 60000, 120000, 120000]) {
+            offlineRecheck = null; // the pending look fired
+            delays.push(scheduleOfflineRecheck());
+          }
           assert.deepEqual(delays, [15000, 30000, 60000, 120000, 120000]);
           assert.deepEqual(timers, delays);
+          const pendingId = offlineRecheck;
           resetOfflineBackoff();
+          assert.equal(offlineRecheck, null);
+          assert.ok(cleared.includes(pendingId), "the pending look is cancelled by a reset");
           assert.equal(scheduleOfflineRecheck(), 15000);
 
           // After the protocol link the expected port is asked alone; the
@@ -251,6 +273,17 @@ def test_an_assistant_drives_the_shared_window_unless_given_its_own():
           await runLocalBridge("tab.list", {}, 20, "agent-A");
           await runLocalBridge("tab.list", {}, 20);
           assert.deepEqual(runCalls.map((call) => call.session), ["agent-A", "default"]);
+
+          // A command the bridge does not answer makes every tab ask again:
+          // the shared record goes, and this tab no longer trusts its state.
+          store[PROBE_KEY] = JSON.stringify({ at: Date.now(), port: 8766, data: { version: "1.4.0" } });
+          runFails = true;
+          const failed = await runLocalBridge("tab.list", {}, 20);
+          assert.equal(failed.ok, false);
+          assert.equal(failed.error.code, "bridge_unreachable");
+          assert.equal(store[PROBE_KEY], undefined);
+          assert.equal(state.localBridge.alive, false);
+          assert.equal(state.localBridge.probedAt, 0);
           console.log("ok");
         })().catch((error) => { console.error(error); process.exit(1); });
         """))

@@ -277,6 +277,16 @@
     }
   }
 
+  // The bridge stopped answering a command: the next probe, in every tab,
+  // asks for real instead of trusting a record from moments before.
+  function forgetSharedProbe() {
+    try {
+      localStorage.removeItem(PROBE_KEY);
+    } catch (_error) {
+      /* storage unavailable */
+    }
+  }
+
   function probeView() {
     const lb = state.localBridge;
     return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
@@ -371,7 +381,9 @@
       }
       const at = Date.now();
       applyPing(found ? found.port : 0, found ? found.data : null, at);
-      writeSharedProbe(found ? found.port : 0, found ? found.data : null, at);
+      // A quick look that found nothing asked two ports only; it is not the
+      // sweep the other tabs may trust.
+      if (found || !quick) writeSharedProbe(found ? found.port : 0, found ? found.data : null, at);
       return probeView();
     })();
     return lb.probing;
@@ -440,6 +452,7 @@
     } catch (error) {
       lb.alive = false;
       lb.probedAt = 0;
+      forgetSharedProbe();
       const aborted = error && error.name === "AbortError";
       return {
         ok: false,
@@ -878,8 +891,6 @@
       scheduleOfflineRecheck();
       return;
     }
-    window.clearTimeout(offlineRecheck);
-    offlineRecheck = null;
     resetOfflineBackoff();
     const own = windowChoice(agentId) === WINDOW_OWN;
     applyToggleView({
@@ -892,12 +903,14 @@
     renderWindowPopover(agentId);
   }
 
-  // Schedules the next look for a bridge while the composer says offline;
-  // each look waits twice as long as the one before, up to the maximum. A
-  // look that comes due while the tab is hidden waits for the tab instead
-  // (onTabVisible). Returns the wait it scheduled.
+  // Schedules the next look for a bridge while the composer says offline,
+  // unless one is already pending: a redraw while waiting leaves the wait as
+  // it is. Each look waits twice as long as the one before, up to the
+  // maximum. A look that comes due while the tab is hidden waits for the tab
+  // instead (onTabVisible). Returns the wait it scheduled, 0 when a look was
+  // already pending.
   function scheduleOfflineRecheck() {
-    window.clearTimeout(offlineRecheck);
+    if (offlineRecheck) return 0;
     const delay = offlineRecheckDelay;
     offlineRecheckDelay = Math.min(offlineRecheckDelay * 2, OFFLINE_RECHECK_MAX_MS);
     offlineRecheck = window.setTimeout(() => {
@@ -911,7 +924,12 @@
     return delay;
   }
 
+  // Back to the short wait with no look pending: the member did something,
+  // or the bridge answered, so the next offline redraw looks again soon.
   function resetOfflineBackoff() {
+    window.clearTimeout(offlineRecheck);
+    offlineRecheck = null;
+    offlineRecheckPending = false;
     offlineRecheckDelay = OFFLINE_RECHECK_MS;
   }
 
@@ -930,8 +948,6 @@
     const elements = toggleElements();
     if (!elements || elements.button.dataset.state !== "offline") return;
     if (!offlineRecheckPending && !offlineRecheck) return;
-    window.clearTimeout(offlineRecheck);
-    offlineRecheck = null;
     resetOfflineBackoff();
     recheckOffline();
   }
@@ -1086,17 +1102,37 @@
     wrap.dataset.popoverBound = "1";
     wrap.addEventListener("mouseenter", scheduleWindowPopoverOpen);
     wrap.addEventListener("mouseleave", scheduleWindowPopoverClose);
+    let focusReturning = false;
     wrap.addEventListener("focusin", () => {
       window.clearTimeout(popoverCloseTimer);
+      // Focus handed back to the pill by Escape must not reopen what Escape
+      // just closed.
+      if (focusReturning) {
+        focusReturning = false;
+        return;
+      }
       openWindowPopover();
     });
     wrap.addEventListener("focusout", (event) => {
       if (!wrap.contains(event.relatedTarget)) scheduleWindowPopoverClose();
     });
     wrap.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      closeWindowPopover();
-      button.focus();
+      if (event.key === "Escape") {
+        closeWindowPopover();
+        focusReturning = popover.contains(document.activeElement);
+        button.focus();
+        return;
+      }
+      // The popover sits inside the chat form, where Enter on a radio would
+      // submit the draft (Chrome's implicit submission); it picks the window.
+      if (event.key === "Enter" && popover.contains(event.target)) {
+        event.preventDefault();
+        const input = event.target.closest('input[name="composer-browser-window"]');
+        if (input && !input.checked) {
+          input.checked = true;
+          onWindowChoice(input.value);
+        }
+      }
     });
     popover.addEventListener("change", (event) => {
       const input = event.target.closest('input[name="composer-browser-window"]');
