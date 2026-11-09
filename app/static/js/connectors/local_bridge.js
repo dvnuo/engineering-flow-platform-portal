@@ -28,15 +28,37 @@
   const RUN_TIMEOUT_MS = 65000;
   const STAGE_TIMEOUT_MS = 120000;
   const PROBE_CACHE_MS = 10000;
-  // While the composer says the bridge is offline, it looks again this often:
-  // a bridge started from the Mobile testing panel or a terminal, after the
-  // chat loaded, is picked up without a reload.
+  // While the composer says the bridge is offline, it looks again: a bridge
+  // started from the Mobile testing panel or a terminal, after the chat
+  // loaded, is picked up without a reload. The first look comes after
+  // OFFLINE_RECHECK_MS and each next one waits twice as long, up to the
+  // maximum, so an idle tab with no bridge asks a few times an hour, not every
+  // 15 s; anything the member does (the toggle, another assistant, the tab
+  // coming back to the front) starts over at the short wait.
   const OFFLINE_RECHECK_MS = 15000;
+  const OFFLINE_RECHECK_MAX_MS = 120000;
   let offlineRecheck = null;
+  let offlineRecheckDelay = OFFLINE_RECHECK_MS;
+  let offlineRecheckPending = false;
+  // The bridge's own browser session: the EFP window every assistant shares
+  // unless the member gives one its own window (bridgeSessionName).
+  const DEFAULT_SESSION = "default";
   const CLIENT_ID_KEY = "efp.connectors.client_id";
   const TOGGLE_KEY_PREFIX = "efp.connectors.local_bridge.toggle:";
+  // Per browser, not per tab: the port that answered last, the last probe's
+  // answer (one tab's sweep serves every tab of this Portal), and the window
+  // each assistant drives.
+  const PORT_KEY = "efp.connectors.local_bridge.port";
+  const PROBE_KEY = "efp.connectors.local_bridge.probe";
+  const WINDOW_KEY_PREFIX = "efp.connectors.local_bridge.window:";
+  const WINDOW_SHARED = "shared";
+  const WINDOW_OWN = "own";
   const TOGGLE_ID = "composer-browser-toggle";
   const TOGGLE_TEXT_ID = "composer-browser-toggle-text";
+  const WRAP_ID = "composer-browser-wrap";
+  const POPOVER_ID = "composer-browser-popover";
+  const POPOVER_OPEN_DELAY_MS = 250;
+  const POPOVER_CLOSE_DELAY_MS = 320;
   const PANEL_ROOT_ID = "connector-panel-root";
 
   const modules = new Map();
@@ -49,7 +71,14 @@
     localBridge: {
       port: 0,
       alive: false,
+      // The bridge's own session as /ping names it, and every session its
+      // computer knows (name -> {alive, tabCount}); sessionsKnown says the
+      // bridge is new enough to list them.
+      sessionName: DEFAULT_SESSION,
       sessionAlive: false,
+      sessions: {},
+      sessionsKnown: false,
+      lastPing: null,
       version: "",
       probedAt: 0,
       probing: null,
@@ -186,13 +215,29 @@
 
   // ---- local bridge ------------------------------------------------------
 
-  function candidatePorts() {
-    const preferred = localBridgeConfig().preferred_port;
-    const ports = [preferred, ...PORT_RANGE].filter((port, index, list) => Number.isInteger(port) && list.indexOf(port) === index);
-    if (state.localBridge.port && ports.includes(state.localBridge.port)) {
-      return [state.localBridge.port, ...ports.filter((port) => port !== state.localBridge.port)];
+  function storedPort() {
+    try {
+      const value = Number(localStorage.getItem(PORT_KEY));
+      return Number.isInteger(value) && value > 0 ? value : 0;
+    } catch (_error) {
+      return 0;
     }
-    return ports;
+  }
+
+  function rememberPort(port) {
+    try {
+      if (port) localStorage.setItem(PORT_KEY, String(port));
+    } catch (_error) {
+      /* storage unavailable */
+    }
+  }
+
+  // Ports in the order they are worth asking: the one that answered last (to
+  // this page, then to any page of this Portal in this browser), the member's
+  // preferred port, then the rest of the range the bridge falls back to.
+  function candidatePorts() {
+    const known = [state.localBridge.port, storedPort(), localBridgeConfig().preferred_port];
+    return [...known, ...PORT_RANGE].filter((port, index, list) => Number.isInteger(port) && port > 0 && list.indexOf(port) === index);
   }
 
   async function pingPort(port) {
@@ -207,41 +252,138 @@
     }
   }
 
+  // The last probe, shared with the other tabs of this Portal through
+  // localStorage: one tab's requests serve them all for PROBE_CACHE_MS, so a
+  // member with several chats open does not have each tab ask six ports.
+  function readSharedProbe() {
+    try {
+      const raw = localStorage.getItem(PROBE_KEY);
+      if (!raw) return null;
+      const record = JSON.parse(raw);
+      if (!record || typeof record !== "object" || !Number.isFinite(record.at)) return null;
+      const age = Date.now() - record.at;
+      if (age < 0 || age >= PROBE_CACHE_MS) return null;
+      return record;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeSharedProbe(port, data, at) {
+    try {
+      localStorage.setItem(PROBE_KEY, JSON.stringify({ at, port: port || 0, data: data || null }));
+    } catch (_error) {
+      /* storage unavailable */
+    }
+  }
+
+  function probeView() {
+    const lb = state.localBridge;
+    return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
+  }
+
+  // Reads one /ping answer (or none, when nothing listened) into the bridge
+  // state. Whichever probe sees the bridge appear or go away redraws the
+  // composer toggle, so a sweep started by another panel updates it too.
+  function applyPing(port, data, at) {
+    const lb = state.localBridge;
+    const wasAlive = lb.alive;
+    const found = Boolean(data && typeof data === "object");
+    lb.probedAt = at || Date.now();
+    lb.alive = found;
+    lb.port = found ? port : 0;
+    lb.lastPing = found ? data : null;
+    const session = found && data.session && typeof data.session === "object" ? data.session : null;
+    lb.sessionName = session && session.name ? String(session.name) : DEFAULT_SESSION;
+    lb.sessionAlive = Boolean(session && session.alive);
+    lb.tabCount = session ? Number(session.tab_count || 0) : 0;
+    lb.version = found ? String(data.version || "") : "";
+    lb.protocolVersion = found ? Number(data.protocol_version || 0) : 0;
+    lb.mobile = mobileState(found ? data : null);
+    // browser_files and workflow: the bridge stages workspace files for
+    // page.upload and runs playbooks; an older bridge has neither and the
+    // assistant is told so instead of the page trying. sessions: the bridge
+    // lists every browser session its computer knows, which is how the page
+    // tells whether an assistant's own window is open; an older bridge lists
+    // none and the page says so instead of guessing.
+    lb.capabilities = found && Array.isArray(data.capabilities) ? data.capabilities.slice() : [];
+    lb.browserFiles = lb.capabilities.indexOf("browser_files") >= 0;
+    lb.workflow = lb.capabilities.indexOf("workflow") >= 0;
+    lb.sessionsKnown = lb.capabilities.indexOf("sessions") >= 0;
+    lb.sessions = {};
+    if (found && Array.isArray(data.sessions)) {
+      data.sessions.forEach((entry) => {
+        if (!entry || typeof entry !== "object" || !entry.name) return;
+        lb.sessions[String(entry.name)] = { alive: Boolean(entry.alive), tabCount: Number(entry.tab_count || 0) };
+      });
+    }
+    if (session && !lb.sessions[lb.sessionName]) lb.sessions[lb.sessionName] = { alive: lb.sessionAlive, tabCount: lb.tabCount };
+    lb.maxFileBytes = found && data.browser && typeof data.browser === "object" ? Number(data.browser.max_file_bytes || 0) : 0;
+    if (found) rememberPort(port);
+    if (wasAlive !== found && typeof document !== "undefined" && toggleElements()) renderToggle({ probe: false });
+  }
+
+  // Whether a browser session (the shared window, or an assistant's own) is
+  // open, from the last probe: true or false, or null when the bridge is too
+  // old to list its sessions and the name is not its own.
+  function sessionAliveFor(name) {
+    const lb = state.localBridge;
+    if (!lb.alive) return false;
+    const wanted = String(name || "").trim() || DEFAULT_SESSION;
+    const session = lb.sessions[wanted];
+    if (session) return session.alive;
+    if (wanted === lb.sessionName) return lb.sessionAlive;
+    return lb.sessionsKnown ? false : null;
+  }
+
   async function probeLocalBridge({ force = false, quick = false } = {}) {
     const lb = state.localBridge;
-    if (!force && lb.probedAt && Date.now() - lb.probedAt < PROBE_CACHE_MS) {
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
+    if (!force && lb.probedAt && Date.now() - lb.probedAt < PROBE_CACHE_MS) return probeView();
+    if (!force) {
+      // Another tab of this Portal asked moments ago; its answer serves here.
+      const shared = readSharedProbe();
+      if (shared) {
+        applyPing(shared.port, shared.data, shared.at);
+        return probeView();
+      }
     }
     if (lb.probing) return lb.probing;
     lb.probing = (async () => {
       let found = null;
-      // A request in flight cannot afford the full port sweep (six ports at
-      // 1.5 s each); the bridge started from the panel listens on the
-      // preferred or last known port, so that is enough while answering.
-      const ports = quick ? candidatePorts().slice(0, 2) : candidatePorts();
-      // Ping the candidates together; the first alive port in preference
-      // order wins. Sequential pings cost up to 9 s when nothing listens.
-      const results = await Promise.all(ports.map(async (port) => ({ port, data: await pingPort(port) })));
-      found = results.find((entry) => entry.data) || null;
-      lb.probedAt = Date.now();
-      lb.alive = Boolean(found);
-      lb.port = found ? found.port : 0;
-      lb.sessionAlive = Boolean(found && found.data.session && found.data.session.alive);
-      lb.version = found ? String(found.data.version || "") : "";
-      lb.protocolVersion = found ? Number(found.data.protocol_version || 0) : 0;
-      lb.tabCount = found && found.data.session ? Number(found.data.session.tab_count || 0) : 0;
-      lb.mobile = mobileState(found ? found.data : null);
-      // browser_files and workflow: the bridge stages workspace files for
-      // page.upload and runs playbooks; an older bridge has neither and the
-      // assistant is told so instead of the page trying.
-      lb.capabilities = found && Array.isArray(found.data.capabilities) ? found.data.capabilities.slice() : [];
-      lb.browserFiles = lb.capabilities.indexOf("browser_files") >= 0;
-      lb.workflow = lb.capabilities.indexOf("workflow") >= 0;
-      lb.maxFileBytes = found && found.data.browser && typeof found.data.browser === "object" ? Number(found.data.browser.max_file_bytes || 0) : 0;
-      lb.probing = null;
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
+      try {
+        // The port that answered last (or the preferred one) is asked alone
+        // first: while the bridge runs, the usual case, that is one request
+        // and no failed one in the console. Only when it does not answer are
+        // the other ports swept together (one by one would cost up to 9 s
+        // when nothing listens). A request in flight cannot afford even that
+        // sweep and asks the next candidate only.
+        const ports = candidatePorts();
+        const first = await pingPort(ports[0]);
+        if (first) {
+          found = { port: ports[0], data: first };
+        } else {
+          const rest = quick ? ports.slice(1, 2) : ports.slice(1);
+          const results = await Promise.all(rest.map(async (port) => ({ port, data: await pingPort(port) })));
+          found = results.find((entry) => entry.data) || null;
+        }
+      } finally {
+        lb.probing = null;
+      }
+      const at = Date.now();
+      applyPing(found ? found.port : 0, found ? found.data : null, at);
+      writeSharedProbe(found ? found.port : 0, found ? found.data : null, at);
+      return probeView();
     })();
     return lb.probing;
+  }
+
+  // For the Mobile testing panel: the bridge's last /ping answer, probing
+  // first when the cached one is stale, so both panels share one probe and
+  // one set of requests.
+  async function pingBridge({ force = false } = {}) {
+    await probeLocalBridge({ force });
+    const lb = state.localBridge;
+    return { port: lb.port, data: lb.alive ? lb.lastPing : null };
   }
 
   // What the bridge's /ping says about mobile recording: "ready", "outdated"
@@ -254,7 +396,9 @@
     return ping.mobile && ping.mobile.available ? "ready" : "no_mobile_auto";
   }
 
-  async function runLocalBridge(command, params, timeoutSeconds) {
+  // Runs one bridge command in a browser session: the shared EFP window
+  // (default) or an assistant's own window, named by bridgeSessionName.
+  async function runLocalBridge(command, params, timeoutSeconds, session) {
     const lb = state.localBridge;
     if (!lb.alive || !lb.port) {
       const probe = await probeLocalBridge({ force: true, quick: true });
@@ -266,7 +410,7 @@
     const body = JSON.stringify({
       command,
       params: params && typeof params === "object" ? params : {},
-      session: "default",
+      session: String(session || "").trim() || "default",
       timeout_seconds: seconds,
     });
     try {
@@ -322,20 +466,33 @@
     }
   }
 
-  function launchUrl(port) {
+  // First tab of a window this page opens: the configured start page, or for
+  // an assistant's own window the Portal on that assistant, so the member can
+  // tell the windows apart and sign in to each.
+  function windowStartUrl(agentId, own) {
+    const configured = localBridgeStartUrl();
+    if (configured || !own || !agentId) return configured;
+    return `${portalOrigin()}${window.location.pathname}#/assistants/${encodeURIComponent(agentId)}`;
+  }
+
+  // noBrowser asks a bridge started by the link for no window (browser=off):
+  // the page opens the assistant's own window itself right after, and the
+  // shared one must not open as well.
+  function launchUrl(port, { noBrowser = false } = {}) {
     const targetPort = port || localBridgeConfig().preferred_port || PORT_RANGE[0];
     let link = `efp-bridge://start?origin=${encodeURIComponent(portalOrigin())}&port=${encodeURIComponent(String(targetPort))}`;
     const startUrl = localBridgeStartUrl();
     if (startUrl) link += `&url=${encodeURIComponent(startUrl)}`;
+    if (noBrowser) link += "&browser=off";
     return link;
   }
 
-  function launchBridge(port) {
+  function launchBridge(port, options) {
     // A registered protocol handler opens the launcher without leaving the
     // page; an unregistered one is simply ignored by Chrome (after an optional
     // "no app found" dialog). Either way the caller polls /ping afterwards.
     const anchor = document.createElement("a");
-    anchor.href = launchUrl(port);
+    anchor.href = launchUrl(port, options);
     anchor.rel = "noopener";
     anchor.style.display = "none";
     document.body.appendChild(anchor);
@@ -343,43 +500,67 @@
     setTimeout(() => anchor.remove(), 0);
   }
 
-  async function waitForBridge(timeoutMs = 6000) {
+  // After the protocol link: the bridge is expected on `port`, so that port
+  // alone is asked every half second, with a full sweep every two seconds
+  // for a bridge that landed on the next port because that one was busy.
+  async function waitForBridge(timeoutMs = 6000, port = 0) {
     const startedAt = Date.now();
+    let looks = 0;
     while (Date.now() - startedAt < timeoutMs) {
-      const probe = await probeLocalBridge({ force: true });
-      if (probe.alive) return probe;
+      if (port && looks % 4 !== 3) {
+        const data = await pingPort(port);
+        if (data) {
+          const at = Date.now();
+          applyPing(port, data, at);
+          writeSharedProbe(port, data, at);
+          return probeView();
+        }
+      } else {
+        const probe = await probeLocalBridge({ force: true });
+        if (probe.alive) return probe;
+      }
+      looks += 1;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return probeLocalBridge({ force: true });
   }
 
-  // Makes the bridge reachable and its Chrome window open, in that order. The
-  // bridge outlives the window (closing Chrome leaves the bridge running),
-  // so a reachable bridge with a closed window is asked to reopen it through
+  // Makes the bridge reachable and the window the assistant drives open, in
+  // that order: the shared EFP window, or the assistant's own when the member
+  // picked one. The bridge outlives a window (closing Chrome leaves the
+  // bridge running), so a reachable bridge whose window is closed, or that
+  // has never opened this assistant's window, is asked for it through
   // session.ensure; the protocol link would only find the bridge already
-  // running and do nothing. Resolves to the final probe, with `error` set
-  // when the window could not be opened.
-  async function ensureBrowserSession({ port, launchTimeoutMs = 8000 } = {}) {
+  // running and do nothing. Resolves to the final probe, with `session`, its
+  // `sessionAlive`, and `error` set when the window could not be opened.
+  async function ensureBrowserSession({ port, launchTimeoutMs = 8000, agentId = "" } = {}) {
     // The launch link and the reopen carry the configured start page, which
     // arrives with the connector list.
     await loadConnectors();
+    const session = bridgeSessionName(agentId);
+    const own = session !== DEFAULT_SESSION;
     let probe = await probeLocalBridge({ force: true });
     if (!probe.alive) {
-      launchBridge(port);
-      probe = await waitForBridge(launchTimeoutMs);
-      if (!probe.alive) return { ...probe, error: { code: "bridge_unreachable" } };
+      const target = port || localBridgeConfig().preferred_port || PORT_RANGE[0];
+      launchBridge(target, { noBrowser: own });
+      probe = await waitForBridge(launchTimeoutMs, target);
+      if (!probe.alive) return { ...probe, session, sessionAlive: false, error: { code: "bridge_unreachable" } };
     }
-    if (probe.sessionAlive) return probe;
+    if (sessionAliveFor(session) === true) return { ...probe, session, sessionAlive: true };
     // A bridge that has just started is still launching Chrome itself; the
     // call queues behind that and returns once the window is up.
-    const startUrl = localBridgeStartUrl();
-    const outcome = await runLocalBridge("session.ensure", startUrl ? { url: startUrl } : {}, 60);
+    const startUrl = windowStartUrl(agentId, own);
+    const outcome = await runLocalBridge("session.ensure", startUrl ? { url: startUrl } : {}, 60, session);
     // Chrome lists a transient extra target for a moment after it starts; let
     // it settle so the tab count shown next to the status is the real one.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     probe = await probeLocalBridge({ force: true });
-    if (!outcome.ok) return { ...probe, error: outcome.error || { code: "session_not_running" } };
-    return probe;
+    // A bridge too old to list its sessions cannot say whether the own
+    // window is open; the command's own answer stands in.
+    const listed = sessionAliveFor(session);
+    const sessionAlive = listed === null ? outcome.ok : listed;
+    if (!outcome.ok) return { ...probe, session, sessionAlive, error: outcome.error || { code: "session_not_running" } };
+    return { ...probe, session, sessionAlive };
   }
 
   // ---- workspace files for page.upload and playbooks -------------------------
@@ -499,16 +680,18 @@
     async execute(request, context) {
       const action = String(request.action || "");
       const params = request.params && typeof request.params === "object" ? request.params : {};
+      const agentId = String((context && context.agentId) || currentAgentId() || "");
+      // The window this assistant drives: the shared EFP window, or its own.
+      const session = bridgeSessionName(agentId);
       if (action === "page.upload" || action === "workflow.run") {
-        const agentId = String((context && context.agentId) || currentAgentId() || "");
         if (!agentId && Array.isArray(params.files) && params.files.length) {
           return { ok: false, error: { code: "file_fetch_failed", message: "No assistant is selected on this page, so its workspace files cannot be read." } };
         }
         const staged = await stageRequestFiles(agentId, action, params);
         if (!staged.ok) return staged;
-        return runLocalBridge(action, staged.params, request.timeout_seconds);
+        return runLocalBridge(action, staged.params, request.timeout_seconds, session);
       }
-      return runLocalBridge(action, params, request.timeout_seconds);
+      return runLocalBridge(action, params, request.timeout_seconds, session);
     },
   };
 
@@ -601,23 +784,70 @@
     }
   }
 
+  // ---- browser window per assistant ----------------------------------------
+  //
+  // An assistant drives the shared EFP window (the bridge's default session)
+  // unless the member picks an own window for it in the popover under the
+  // composer's Browser pill: its commands then name the session
+  // agent-<assistant id>, which the bridge creates on the first command as a
+  // separate Chrome window and profile. Assistants with own windows work at
+  // the same time without touching each other's tabs; each window is signed
+  // in on its own. The choice is per assistant and per browser
+  // (localStorage), since the windows live on this computer.
+
+  function windowKey(agentId) {
+    return `${WINDOW_KEY_PREFIX}${agentId || "none"}`;
+  }
+
+  function windowChoice(agentId) {
+    if (!agentId) return WINDOW_SHARED;
+    try {
+      return localStorage.getItem(windowKey(agentId)) === WINDOW_OWN ? WINDOW_OWN : WINDOW_SHARED;
+    } catch (_error) {
+      return WINDOW_SHARED;
+    }
+  }
+
+  function setWindowChoice(agentId, choice) {
+    if (!agentId) return;
+    try {
+      if (choice === WINDOW_OWN) localStorage.setItem(windowKey(agentId), WINDOW_OWN);
+      else localStorage.removeItem(windowKey(agentId));
+    } catch (_error) {
+      /* storage unavailable */
+    }
+  }
+
+  // The bridge session an assistant's commands run in. A session name holds
+  // letters, digits, dot, underscore, and hyphen; an assistant id is a UUID,
+  // and anything else is made to fit.
+  function bridgeSessionName(agentId) {
+    if (!agentId || windowChoice(agentId) !== WINDOW_OWN) return DEFAULT_SESSION;
+    const safe = String(agentId).replace(/[^A-Za-z0-9_.-]/g, "-");
+    return `agent-${safe || "x"}`;
+  }
+
   function toggleElements() {
     const button = document.getElementById(TOGGLE_ID);
     const text = document.getElementById(TOGGLE_TEXT_ID);
-    return button ? { button, text } : null;
+    const wrap = document.getElementById(WRAP_ID);
+    const popover = document.getElementById(POPOVER_ID);
+    return button ? { button, text, wrap, popover } : null;
   }
 
   function applyToggleView(view) {
     const elements = toggleElements();
     if (!elements) return;
-    const { button, text } = elements;
-    button.classList.toggle("hidden", view.mode === "hidden");
+    const { button, text, wrap } = elements;
+    // The wrap holds the popover too, so hiding it hides both.
+    (wrap || button).classList.toggle("hidden", view.mode === "hidden");
     button.dataset.state = view.mode;
     button.setAttribute("aria-pressed", view.mode === "on" ? "true" : "false");
     button.classList.toggle("is-active", view.mode === "on");
     button.classList.toggle("is-muted", view.mode === "offline" || view.mode === "setup");
     button.title = view.title || "";
     if (text) text.textContent = view.label || t("Browser");
+    if (!popoverAllowed()) closeWindowPopover();
   }
 
   async function renderToggle({ probe = true } = {}) {
@@ -638,32 +868,78 @@
     }
     if (!toggleOn(agentId)) {
       applyToggleView({ mode: "off", label: t("Browser off"), title: t("The assistant will not use your local browser in this chat. Click to switch on.") });
+      renderWindowPopover(agentId);
       return;
     }
     const status = probe ? await probeLocalBridge() : { alive: state.localBridge.alive };
     if (!status.alive) {
       applyToggleView({ mode: "offline", label: t("Local bridge offline"), title: t("The local bridge is not running. Click to open the setup steps.") });
+      renderWindowPopover(agentId);
       scheduleOfflineRecheck();
       return;
     }
     window.clearTimeout(offlineRecheck);
-    applyToggleView({ mode: "on", label: t("Browser on"), title: t("The assistant can read and operate your EFP browser window in this chat. Click to switch off.") });
+    offlineRecheck = null;
+    resetOfflineBackoff();
+    const own = windowChoice(agentId) === WINDOW_OWN;
+    applyToggleView({
+      mode: "on",
+      label: t("Browser on"),
+      title: own
+        ? t("The assistant can read and operate its own EFP browser window in this chat. Click to switch off.")
+        : t("The assistant can read and operate your EFP browser window in this chat. Click to switch off."),
+    });
+    renderWindowPopover(agentId);
   }
 
+  // Schedules the next look for a bridge while the composer says offline;
+  // each look waits twice as long as the one before, up to the maximum. A
+  // look that comes due while the tab is hidden waits for the tab instead
+  // (onTabVisible). Returns the wait it scheduled.
   function scheduleOfflineRecheck() {
     window.clearTimeout(offlineRecheck);
+    const delay = offlineRecheckDelay;
+    offlineRecheckDelay = Math.min(offlineRecheckDelay * 2, OFFLINE_RECHECK_MAX_MS);
     offlineRecheck = window.setTimeout(() => {
+      offlineRecheck = null;
       if (document.visibilityState !== "visible") {
-        scheduleOfflineRecheck();
+        offlineRecheckPending = true;
         return;
       }
-      refreshToggle();
-    }, OFFLINE_RECHECK_MS);
+      recheckOffline();
+    }, delay);
+    return delay;
+  }
+
+  function resetOfflineBackoff() {
+    offlineRecheckDelay = OFFLINE_RECHECK_MS;
+  }
+
+  // A look while offline goes through the caches, so a tab that asked moments
+  // ago serves this one; renderToggle schedules the next look when the
+  // bridge is still missing.
+  async function recheckOffline() {
+    offlineRecheckPending = false;
+    await probeLocalBridge();
+    await renderToggle({ probe: false });
+  }
+
+  // The member is back at this tab: a bridge started meanwhile is wanted now,
+  // so a pending or long-scheduled look happens at once, at the short wait.
+  function onTabVisible() {
+    const elements = toggleElements();
+    if (!elements || elements.button.dataset.state !== "offline") return;
+    if (!offlineRecheckPending && !offlineRecheck) return;
+    window.clearTimeout(offlineRecheck);
+    offlineRecheck = null;
+    resetOfflineBackoff();
+    recheckOffline();
   }
 
   // Probe now and redraw: the Mobile testing panel calls this when it finds
   // or starts the bridge, so the composer does not keep saying offline.
   async function refreshToggle() {
+    resetOfflineBackoff();
     await probeLocalBridge({ force: true });
     await renderToggle({ probe: false });
   }
@@ -672,6 +948,7 @@
     const agentId = currentAgentId();
     const elements = toggleElements();
     if (!elements || !agentId) return;
+    resetOfflineBackoff();
     const mode = elements.button.dataset.state;
     if (mode === "setup") {
       window.location.hash = "#/connectors/local_bridge";
@@ -679,7 +956,7 @@
     }
     if (mode === "offline") {
       applyToggleView({ mode: "offline", label: t("Starting browser…"), title: t("Starting the local bridge and its Chrome window.") });
-      const probe = await ensureBrowserSession();
+      const probe = await ensureBrowserSession({ agentId });
       if (!probe.alive) window.location.hash = "#/connectors/local_bridge?step=2";
       await renderToggle({ probe: false });
       return;
@@ -690,6 +967,147 @@
       setToggle(agentId, true);
     }
     await renderToggle({ probe: true });
+  }
+
+  // ---- window popover (hover or focus on the Browser pill) -------------------
+
+  let popoverOpenTimer = null;
+  let popoverCloseTimer = null;
+
+  // The popover has something to say once the connector is set up: which
+  // window this assistant drives and whether that window is open.
+  function popoverAllowed() {
+    const elements = toggleElements();
+    if (!elements || !elements.popover) return false;
+    const mode = elements.button.dataset.state;
+    return mode === "on" || mode === "off" || mode === "offline";
+  }
+
+  function renderWindowPopover(agentId) {
+    const elements = toggleElements();
+    if (!elements || !elements.popover) return;
+    const { popover } = elements;
+    const choice = windowChoice(agentId);
+    popover.querySelectorAll('input[name="composer-browser-window"]').forEach((input) => {
+      input.checked = input.value === choice;
+    });
+    const lb = state.localBridge;
+    const session = bridgeSessionName(agentId);
+    const alive = sessionAliveFor(session);
+    let text;
+    let tone = "";
+    if (!lb.alive) {
+      text = t("Local bridge offline");
+    } else if (alive === true) {
+      const entry = lb.sessions[session];
+      text = tn(entry ? entry.tabCount : 0, "Window open ({n} tab)", "Window open ({n} tabs)");
+      tone = "ok";
+    } else if (alive === false) {
+      text = choice === WINDOW_OWN ? t("Window not open yet") : t("Window closed");
+    } else {
+      text = t("Update the bridge to see whether this window is open.");
+    }
+    const stateNode = popover.querySelector("[data-browser-window-state]");
+    if (stateNode) {
+      stateNode.textContent = text;
+      stateNode.dataset.tone = tone;
+    }
+    const openButton = popover.querySelector("[data-browser-window-open]");
+    if (openButton) openButton.classList.toggle("hidden", !lb.alive || alive === true);
+  }
+
+  function openWindowPopover() {
+    window.clearTimeout(popoverCloseTimer);
+    popoverCloseTimer = null;
+    const elements = toggleElements();
+    if (!popoverAllowed()) return;
+    renderWindowPopover(currentAgentId());
+    elements.popover.classList.remove("hidden");
+    elements.button.setAttribute("aria-expanded", "true");
+  }
+
+  function closeWindowPopover() {
+    window.clearTimeout(popoverOpenTimer);
+    popoverOpenTimer = null;
+    const elements = toggleElements();
+    if (!elements || !elements.popover) return;
+    elements.popover.classList.add("hidden");
+    elements.button.setAttribute("aria-expanded", "false");
+  }
+
+  function scheduleWindowPopoverOpen() {
+    window.clearTimeout(popoverCloseTimer);
+    window.clearTimeout(popoverOpenTimer);
+    popoverOpenTimer = window.setTimeout(openWindowPopover, POPOVER_OPEN_DELAY_MS);
+  }
+
+  function scheduleWindowPopoverClose() {
+    window.clearTimeout(popoverOpenTimer);
+    window.clearTimeout(popoverCloseTimer);
+    popoverCloseTimer = window.setTimeout(closeWindowPopover, POPOVER_CLOSE_DELAY_MS);
+  }
+
+  async function onWindowChoice(choice) {
+    const agentId = currentAgentId();
+    if (!agentId) return;
+    const own = choice === WINDOW_OWN;
+    setWindowChoice(agentId, own ? WINDOW_OWN : WINDOW_SHARED);
+    resetOfflineBackoff();
+    await renderToggle({ probe: false });
+    // An own window picked while the browser is on for this chat is opened
+    // now, so the member can sign in there before the assistant needs it.
+    if (own && toggleOn(agentId) && state.localBridge.alive && sessionAliveFor(bridgeSessionName(agentId)) !== true) {
+      await openAssistantWindow();
+    }
+  }
+
+  async function openAssistantWindow() {
+    const agentId = currentAgentId();
+    const elements = toggleElements();
+    if (!agentId || !elements || !elements.popover) return;
+    const stateNode = elements.popover.querySelector("[data-browser-window-state]");
+    if (stateNode) {
+      stateNode.textContent = t("Opening window…");
+      stateNode.dataset.tone = "";
+    }
+    const probe = await ensureBrowserSession({ agentId });
+    await renderToggle({ probe: false });
+    if (probe.error && stateNode) {
+      const error = probe.error;
+      stateNode.textContent = troubleshootFor(error) || String(error.message || error.code || t("The window could not be opened."));
+      stateNode.dataset.tone = "warn";
+    }
+  }
+
+  function bindWindowPopover() {
+    const elements = toggleElements();
+    if (!elements || !elements.wrap || !elements.popover || elements.wrap.dataset.popoverBound === "1") return;
+    const { wrap, popover, button } = elements;
+    wrap.dataset.popoverBound = "1";
+    wrap.addEventListener("mouseenter", scheduleWindowPopoverOpen);
+    wrap.addEventListener("mouseleave", scheduleWindowPopoverClose);
+    wrap.addEventListener("focusin", () => {
+      window.clearTimeout(popoverCloseTimer);
+      openWindowPopover();
+    });
+    wrap.addEventListener("focusout", (event) => {
+      if (!wrap.contains(event.relatedTarget)) scheduleWindowPopoverClose();
+    });
+    wrap.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      closeWindowPopover();
+      button.focus();
+    });
+    popover.addEventListener("change", (event) => {
+      const input = event.target.closest('input[name="composer-browser-window"]');
+      if (input) onWindowChoice(input.value);
+    });
+    popover.addEventListener("click", (event) => {
+      const open = event.target.closest("[data-browser-window-open]");
+      if (!open) return;
+      event.preventDefault();
+      openAssistantWindow();
+    });
   }
 
   function chatRequestConnectors(agentId) {
@@ -969,6 +1387,11 @@
 
   function bind() {
     register(localBridgeModule);
+    bindWindowPopover();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") onTabVisible();
+    });
+    window.addEventListener("focus", onTabVisible);
     document.addEventListener("portal:runtime-event", (browserEvent) => {
       const detail = browserEvent.detail || {};
       const type = String(detail.event?.type || "");
@@ -981,11 +1404,15 @@
       event.preventDefault();
       onToggleClick();
     });
-    document.addEventListener("portal:agent-selected", () => { renderToggle({ probe: true }); });
+    document.addEventListener("portal:agent-selected", () => {
+      resetOfflineBackoff();
+      renderToggle({ probe: true });
+    });
     document.addEventListener("portal:history-rendered", () => { renderToggle({ probe: false }); });
     document.addEventListener("portal:connectors-changed", (browserEvent) => {
       // Our own save already refreshed; only react to changes made elsewhere.
       if (browserEvent.detail && browserEvent.detail.type) return;
+      resetOfflineBackoff();
       loadConnectors({ force: true }).then(() => renderToggle({ probe: true }));
     });
     document.addEventListener("htmx:afterSwap", (event) => {
@@ -997,11 +1424,16 @@
       clientId,
       loadConnectors,
       probeLocalBridge,
+      pingBridge,
       runLocalBridge,
       stageRequestFiles,
       workspaceFileUrl,
       launchBridge,
       ensureBrowserSession,
+      windowChoice,
+      setWindowChoice,
+      bridgeSessionName,
+      sessionAliveFor,
       chatRequestConnectors,
       renderToggle,
       refreshToggle,

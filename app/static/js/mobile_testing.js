@@ -153,18 +153,29 @@
     if (!force && bridgeState.probedAt && Date.now() - bridgeState.probedAt < PROBE_CACHE_MS) return bridgeView();
     if (bridgeState.probing) return bridgeState.probing;
     bridgeState.probing = (async () => {
-      // All ports at once; the last known one wins when several answer.
-      const ports = bridgeState.port ? [bridgeState.port, ...PORTS.filter((port) => port !== bridgeState.port)] : PORTS;
-      const results = await Promise.all(ports.map(async (port) => ({ port, data: await ping(port) })));
-      const found = results.find((entry) => entry.data) || null;
       const wasAlive = Boolean(bridgeState.info);
+      let found = null;
+      const shared = window.portalConnectors && typeof window.portalConnectors.pingBridge === "function" ? window.portalConnectors.pingBridge : null;
+      if (shared) {
+        // The chat page's connectors client probes for both panels: one
+        // request while the bridge runs, an answer cached and shared across
+        // tabs, and the composer toggle redrawn by it.
+        const answer = await shared({ force });
+        found = answer && answer.data ? { port: answer.port, data: answer.data } : null;
+      } else {
+        // All ports at once; the last known one wins when several answer.
+        const ports = bridgeState.port ? [bridgeState.port, ...PORTS.filter((port) => port !== bridgeState.port)] : PORTS;
+        const results = await Promise.all(ports.map(async (port) => ({ port, data: await ping(port) })));
+        found = results.find((entry) => entry.data) || null;
+      }
       bridgeState.port = found ? found.port : 0;
       bridgeState.info = found ? found.data : null;
       bridgeState.probedAt = Date.now();
       bridgeState.probing = null;
-      // The chat composer's bridge toggle probes on its own schedule; a
-      // bridge that appeared or went away here is told to it at once.
-      if (Boolean(found) !== wasAlive && window.portalConnectors && typeof window.portalConnectors.refreshToggle === "function") window.portalConnectors.refreshToggle();
+      // Without the shared probe the chat composer's bridge toggle probes on
+      // its own schedule; a bridge that appeared or went away here is told
+      // to it at once.
+      if (!shared && Boolean(found) !== wasAlive && window.portalConnectors && typeof window.portalConnectors.refreshToggle === "function") window.portalConnectors.refreshToggle();
       return bridgeView();
     })();
     return bridgeState.probing;

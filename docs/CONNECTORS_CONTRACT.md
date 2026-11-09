@@ -18,6 +18,7 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 | connector_type | Stable string id, e.g. `local_bridge`, `jira`, `llm`. |
 | kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
+| session | The browser session on the member's computer a bridge command runs in: `default`, the shared EFP window, or `agent-<assistant id>` when the member gave that assistant an own window (the popover under the composer's Browser pill; kept per assistant in `localStorage`). The bridge creates a session it has not seen on its first command, as a separate Chrome window and profile. |
 | bridge | The page-side dispatcher plus the local program it talks to. For `local_bridge` (shown as **Local bridge**) the local program is `efp-bridge` from `engineering-flow-platform-tools` (its `docs/BRIDGE.md`): browser automation for the runtime's `browser` tool, and mobile recording, which the Mobile testing panel calls directly. |
 
 ## 1. Chat request (page → Portal)
@@ -188,12 +189,12 @@ when the id is unknown, already resolved, timed out, or the run was cancelled;
 
 ## 6. Local bridge HTTP API (`efp-bridge serve`, 127.0.0.1)
 
-Default port 8765; if busy the service tries 8766–8770. The page probes the member's configured `preferred_port` and the default 8765–8770 range, preferring the last working port when available.
+Default port 8765; if busy the service tries 8766–8770. The page asks the port that answered last (kept in `localStorage`, then the member's configured `preferred_port`) alone first and sweeps the rest of the 8765–8770 range together only when that one does not answer, so a running bridge costs one request per probe and no failed ones in the console. A probe's answer, empty included, is cached for 10 s and shared with the other tabs of this Portal through `localStorage`, so several open chats make one set of requests. While the composer shows the bridge as offline the page looks again after 15 s, then twice as long each time up to 120 s; the member switching the toggle, picking another assistant, or bringing the tab back to the front starts over at 15 s. After the protocol link the page asks the port the link named every half second, with a full sweep every fourth look.
 
 | Method | Path | Body / Response |
 |---|---|---|
 | OPTIONS | `*` | `204` with `Access-Control-Allow-Origin: <origin>`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, `Access-Control-Allow-Headers: Content-Type`, `Access-Control-Allow-Private-Network: true`, `Access-Control-Max-Age: 600`, `Vary: Origin` |
-| GET | `/ping` | `{ "ok": true, "data": { "version": "0.1.0", "protocol_version": 1, "capabilities": ["browser", "mobile", "browser_files", "workflow"], "browser": { "files": true, "workflow": true, "max_file_bytes": 104857600, "workflow_actions": [...] }, "session": { "name": "default", "alive": true, "debug_port": 57848, "tab_count": 3 } } }` |
+| GET | `/ping` | `{ "ok": true, "data": { "version": "0.1.0", "protocol_version": 1, "capabilities": ["browser", "mobile", "browser_files", "workflow", "sessions"], "browser": { "files": true, "workflow": true, "max_file_bytes": 104857600, "workflow_actions": [...] }, "session": { "name": "default", "alive": true, "debug_port": 57848, "tab_count": 3 }, "sessions": [{ "name": "default", "alive": true, "debug_port": 57848, "tab_count": 3 }, { "name": "agent-7f3a…", "alive": false, "debug_port": 57912, "tab_count": 0 }] } }`. `session` is the bridge's own session; `sessions` lists every browser session on that computer, the bridge's own first (a bridge without the `sessions` capability lists none, and the page then cannot say whether an assistant's own window is open) |
 | GET | `/commands` | `{ "ok": true, "data": { "commands": ["tab.list", "page.snapshot", …] } }` |
 | POST | `/run` | request `{ "command": "page.snapshot", "params": {…}, "session": "default", "timeout_seconds": 30 }` → the CLI JSON envelope `{ ok, data }` or `{ ok, error }`; HTTP status = `error.status` when present, else 200 |
 | POST | `/browser/files` | `multipart/form-data` with one part named `file` (its filename is the name the page will see) → `{ "ok": true, "data": { "file": { "id", "name", "bytes", "expires_at" } } }`; `413 payload_too_large` over `max_file_bytes`, `429 too_many_files` past 50 staged files. A staged file lives on the member's computer for 15 minutes after it was staged or last used and goes when the bridge stops |
@@ -223,11 +224,25 @@ Rules
 - A tab or page command that finds the window closed (`session_not_running`, or
   `session_not_found` after `browser session stop`) is retried once after the bridge reopens
   the window; `session.status` reports the closed window as is.
-- Requests for the same `session` are executed one at a time.
+- Requests for the same `session` are executed one at a time; requests for different sessions
+  run at the same time.
+- `session` names the browser session a command runs in. The page sends `default` (the shared
+  EFP window) for an assistant unless the member picked *Own window for this assistant* in the
+  popover under the composer's Browser pill; then every command of that assistant, `session.ensure`
+  included, names `agent-<assistant id>` (letters, digits, dot, underscore, and hyphen; anything
+  else in the id becomes a hyphen). The bridge creates a session it has not seen on its first
+  command: a separate Chrome window on a profile under `~/.efp/browser/profiles/<session>`,
+  signed in on its own. The choice is kept per assistant in this browser
+  (`localStorage` key `efp.connectors.local_bridge.window:<assistant id>`); it is not sent to the
+  Portal or the runtime, which know nothing about sessions. An own window opens on the first
+  browser action of a chat, or at once from the popover (and when the choice is made while the
+  browser is on for the chat); its first tab is the configured start page, or the Portal on that
+  assistant (`/app#/assistants/<id>`) when none is configured. Nothing closes such a window; the
+  member does, and the next command reopens it.
 - Screenshots come back as JPEG base64, longest side 1280.
 - The page carries `client_id` only to the Portal, never to the bridge.
 
-Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>]`
+Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>][&browser=off]`
 runs `efp-bridge launch "<url>"`, which starts `efp-bridge serve --origin … --port … --url …`
 if it is not already running and asks a running bridge whose window is closed to reopen it
 (registration: `efp-bridge register`; the link carries the origin, and `--origin` only stores the default of a manual serve). The bridge launches
@@ -235,7 +250,9 @@ Chrome directly on the start page, so the window opens with that single tab. The
 parameter is `LOCAL_BRIDGE_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
 must be absolute http(s) and is omitted when the setting is empty (the bridge then opens the
 origin). The page passes the same value as `session.ensure{url}` so a bridge started before
-the setting changed reopens on the current page.
+the setting changed reopens on the current page. The page adds `browser=off` when it starts the
+bridge for an assistant with an own window: the bridge then opens no shared window, and the
+page opens the assistant's own through `session.ensure` right after.
 
 ## 7. Portal Connectors API
 
