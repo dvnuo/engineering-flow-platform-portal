@@ -4695,16 +4695,30 @@ function keepAgentTimelineListPinned(listNode) {
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
-// After the answer lands, the Working list used to be thrown away. Its rows
-// (tools, reasoning, permissions, compactions) are what a reader opens to see
-// how the assistant got there, so they stay under the answer as one closed
-// disclosure. The snapshot taken at completion holds every row; the live list
-// is the fallback when the article completes before the snapshot exists.
+// After the answer lands, the Working list used to be thrown away. The steps
+// of the run (the tools it called, the permissions and questions it raised)
+// are what a reader opens to see how the assistant got there, so they stay
+// under the answer as one closed disclosure. Reasoning summaries, context
+// compactions and provider retries are how the answer was produced, not steps
+// the reader retraces: they show on the live Working list while the run is on
+// and leave nothing behind, so an answer that only thought ends clean, as it
+// does after a reload. The snapshot taken at completion holds every row; the
+// live list is the fallback when the article completes before the snapshot
+// exists.
+function isRunStepTimelineItem(item) {
+  const kind = String(item?.kind || "").toLowerCase();
+  return kind === "tool" || kind === "permission";
+}
+
+function isRunStepTimelineRow(row) {
+  return row.classList.contains("is-tool") || row.classList.contains("is-permission");
+}
+
 function runStepsDetailsHtml(timeline) {
   if (!timeline) return "";
   const complete = {
     ...timeline,
-    items: (timeline.items || []).filter((item) => item && !["text", "step"].includes(String(item.kind || "").toLowerCase())),
+    items: (timeline.items || []).filter(isRunStepTimelineItem),
     visibleItemCount: Number.MAX_SAFE_INTEGER,
   };
   const count = getAgentTimelineRenderableItems(complete).length;
@@ -4726,7 +4740,7 @@ function placeRunStepsDetails(article, html) {
 function collapseAgentTimelineIntoSteps(article, timelineEl) {
   const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
   const rows = listNode
-    ? Array.from(listNode.querySelectorAll(".agent-timeline-row")).filter((row) => !row.classList.contains("is-text"))
+    ? Array.from(listNode.querySelectorAll(".agent-timeline-row")).filter(isRunStepTimelineRow)
     : [];
   timelineEl.remove();
   if (!rows.length || article.querySelector("[data-run-steps]")) return;
