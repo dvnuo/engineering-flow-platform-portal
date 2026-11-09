@@ -3892,8 +3892,13 @@ function isAgentTimelinePacedItem(item) {
 
 function getAgentTimelineRenderableItems(timeline) {
   if (!timeline) return [];
+  // A step row would repeat the list head ("Working" / "Completed") and a text
+  // row would repeat the answer streaming above the list, so neither gets a row.
   return (timeline.items || [])
-    .filter((item) => item && String(item.kind || "").toLowerCase() !== "step")
+    .filter((item) => {
+      const kind = String(item?.kind || "").toLowerCase();
+      return Boolean(item) && kind !== "step" && kind !== "text";
+    })
     .slice(-24);
 }
 
@@ -4100,6 +4105,125 @@ function agentTimelineToolName(event) {
   return String(value || t("Tool"));
 }
 
+// A tool row reads as a short action in the member's language ("Read file",
+// "Run command") plus the one argument a reader cares about: the file, the
+// command, the query. Everything else about the call (its raw arguments, its
+// result) stays behind the row and shows on click. Names are matched after
+// lower-casing and dropping an MCP server prefix (mcp__server__tool). The
+// table is built on first use so the function carries it into a test bundle.
+function agentTimelineToolPresets() {
+  if (!agentTimelineToolPresets.cache) {
+    const files = ["file_path", "filePath", "path", "file", "filename", "target_file"];
+    agentTimelineToolPresets.cache = [
+      { match: /^(read|read_file|readfile|view|cat|open_file|get_file)$/, label: N_("Read file"), icon: "file-text", targetKeys: files },
+      { match: /^(write|write_file|writefile|create_file|save_file)$/, label: N_("Write file"), icon: "file-plus", targetKeys: files },
+      { match: /^(edit|edit_file|multiedit|multi_edit|str_replace|str_replace_editor|str_replace_based_edit_tool|patch|apply_patch|notebookedit|notebook_edit)$/, label: N_("Edit file"), icon: "file-pen", targetKeys: [...files, "notebook_path"] },
+      { match: /^(bash|sh|zsh|shell|powershell|pwsh|cmd|terminal|run|run_command|run_shell|execute|exec|execute_command|run_in_terminal)$/, label: N_("Run command"), icon: "terminal", targetKeys: ["command", "cmd", "script", "description"] },
+      { match: /^(grep|rg|ripgrep|search|code_search|codesearch|search_code|search_files|find_in_files|search_text)$/, label: N_("Search code"), icon: "search", targetKeys: ["pattern", "query", "regex", "text", "path"] },
+      { match: /^(glob|find|find_files|list|ls|list_dir|list_directory|list_files|tree|directory_tree)$/, label: N_("Find files"), icon: "folder-search", targetKeys: ["pattern", "glob", "path", "directory", "dir"] },
+      { match: /^(websearch|web_search|search_web|internet_search|google_search|bing_search)$/, label: N_("Search the web"), icon: "globe", targetKeys: ["query", "q", "search", "search_query"] },
+      { match: /^(webfetch|web_fetch|fetch|fetch_url|fetch_page|http|http_request|curl|browse|open_url|navigate|get_page|read_url)$/, label: N_("Open web page"), icon: "globe", targetKeys: ["url", "uri", "href", "link"] },
+      { match: /^(todowrite|todo_write|todo|todos|update_plan|plan|task_plan|write_todos)$/, label: N_("Update plan"), icon: "list-checks", targetKeys: [] },
+      { match: /^(task|agent|subagent|sub_agent|delegate|spawn_agent|run_agent|dispatch_agent)$/, label: N_("Delegate a sub-task"), icon: "users", targetKeys: ["description", "task", "prompt", "subagent_type"] },
+      { match: /^(skill|load_skill|use_skill|run_skill|invoke_skill|skill_load)$/, label: N_("Use skill"), icon: "sparkles", targetKeys: ["skill", "name", "skill_name", "skill_id"] },
+      { match: /^(question|ask|ask_user|askuserquestion|ask_user_question|request_user_input|interactive_input)$/, label: N_("Ask you a question"), icon: "circle-help", targetKeys: ["question", "prompt", "message", "title"] },
+    ];
+  }
+  return agentTimelineToolPresets.cache;
+}
+
+function agentTimelineToolKey(toolName) {
+  let name = String(toolName || "").trim();
+  if (!name) return "";
+  if (/^mcp__/i.test(name)) name = name.split("__").filter(Boolean).pop() || name;
+  return name.toLowerCase().replace(/[\s.-]+/g, "_");
+}
+
+// A tool the table does not know keeps its own name, spelled as words:
+// "mcp__jira__create_issue" reads "Create issue", "WebSearchPro" "Web Search Pro".
+function humanizeAgentTimelineToolName(toolName) {
+  let name = String(toolName || "").trim();
+  if (!name) return "";
+  if (/^mcp__/i.test(name)) name = name.split("__").filter(Boolean).pop() || name;
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
+}
+
+function agentTimelineInputObject(value) {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text.startsWith("{") && !text.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function agentTimelineToolTarget(inputValue, targetKeys = []) {
+  const input = agentTimelineInputObject(inputValue);
+  if (!input) {
+    // A bare string argument (a command, a query) is the target itself.
+    return typeof inputValue === "string" ? truncateAgentTimelineText(inputValue, 96) : "";
+  }
+  if (Array.isArray(input)) return "";
+  const fallbackKeys = ["file_path", "path", "file", "command", "query", "pattern", "url", "name", "title", "summary", "subject", "id", "description", "prompt", "text", "message"];
+  for (const key of [...targetKeys, ...fallbackKeys]) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return truncateAgentTimelineText(value, 96);
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+  }
+  for (const value of Object.values(input)) {
+    if (typeof value === "string" && value.trim() && value.length <= 160) return truncateAgentTimelineText(value, 96);
+  }
+  return "";
+}
+
+function agentTimelineToolPresentation(toolName, inputValue) {
+  const key = agentTimelineToolKey(toolName);
+  const preset = agentTimelineToolPresets().find((entry) => entry.match.test(key)) || null;
+  return {
+    title: preset ? tv(preset.label) : (humanizeAgentTimelineToolName(toolName) || t("Tool")),
+    target: agentTimelineToolTarget(inputValue, preset ? preset.targetKeys : []),
+    icon: preset ? preset.icon : "wrench",
+  };
+}
+
+// A progress event that carries only a state word ("running", from the
+// runtime's tool_call_start) says nothing the spinner does not, so it never
+// becomes a progress line.
+function isAgentTimelineBareStatus(text) {
+  const word = String(text || "").trim().toLowerCase().replace(/[.!…:]+$/, "");
+  if (!word) return true;
+  return [
+    "running", "run", "started", "start", "starting", "pending", "queued", "in_progress", "in-progress", "in progress",
+    "working", "processing", "ok", "success", "succeeded", "completed", "complete", "done", "finished", "failed", "error",
+  ].includes(word);
+}
+
+function formatAgentTimelineDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0) return "";
+  if (value < 10000) return `${(value / 1000).toFixed(1)}s`;
+  if (value < 60000) return `${Math.round(value / 1000)}s`;
+  const minutes = Math.floor(value / 60000);
+  const seconds = Math.round((value % 60000) / 1000);
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+// The raw arguments, for the target (a string or an object); the text form
+// for the details is agentTimelineInputText.
+function agentTimelineInputValue(event) {
+  const data = getAgentTimelineEventData(event);
+  return data.input ?? data.args ?? data.arguments ?? data.parameters ?? data.command ?? null;
+}
+
 function agentTimelineInputText(event) {
   const data = getAgentTimelineEventData(event);
   return normalizeAgentTimelineJsonText(
@@ -4259,15 +4383,15 @@ function reduceAgentTimelineReasoningEvent(timeline, event, type) {
   const item = upsertAgentTimelineItem(timeline, itemId, {
     kind: "reasoning",
     status,
-    title: t("Reasoning summary"),
+    title: t("Thinking"),
     icon: "brain",
     weak: true,
     createdAt: event.created_at,
   }, {
     kind: "reasoning",
     status,
-    title: data.title || t("Reasoning summary"),
-    icon: status === "completed" ? "check-circle-2" : "brain",
+    title: data.title || t("Thinking"),
+    icon: "brain",
     weak: true,
   });
   timeline.reasoningById[partId] = itemId;
@@ -4304,37 +4428,57 @@ function reduceAgentTimelineToolEvent(timeline, event, type) {
   }, {
     kind: "tool",
     status,
-    title: toolName,
-    icon: status === "completed" ? "check-circle-2" : (status === "failed" ? "x-circle" : "wrench"),
   });
+  // The name can come with any event of the call; the "Tool" fallback never
+  // overwrites a real one.
+  const namedTool = getAgentTimelineField(event, ["tool", "tool_name", "toolName", "name"]);
+  if (namedTool) item.toolName = String(namedTool);
+  else if (!item.toolName) item.toolName = toolName;
+  if (!item.startedAtMs) item.startedAtMs = Date.now();
+
   if (type === "session.next.tool.input.started") {
-    item.summary = truncateAgentTimelineText(data.message || t("Preparing tool input"));
+    const inputValue = agentTimelineInputValue(event);
+    if (inputValue != null && inputValue !== "") item.inputValue = inputValue;
     item.input = truncateAgentTimelineText(agentTimelineInputText(event) || item.input || "", 520);
   } else if (type === "session.next.tool.input.delta") {
     const delta = agentTimelineInputText(event);
     item.input = truncateAgentTimelineText(`${item.input || ""}${delta}`, 520);
-    item.summary = item.input || t("Preparing tool input");
-  } else if (type === "session.next.tool.input.ended") {
+    item.inputValue = item.input;
+  } else if (type === "session.next.tool.input.ended" || type === "session.next.tool.called" || type === "tool.started" || type === "tool_call") {
+    const inputValue = agentTimelineInputValue(event);
     const inputText = agentTimelineInputText(event);
+    if (inputValue != null && inputValue !== "") item.inputValue = inputValue;
     if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
-    item.summary = item.input || t("Tool input ready");
-  } else if (type === "session.next.tool.called" || type === "tool.started" || type === "tool_call") {
-    const inputText = agentTimelineInputText(event);
-    if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
-    item.summary = truncateAgentTimelineText(data.message || item.input || t("Running {tool}", { tool: toolName }));
   } else if (type === "session.next.tool.progress") {
-    const progress = normalizeAgentTimelineJsonText(data.progress ?? data.message ?? data.delta ?? data.status ?? "");
-    item.progress = truncateAgentTimelineText(`${item.progress ? `${item.progress} ` : ""}${progress}`, 520);
-    item.summary = item.progress || t("Running {tool}", { tool: toolName });
+    const progress = truncateAgentTimelineText(normalizeAgentTimelineJsonText(data.progress ?? data.message ?? data.delta ?? ""));
+    if (progress && !isAgentTimelineBareStatus(progress)) {
+      item.progress = truncateAgentTimelineText(`${item.progress ? `${item.progress} ` : ""}${progress}`, 520);
+    }
   } else if (status === "completed") {
     const outputText = agentTimelineOutputText(event);
     if (outputText) item.output = truncateAgentTimelineText(outputText, 520);
-    item.summary = truncateAgentTimelineText(data.message || item.output || t("{tool} completed", { tool: toolName }));
+    item.progress = "";
   } else if (status === "failed") {
     const errorText = agentTimelineOutputText(event);
     if (errorText) item.error = truncateAgentTimelineText(errorText, 520);
-    item.summary = truncateAgentTimelineText(data.error || data.detail || data.message || item.error || t("{tool} failed", { tool: toolName }));
+    item.progress = "";
   }
+  if ((status === "completed" || status === "failed") && !item.durationMs) {
+    const reported = Number(data.duration_ms ?? data.durationMs ?? data.elapsed_ms);
+    item.durationMs = Number.isFinite(reported) && reported >= 0 ? reported : Math.max(0, Date.now() - item.startedAtMs);
+  }
+
+  // Recomputed on every event of the call: the arguments may land after the
+  // name, and the icon follows the state.
+  const presentation = agentTimelineToolPresentation(item.toolName, item.inputValue ?? item.input);
+  item.title = presentation.title;
+  item.target = presentation.target;
+  item.icon = status === "completed" ? "check-circle-2" : (status === "failed" ? "x-circle" : presentation.icon);
+  // The line under the row: why the call failed, or what it reports while it
+  // runs. A finished call says nothing more; its result is behind the row.
+  item.summary = status === "failed"
+    ? truncateAgentTimelineText(data.error || data.detail || item.error || t("{tool} failed", { tool: item.title }))
+    : (status === "running" ? (item.progress || "") : "");
   return true;
 }
 
@@ -4534,17 +4678,36 @@ function agentTimelineMatchesRequest(timeline, requestCtx = {}) {
 }
 
 function renderAgentTimelineItemDetail(item) {
-  const details = [
-    item.input ? [t("Input"), item.input] : null,
-    item.progress ? [t("Progress"), item.progress] : null,
-    item.output ? [t("Output"), item.output] : null,
-    item.error ? [t("Error"), item.error] : null,
-    item.detail && item.detail !== item.summary ? [t("Detail"), item.detail] : null,
-  ].filter(Boolean);
+  const kind = String(item.kind || "").toLowerCase();
+  const details = kind === "reasoning"
+    ? (item.detail && item.detail.length > 72 ? [[t("Thinking"), item.detail]] : [])
+    : [
+      item.input ? [t("Input"), item.input] : null,
+      item.output ? [t("Output"), item.output] : null,
+      item.error ? [t("Error"), item.error] : null,
+      item.detail && item.detail !== item.summary ? [t("Detail"), item.detail] : null,
+    ].filter(Boolean);
   if (!details.length) return "";
-  return details.map(([label, value]) => `<div class="agent-timeline-detail"><span>${safe(label)}</span><code>${safe(truncateAgentTimelineText(value, 260))}</code></div>`).join("");
+  return `<div class="agent-timeline-body">${details.map(([label, value]) => `<div class="agent-timeline-detail"><span>${safe(label)}</span><pre>${safe(truncateAgentTimelineText(value, 520))}</pre></div>`).join("")}</div>`;
 }
 
+function agentTimelineStatusText(status) {
+  // The status is a runtime identifier (the row's class); the reader gets it
+  // in the member's language, as the icon's tooltip.
+  return status === "running" ? t("running")
+    : status === "completed" ? t("completed")
+      : status === "failed" ? t("failed")
+        : status === "cancelled" ? t("stopped")
+          : status === "pending" ? t("pending")
+            : status;
+}
+
+// One row per item, one line each: a tool is its action, its target and, once
+// done, how long it took; a thought is its own words; anything else keeps its
+// title. The row's state is the icon (a spinner, a check, a cross), not a chip.
+// A row with something behind it (the arguments and result of a tool, a long
+// thought) is a <details> that opens on click; its open state lives on the
+// item, since the list is rebuilt from state while the run streams.
 function renderAgentTimelineRowsHtml(timeline) {
   if (!timeline) return "";
   const visibleItems = getAgentTimelineVisibleItems(timeline);
@@ -4552,19 +4715,33 @@ function renderAgentTimelineRowsHtml(timeline) {
   return visibleItems.map((item) => {
     const status = String(item.status || "running").toLowerCase();
     const kind = String(item.kind || "event").toLowerCase();
-    const icon = item.icon || (kind === "tool" ? "wrench" : "activity");
-    const title = item.title || t("Runtime event");
-    const summary = item.summary || item.detail || "";
+    const isTool = kind === "tool";
+    const isReasoning = kind === "reasoning";
+    const title = isReasoning
+      ? (item.detail || item.summary || t("Thinking"))
+      : (item.title || t("Runtime event"));
+    const target = isTool ? String(item.target || "") : "";
+    const spinning = isTool && (status === "running" || status === "pending");
+    const iconHtml = spinning
+      ? '<span class="portal-running-spinner" aria-hidden="true"></span>'
+      : `<i data-lucide="${safe(item.icon || (isTool ? "wrench" : "activity"))}"></i>`;
+    const timeText = isTool && !spinning ? formatAgentTimelineDuration(item.durationMs) : "";
+    // Under the head: why a tool failed, its progress words while it runs, or
+    // the summary of another kind of row (what a permission asks).
+    const note = isTool
+      ? (status === "failed"
+        ? (item.summary || item.error || "")
+        : (spinning ? (item.progress || item.summary || "") : (timeText ? "" : (item.summary || ""))))
+      : (isReasoning ? "" : (item.summary || item.detail || ""));
+    const noteHtml = note ? `<div class="agent-timeline-note${status === "failed" ? " is-error" : ""}">${safe(truncateAgentTimelineText(note, 280))}</div>` : "";
     const detail = renderAgentTimelineItemDetail(item);
-    // The status is a runtime identifier (the row's class); the chip reads it
-    // in the member's language.
-    const statusText = status === "running" ? t("running")
-      : status === "completed" ? t("completed")
-        : status === "failed" ? t("failed")
-          : status === "cancelled" ? t("stopped")
-            : status === "pending" ? t("pending")
-              : status;
-    return `<div class="agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}"><span class="agent-timeline-icon"><i data-lucide="${safe(icon)}"></i></span><div class="agent-timeline-row-main"><div class="agent-timeline-row-head"><span class="agent-timeline-title">${safe(title)}</span><span class="agent-timeline-chip is-${safe(status)}">${safe(statusText)}</span></div>${summary ? `<div class="agent-timeline-summary">${safe(truncateAgentTimelineText(summary, 280))}</div>` : ""}${detail}</div></div>`;
+    const classes = `agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}`;
+    const head = `<span class="agent-timeline-icon" title="${escapeHtml(agentTimelineStatusText(status))}">${iconHtml}</span><span class="agent-timeline-title">${safe(title)}</span>${target ? `<span class="agent-timeline-target">${safe(target)}</span>` : ""}${timeText ? `<span class="agent-timeline-time">${safe(timeText)}</span>` : ""}`;
+    if (!detail) {
+      return `<div class="${classes}"><div class="agent-timeline-row-head">${head}</div>${noteHtml}</div>`;
+    }
+    // The note sits inside the summary: a closed <details> shows nothing else.
+    return `<details class="${classes}" data-timeline-item="${escapeHtml(item.id)}"${item.expanded ? " open" : ""}><summary class="agent-timeline-row-summary"><div class="agent-timeline-row-head">${head}<span class="agent-timeline-chevron" aria-hidden="true"></span></div>${noteHtml}</summary>${detail}</details>`;
   }).join("");
 }
 
@@ -4669,6 +4846,7 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
     const rows = renderAgentTimelineRowsHtml(timeline);
     listNode.innerHTML = rows || `<div class="agent-timeline-empty">${t("Waiting for runtime events...")}</div>`;
     keepAgentTimelineListPinned(listNode);
+    wireAgentTimelineRowToggle(listNode, () => chatState.inflightAgentTimeline);
   }
   // Only the timeline's own icons changed; an unscoped pass re-creates every
   // icon in the document (a few hundred on a long conversation).
@@ -4692,6 +4870,20 @@ function keepAgentTimelineListPinned(listNode) {
     }, { passive: true });
   }
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
+}
+
+// A row opened by the reader stays open: the rows are rebuilt from state every
+// 50 ms while the run streams, so the <details> element's own state would be
+// lost at the next rebuild. toggle does not bubble; the capture phase sees it.
+function wireAgentTimelineRowToggle(listNode, getTimeline) {
+  if (!listNode || listNode.dataset.toggleWired) return;
+  listNode.dataset.toggleWired = "1";
+  listNode.addEventListener("toggle", (event) => {
+    const row = event.target;
+    if (!row || row.tagName !== "DETAILS" || !row.dataset.timelineItem) return;
+    const item = findAgentTimelineItem(getTimeline ? getTimeline() : null, row.dataset.timelineItem);
+    if (item) item.expanded = Boolean(row.open);
+  }, true);
 }
 
 // When the answer lands, the Working list goes with it: it is a progress view
