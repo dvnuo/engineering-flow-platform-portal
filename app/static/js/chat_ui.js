@@ -856,7 +856,6 @@ function createDefaultChatState() {
     pendingFiles: [],
     inflightEventStream: null,
     inflightAgentTimeline: null,
-    lastAgentTimelineSnapshot: null,
     lastEventStreamSnapshot: null,
     draftText: "",
     needsReload: false,
@@ -4695,41 +4694,25 @@ function keepAgentTimelineListPinned(listNode) {
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
-// When the answer lands, the Working list goes with it. It is a progress view
-// for the run in flight; a finished answer shows the answer alone, the same
-// as it does after a reload (history carries no step rows). A folded
-// "N steps" disclosure under the answer was tried (portal#512) and removed
-// again at the member's request: it made a plain answer look unfinished.
+// When the answer lands, the Working list goes with it: it is a progress view
+// for the run in flight, and nothing of the run's events outlives the answer.
+// The transcript is rebuilt from stored messages, which renderChatHistory
+// draws without step rows, so the live answer and the reloaded answer match.
+// (portal#512 folded the list into an "N steps" disclosure under the answer;
+// portal#520 removed it at the product owner's request.)
 function clearAssistantTimelineFromArticle(article) {
   if (!article) return;
   article.querySelector("[data-agent-timeline='1']")?.remove();
   article.querySelector(".assistant-waiting-indicator")?.remove();
 }
 
-function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {}) {
-  if (!chatState?.inflightAgentTimeline) return;
-  const timeline = chatState.inflightAgentTimeline;
-  if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
-  const finalText = String(finalPayload?.response || "");
-  if (finalText) timeline.assistantText = finalText;
-  timeline.completed = true;
-  const finalCompletionState = String(finalPayload?.completion_state || "").toLowerCase();
-  timeline.status = finalCompletionState === "failed"
-    ? "failed"
-    : finalCompletionState === "cancelled" ? "cancelled" : "completed";
-  timeline.completedAt = Date.now();
-  clearAgentTimelineRevealTimer(timeline);
-  advanceAgentTimelineReveal(timeline, Infinity);
-  chatState.lastAgentTimelineSnapshot = {
-    ...timeline,
-    eventsById: { ...(timeline.eventsById || {}) },
-    toolsByCallId: { ...(timeline.toolsByCallId || {}) },
-    reasoningById: { ...(timeline.reasoningById || {}) },
-    textById: { ...(timeline.textById || {}) },
-    items: (timeline.items || []).map((item) => ({ ...item })),
-  };
-  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
-  else chatState.inflightAgentTimeline = null;
+// The run is over: drop the in-flight timeline state (its reveal timer with
+// it) so the next run starts clean. Nothing of it is kept. The snapshot this
+// used to copy here was read only by the removed steps disclosure.
+function finalizeAgentTimelineState(chatState, requestCtx = {}) {
+  const timeline = chatState?.inflightAgentTimeline;
+  if (!timeline || !agentTimelineMatchesRequest(timeline, requestCtx)) return;
+  dropInflightAgentTimelineState(chatState);
 }
 
 function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, text = "") {
@@ -9974,7 +9957,7 @@ function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
     completedAt: Date.now(),
   };
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   chatState.inflightEventStream = null;
   if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
@@ -11449,7 +11432,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   };
   chatState.lastEventStreamSnapshot = finalStreamSnapshot;
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, payload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   chatState.currentRequest = null;
   chatState.inflightEventStream = null;
@@ -19131,7 +19114,7 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
     chatState.inflightEventStream = null;
   }
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   if (chatState.currentRequest?.clientRequestId === requestId) chatState.currentRequest = null;
   setChatSubmittingForAgent(agentId, false);

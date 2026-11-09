@@ -1465,7 +1465,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .message-file-group-names { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-muted); font-size: 12px; }
 .message-file-group-body { display: grid; gap: 6px; padding: 0 8px 8px; }
 .message-file-group-body .message-block { margin: 0; }
-
 .message-file-group-summary .message-file-download-all { flex: 0 0 auto; font-size: 12px; padding: 4px 10px; text-decoration: none; }
 @media (max-width: 640px) {
   .message-file-card { flex-wrap: wrap; }
