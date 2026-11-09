@@ -1027,9 +1027,6 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 .assistant-stopped-note .assistant-stopped-resend:hover { opacity: .85; }
 #abort-chat-run-btn.is-busy { opacity: 0.7; cursor: progress; }
 
-/* The timeline of a stopped run: closed, neither green nor red. */
-.agent-timeline-chip.is-cancelled { border-color: var(--portal-border); color: var(--portal-text-secondary); }
-.agent-timeline-row.is-cancelled .agent-timeline-icon { color: var(--portal-text-secondary); }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
 .message-surface { padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }
@@ -1394,26 +1391,37 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
    of stretching the pending bubble; chat_ui.js keeps it pinned to the newest row. */
 .agent-timeline-list { display: grid; gap: 0; min-width: 0; align-content: start; max-height: 264px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 4px; }
 .agent-timeline-empty { color: var(--portal-text-muted); font-size: 12px; padding: 4px 0; }
-.agent-timeline-row { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 8px; align-items: start; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--portal-border), transparent 35%); min-width: 0; }
+/* One row per step, one line each: icon (the state), action, target, time.
+   What is behind a row (a tool's arguments and result) opens on click. */
+.agent-timeline-row { display: block; padding: 5px 0; border-top: 1px solid color-mix(in srgb, var(--portal-border), transparent 35%); min-width: 0; }
 .agent-timeline-row:first-child { border-top: 0; }
 .agent-timeline-row.is-weak { opacity: .78; }
-.agent-timeline-icon { color: var(--portal-text-muted); display: inline-flex; align-items: center; justify-content: center; padding-top: 2px; }
+.agent-timeline-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 20px; }
+.agent-timeline-row-summary { display: block; list-style: none; cursor: pointer; min-width: 0; }
+.agent-timeline-row-summary::-webkit-details-marker { display: none; }
+.agent-timeline-row-summary:hover .agent-timeline-title { color: var(--portal-accent); }
+.agent-timeline-icon { flex: 0 0 18px; width: 18px; height: 18px; color: var(--portal-text-muted); display: inline-flex; align-items: center; justify-content: center; }
 .agent-timeline-icon svg { width: 15px; height: 15px; }
-.agent-timeline-row-main { display: grid; gap: 3px; min-width: 0; }
-.agent-timeline-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.agent-timeline-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text); font-size: 13px; font-weight: 650; }
-.agent-timeline-summary { color: var(--portal-text-secondary); font-size: 12px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-timeline-detail { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 8px; color: var(--portal-text-muted); font-size: 11px; line-height: 1.35; min-width: 0; }
-.agent-timeline-detail code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: var(--portal-text-secondary); background: transparent; border: 0; padding: 0; }
-.agent-timeline-chip { flex: 0 0 auto; border-radius: 999px; border: 1px solid var(--portal-border); color: var(--portal-text-muted); background: var(--portal-surface-soft); padding: 2px 6px; font-size: 10px; line-height: 1; text-transform: capitalize; }
-.agent-timeline-chip.is-running,
-.agent-timeline-chip.is-pending { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
-.agent-timeline-chip.is-completed { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
-.agent-timeline-chip.is-failed { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
+.agent-timeline-icon .portal-running-spinner { width: 12px; height: 12px; border-radius: 999px; border: 2px solid color-mix(in srgb, var(--portal-accent), transparent 70%); border-top-color: var(--portal-accent); animation: portal-spin 900ms linear infinite; }
+.agent-timeline-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text); font-size: 13px; font-weight: 600; }
+.agent-timeline-row.is-reasoning .agent-timeline-title { flex: 1 1 auto; font-weight: 500; color: var(--portal-text-secondary); }
+.agent-timeline-target { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-secondary); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.agent-timeline-time { flex: 0 0 auto; margin-left: auto; color: var(--portal-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.agent-timeline-chevron { flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 2px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; color: var(--portal-text-muted); opacity: .8; transform: translateY(-2px) rotate(45deg); transition: transform .18s ease; }
+details.agent-timeline-row[open] > summary .agent-timeline-chevron { transform: translateY(2px) rotate(225deg); }
+.agent-timeline-note { margin: 2px 0 0 26px; color: var(--portal-text-secondary); font-size: 12px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-timeline-note.is-error { color: var(--portal-danger); white-space: normal; overflow-wrap: anywhere; }
+.agent-timeline-body { margin: 4px 0 2px 26px; display: grid; gap: 4px; min-width: 0; }
+.agent-timeline-detail { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 8px; align-items: start; color: var(--portal-text-muted); font-size: 11px; line-height: 1.4; min-width: 0; }
+.agent-timeline-detail span { padding-top: 5px; }
+.agent-timeline-detail pre { margin: 0; min-width: 0; max-height: 132px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; line-height: 1.45; color: var(--portal-text-secondary); background: var(--portal-surface-soft); border: 1px solid color-mix(in srgb, var(--portal-border), transparent 35%); border-radius: 6px; padding: 4px 7px; }
 .agent-timeline-row.is-tool .agent-timeline-icon { color: var(--portal-accent); }
+.agent-timeline-row.is-tool.is-completed .agent-timeline-icon { color: var(--portal-success); }
 .agent-timeline-row.is-compaction .agent-timeline-icon { color: var(--portal-warning); }
 .agent-timeline-row.is-permission .agent-timeline-icon { color: var(--portal-warning); }
 .agent-timeline-row.is-failed .agent-timeline-icon { color: var(--portal-danger); }
+/* The timeline of a stopped run: closed, neither green nor red. */
+.agent-timeline-row.is-cancelled .agent-timeline-icon { color: var(--portal-text-secondary); }
 
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .message-attachment-thumb { max-width: 128px; max-height: 128px; border-radius: 10px; border: 1px solid var(--portal-border); cursor: pointer; }
