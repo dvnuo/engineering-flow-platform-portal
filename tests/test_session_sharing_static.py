@@ -154,6 +154,8 @@ def test_an_answered_question_reads_like_the_chat():
     assert "share-answer-pairs" not in js + css
     assert ".share-asked-body {" in css
     assert "border-left: 2px solid var(--share-accent)" in css.split(".share-asked-body {", 1)[1].split("}", 1)[0]
+    # The dark theme's light text must not print white on white.
+    assert ".share-asked-body { color: #111111; }" in css.split("@media print", 1)[1]
 
 
 def test_login_scripts_only_return_to_a_share_path():

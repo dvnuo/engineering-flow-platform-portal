@@ -255,7 +255,7 @@ body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased;
   .share-topbar, .share-toolbar, .share-aside, .share-footer { display: none !important; }
   .share-shell { display: block; padding: 0; }
   .share-column { max-width: none; }
-  .share-msg-body.message-markdown, .share-title { color: #111111; }
+  .share-msg-body.message-markdown, .share-title, .share-asked-body { color: #111111; }
   .share-bubble { background: #f3f4f6; border-color: #d1d5db; color: #111111; break-inside: avoid; }
   .share-tool-result[open] > summary { font-weight: 600; }
   details.share-tool-result { display: block; }
