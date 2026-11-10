@@ -367,6 +367,9 @@ def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
 
 def test_task_detail_panel_hides_another_members_private_task(monkeypatch):
     """A private task of someone else is 404 on the panel and the result download; a public one opens read-only."""
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     task = _agent_async_task("done")
     task.owner_user_id = 99
     task.visibility = "private"

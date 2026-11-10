@@ -76,6 +76,34 @@ def redact_seed_for_display(seed: dict) -> dict:
     return redact_value(masked)
 
 
+def strip_secret_values(seed: dict) -> dict:
+    """The seed with every credential emptied.
+
+    What a group's Default connectors panel shows of the platform's for the
+    connectors the group follows: the shape (sites, keys, regions) without
+    the platform's shared accounts, so neither a group administrator nor a
+    "Set for this group" that starts from those values ever carries them.
+    """
+
+    if not isinstance(seed, dict):
+        return {}
+    stripped = copy.deepcopy(seed)
+    _walk_strip(stripped)
+    return stripped
+
+
+def _walk_strip(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, child in list(value.items()):
+            if key in SENSITIVE_FIELD_NAMES and isinstance(child, str):
+                value[key] = ""
+                continue
+            _walk_strip(child)
+    elif isinstance(value, list):
+        for child in value:
+            _walk_strip(child)
+
+
 def _walk_mask(value: Any) -> None:
     if isinstance(value, dict):
         # An empty credential is dropped rather than masked. redact_value masks

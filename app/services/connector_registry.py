@@ -128,6 +128,10 @@ class ConnectorSpec:
     # row. Empty means the connector is always the member's own: the model
     # provider (a personal authorization), and no local connector.
     managed_sections: tuple[str, ...] = ()
+    # KIND_SETTINGS only: the connector always follows the platform's Default
+    # connectors. A group cannot set it for its members and a member cannot
+    # customize it: the proxy, which every assistant's traffic goes through.
+    platform_only: bool = False
     # Config keys Portal keeps for the member's own pages and the Mobile
     # testing panel, never handed to a runtime with the connector: the Local
     # bridge's proxy to BrowserStack carries a login.
@@ -320,6 +324,7 @@ def _settings_connector(
     extra_guidance_keys: tuple[str, ...] = (),
     panel_extra_template: str = "",
     managed_sections: tuple[str, ...] | None = None,
+    platform_only: bool = False,
 ) -> ConnectorSpec:
     # By default the mode governs every section the connector owns.
     sections = config_sections or (type,)
@@ -339,6 +344,7 @@ def _settings_connector(
         state_of=state_of,
         panel_extra_template=panel_extra_template,
         managed_sections=sections if managed_sections is None else managed_sections,
+        platform_only=platform_only,
     )
 
 
@@ -449,6 +455,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         icon="network",
         state_of=_proxy_state,
         test_targets=("proxy",),
+        platform_only=True,
     ),
 )
 

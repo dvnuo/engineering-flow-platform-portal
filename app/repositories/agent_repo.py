@@ -21,10 +21,19 @@ class AgentRepository:
             self.db.scalars(select(Agent).where(Agent.owner_user_id == owner_user_id).order_by(Agent.created_at.desc())).all()
         )
 
-    def list_public(self) -> list[Agent]:
-        return list(
-            self.db.scalars(select(Agent).where(Agent.visibility == "public").order_by(Agent.created_at.desc())).all()
-        )
+    def list_public(self, user=None) -> list[Agent]:
+        """The shared assistants ``user`` may use: their group's public ones and the platform's.
+
+        Without a user, every shared assistant (system work that sees all).
+        """
+        from app.services.work_visibility import SHARED_VISIBILITIES, visibility_clause
+
+        stmt = select(Agent).where(Agent.visibility.in_(SHARED_VISIBILITIES))
+        if user is not None:
+            visible = visibility_clause(Agent, user)
+            if visible is not None:
+                stmt = stmt.where(visible)
+        return list(self.db.scalars(stmt.order_by(Agent.created_at.desc())).all())
 
     def list_all(self) -> list[Agent]:
         return list(self.db.scalars(select(Agent).order_by(Agent.created_at.desc())).all())

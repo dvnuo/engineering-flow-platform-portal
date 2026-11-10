@@ -47,7 +47,7 @@
           <input type="radio" name="task-visibility-{{ task.id }}" value="private" data-task-visibility-option {% if task_view_model.visibility != 'public' %}checked{% endif %} />
           <span>{{ t("Private") }}</span>
         </label>
-        <label class="portal-role-option" title="{{ t('Every member of the Portal') }}">
+        <label class="portal-role-option" title="{{ t('Every member of your group') }}">
           <input type="radio" name="task-visibility-{{ task.id }}" value="public" data-task-visibility-option {% if task_view_model.visibility == 'public' %}checked{% endif %} />
           <span>{{ t("Public") }}</span>
         </label>

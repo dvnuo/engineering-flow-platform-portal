@@ -14,6 +14,7 @@ from app.schemas.admin import AuditLogResponse
 from app.schemas.agent import AgentResponse
 from app.services.connector_defaults_service import changed_connector_types
 from app.services.connector_defaults_sync import sync_followers
+from app.services.group_service import GroupService
 from app.services.runtime_profile_references import seed_config_error
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
@@ -98,12 +99,14 @@ def put_runtime_profile_seed(
         details={"sections": sorted(saved.keys()), "changed_connectors": changed},
     )
     if changed:
+        # A group that sets a changed connector itself keeps its own.
         background_tasks.add_task(
             sync_followers,
             changed,
             secret_service=runtime_profile_secret_service,
             triggered_by_user_id=admin.id,
             session_factory=SessionLocal,
+            changed_by_group=GroupService(db).changes_by_group(old_seed, saved),
         )
     return {"seed": saved, "summary": service.seed_summary(), "changed_connectors": changed}
 

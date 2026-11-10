@@ -198,67 +198,37 @@ def _cards_form(**extra) -> FormData:
     return _form(pairs)
 
 
-def test_member_save_stores_cards_default_and_assignments(monkeypatch):
-    env = _build_env(monkeypatch)
-    try:
-        rp = _bind_profile(env.db, env.agent, {"proxy": {"enabled": True, "url": "http://old.example.test:1"}})
-        resp = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form().multi_items()))
-        assert resp.status_code == 200, resp.text
-        assert "Saved." in resp.text
-        saved = _saved(env.db, rp)["proxy"]
-        assert saved["proxies"] == [
-            {"name": "corp-a", "url": "http://proxy-a.example.test:3128", "username": "ua", "password": "pa", "no_proxy": "localhost"},
-            {"name": "corp-b", "url": "http://proxy-b.example.test:3128"},
-        ]
-        assert saved["default"] == "corp-b"
-        # aws is default-only: its posted choice is ignored; jira "" is the default.
-        assert saved["assignments"] == {"llm": "corp-a", "pgsql": "none"}
-        assert "url" not in saved
-    finally:
-        env.cleanup()
-
-
-def test_member_save_refuses_a_card_it_could_not_keep(monkeypatch):
+def test_a_member_cannot_save_a_proxy_of_their_own(monkeypatch):
+    # The proxy is the platform's for everyone (ConnectorSpec.platform_only):
+    # a member's save, cards or the single URL of older pages, changes nothing.
     env = _build_env(monkeypatch)
     try:
         rp = _bind_profile(env.db, env.agent, {"proxy": list_section()})
-        bad_url = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_instances_1_url="socks5://x:1").multi_items()))
-        assert bad_url.status_code == 200
-        assert "Proxy corp-b needs an http:// or https:// URL" in bad_url.text
-        no_name = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_instances_1_name="").multi_items()))
-        assert "Proxy 2 needs a name" in no_name.text
-        bad_name = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_instances_1_name="corp b").multi_items()))
-        assert "may use letters, digits, - and _ only" in bad_name.text
-        duplicate = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_instances_1_name="corp-a").multi_items()))
-        assert "listed more than once" in duplicate.text
-        ghost = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_assign_llm="ghost").multi_items()))
-        assert "Model provider is set to use the proxy ghost" in ghost.text
-        ghost_default = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_default="ghost").multi_items()))
-        assert "The default proxy ghost is not among the proxies above." in ghost_default.text
-        # Nothing of that was stored.
-        assert _saved(env.db, rp)["proxy"]["default"] == "corp-a"
+        before = _saved(env.db, rp)
+        cards = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form().multi_items()))
+        assert cards.status_code == 200
+        assert "Proxy is set by the platform for everyone." in cards.text
+        single = env.client.post(
+            "/app/connectors/proxy/save",
+            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://new.example.test:2"},
+        )
+        assert "Proxy is set by the platform for everyone." in single.text
+        assert _saved(env.db, rp) == before and rp.revision == 1
+        assert env.calls["apply"] == 0
     finally:
         env.cleanup()
 
 
-def test_member_save_keeps_a_password_the_card_did_not_post(monkeypatch):
+def test_member_panel_renders_the_platforms_cards_default_and_the_table(monkeypatch):
+    from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+
     env = _build_env(monkeypatch)
     try:
-        rp = _bind_profile(env.db, env.agent, {"proxy": list_section()})
-        form = _cards_form(proxy_instances_0_original_name="corp-a")
-        pairs = [(key, value) for key, value in form.multi_items() if key != "proxy_instances_0_password"]
-        resp = env.client.post("/app/connectors/proxy/save", data=pairs)
-        assert resp.status_code == 200
-        assert _saved(env.db, rp)["proxy"]["proxies"][0]["password"] == "pa"
-    finally:
-        env.cleanup()
-
-
-def test_member_panel_renders_cards_default_and_the_table(monkeypatch):
-    env = _build_env(monkeypatch)
-    try:
-        _bind_profile(env.db, env.agent, {"proxy": list_section()})
+        RuntimeProfileSeedService(env.db).save_seed({"proxy": list_section()})
+        _bind_profile(env.db, env.agent, {})
         html = env.client.get("/app/connectors/proxy/panel").text
+        assert "Set by the platform for everyone" in html
+        assert "data-connector-mode-button" not in html
         assert 'data-instance-container="proxy"' in html
         assert html.count('data-instance-item="proxy"') == 2
         assert 'data-test-card="proxy"' in html
@@ -271,8 +241,6 @@ def test_member_panel_renders_cards_default_and_the_table(monkeypatch):
         assert 'data-proxy-assign-fixed="aws"' in html and 'data-proxy-assign-fixed="github"' in html
         assert 'data-proxy-assign="aws"' not in html
         assert "Always the default: its tools only read the environment." in html
-        # The proxy's own password is rendered for editing; the other proxies' names are in every dropdown.
-        assert 'value="pa"' in html
     finally:
         env.cleanup()
 
@@ -337,39 +305,6 @@ def _panel_html_as_posted(seed: dict) -> str:
     env.globals.update(template_globals())
     env.globals["copilot_enterprise_sso_url"] = lambda: ""
     return env.get_template("partials/default_connections_panel.html").render(**context)
-
-
-def test_single_url_form_rewrites_the_default_proxy_of_the_stored_list(monkeypatch):
-    env = _build_env(monkeypatch)
-    try:
-        rp = _bind_profile(env.db, env.agent, {"proxy": list_section()})
-        # A page from before named proxies posts the one URL: it rewrites the
-        # default proxy, keeps its no_proxy, the other cards and the table; a
-        # password the form did not carry stays.
-        resp = env.client.post(
-            "/app/connectors/proxy/save",
-            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://new.example.test:2", "proxy_username": "nu"},
-        )
-        assert resp.status_code == 200 and "Saved." in resp.text
-        saved = _saved(env.db, rp)["proxy"]
-        assert saved["proxies"][0] == {"name": "corp-a", "url": "http://new.example.test:2", "username": "nu", "password": "pa", "no_proxy": "localhost,db.internal"}
-        assert saved["proxies"][1]["name"] == "corp-b" and saved["proxies"][1]["password"] == "pb"
-        assert saved["default"] == "corp-a"
-        assert saved["assignments"] == {"llm": "corp-b", "pgsql": "none"}
-        # A blank password posted clears it, as the cards do.
-        resp = env.client.post(
-            "/app/connectors/proxy/save",
-            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://new.example.test:2", "proxy_password": ""},
-        )
-        assert "Saved." in resp.text
-        assert "password" not in _saved(env.db, rp)["proxy"]["proxies"][0]
-        # A blank URL removes the default proxy; the next card becomes the default.
-        resp = env.client.post("/app/connectors/proxy/save", data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": ""})
-        assert "Saved." in resp.text
-        saved = _saved(env.db, rp)["proxy"]
-        assert [entry["name"] for entry in saved["proxies"]] == ["corp-b"] and saved["default"] == "corp-b"
-    finally:
-        env.cleanup()
 
 
 def test_admin_panel_renders_cards_and_the_table():

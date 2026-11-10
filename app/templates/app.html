@@ -13,7 +13,7 @@
         <button id="delegations-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Delegations') }}">
           <i data-lucide="zap" class="w-5 h-5"></i>
         </button>
-        {% if role == "admin" %}
+        {% if is_administrator %}
         <button id="users-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Administration') }}">
           <i data-lucide="shield" class="w-5 h-5"></i>
         </button>
@@ -43,7 +43,7 @@
               {{ member_avatar(" is-large") }}
               <div class="portal-account-identity-text">
                 <div class="portal-account-name">{{ nickname }}</div>
-                <div class="portal-account-meta">{{ role_label }}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>
+                <div class="portal-account-meta">{{ role_label }} &middot; {{ member_group_name }}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>
               </div>
             </div>
             <div class="portal-account-group" role="group" aria-labelledby="account-theme-label">
@@ -214,7 +214,7 @@
             {% endfor %}
           </div>
         </section>
-        {% if role == "admin" %}
+        {% if is_administrator %}
         <section id="users-nav-section" class="portal-secondary-section hidden">
           <div class="portal-secondary-list-body">
             <button id="user-management-nav-item" class="portal-list-row portal-admin-nav-row" type="button">
@@ -222,6 +222,18 @@
               <span class="portal-admin-nav-copy">
                 <strong>{{ t("User Management") }}</strong>
                 <small>{{ t("Members, roles, access, and usage") }}</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
+            {% if is_system_admin %}
+            <button id="groups-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="groups"
+                    data-admin-panel-url="/app/admin/groups/panel"
+                    data-admin-panel-title="Groups">
+              <i data-lucide="users-round" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Groups") }}</strong>
+                <small>{{ t("Teams of members, each with its own Default connectors") }}</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -236,6 +248,7 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            {% endif %}
             <button id="default-connections-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
                     data-admin-panel="default-connections"
                     data-admin-panel-url="/app/admin/default-connections/panel"
@@ -247,6 +260,7 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            {% if is_system_admin %}
             <button id="usage-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
                     data-admin-panel="usage"
                     data-admin-panel-url="/app/admin/usage/panel"
@@ -269,6 +283,7 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            {% endif %}
           </div>
         </section>
         {% endif %}
@@ -285,15 +300,17 @@
           <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">{{ t("Ready") }}</div>
         </div>
         <div class="portal-main-toolbar">
-          {% if role == "admin" %}
+          {% if is_administrator %}
           <button id="header-add-allowlist-btn" class="portal-header-action is-primary hidden" type="button" title="{{ t('Add to allowlist') }}" aria-label="{{ t('Add to allowlist') }}" data-open-admin-allowlist-modal>
             <i data-lucide="user-plus" class="w-4 h-4"></i>
             <span class="portal-header-action-label">{{ t("Add to allowlist") }}</span>
           </button>
+          {% if is_system_admin %}
           <button id="header-add-assistant-type-btn" class="portal-header-action is-primary hidden" type="button" title="{{ t('Add assistant type') }}" aria-label="{{ t('Add assistant type') }}" data-open-assistant-type-modal>
             <i data-lucide="plus" class="w-4 h-4"></i>
             <span class="portal-header-action-label">{{ t("Add type") }}</span>
           </button>
+          {% endif %}
           {% endif %}
           <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="{{ t('New chat') }}" aria-label="{{ t('New chat') }}">
             <i data-lucide="message-square-plus" class="w-4 h-4"></i>

@@ -285,26 +285,45 @@ The API is always served. Unconfigured local connectors are listed as disabled (
 | `browserstack` | BrowserStack | Testing | `mobile-auto` | `mobile` | – |
 | `proxy` | Proxy | Network | `proxy` | `proxy` | `proxy` |
 
-Storage: every member has exactly one settings row in `runtime_profiles` (unique `owner_user_id`), created from the
-admin's **Default connectors** seed on first use. Each settings connector reads and writes only its own keys of that
+Storage: every member has exactly one settings row in `runtime_profiles` (unique `owner_user_id`), created from
+their group's **Default connectors** on first use. Each settings connector reads and writes only its own keys of that
 row's `config_json`. Every assistant the member owns is bound to the row (`agents.runtime_profile_id`).
 
 Connector modes: every settings connector of a member is in one of two modes, kept in
 `runtime_profiles.connector_modes_json` as `{type: "custom"}` (a type that is absent is `system`):
 
-- `system`: the connector's values are the administrator's **Default connectors** as they are *now*. Nothing is copied
-  into the row; wherever the row is read (panel, connection test, the pod Secret, `GET /api/runtime-profile`) the
-  connector's `managed_sections` are taken from the seed. A new member, and a connector type that appears later, start
-  here. The seed having nothing for the connector means the connector is not set up.
-- `custom`: the member's own values, in the row. The administrator's later changes do not touch them.
+- `system`: the connector's values are the member's group's **Default connectors** as they are *now*. Nothing is
+  copied into the row; wherever the row is read (panel, connection test, the pod Secret, `GET /api/runtime-profile`)
+  the connector's `managed_sections` are taken from the group's defaults. A new member, and a connector type that
+  appears later, start here. The defaults having nothing for the connector means the connector is not set up.
+- `custom`: the member's own values, in the row. Later changes to the defaults do not touch them.
+
+Groups: every member is in exactly one group (`users.group_id`; NULL is the default group, table `groups`). A
+group's Default connectors are the platform's (the system administrator's seed, `platform_settings`) with every
+connector the group sets itself replaced by its own values (`groups.config_json`, `groups.connector_modes_json` as
+`{type: "custom"}`; a custom connector with no values is one the group does not provide). So a member follows their
+group and the group follows the platform (`connector_defaults_service.group_seed`). A group can set every managed
+connector and the model provider's defaults (`llm`, which a member's first row copies; a group's `llm` without a
+step limit keeps following the platform's). A connector with `ConnectorSpec.platform_only` (the proxy) is always in
+`system` mode for every member and no group can set it: every assistant gets the platform's; the startup releases
+rows that still said `custom` for it (`RuntimeProfileService.release_platform_only_connectors`) and rolls their
+settings out.
+
+A member who changes group keeps their own connectors and follows the new group's defaults. The model provider's
+defaults were copied into their row from the old group, so the move swaps them
+(`group_service.member_llm_after_group_change`): a credential they hold because the old group shared it is dropped;
+model defaults they never changed become the new group's, the new group's shared credentials included where they hold
+none of their own (a personal Copilot sign-in stays); model settings they changed stay theirs. Accounts created by a
+sign-in before anyone allowlisted them wait in the default group, and allowlisting them into a group is such a move.
 
 `ConnectorSpec.managed_sections` says which sections the mode governs: every section the connector owns, except
 that `github` manages `github` but not the commit identity `git`, and `llm` manages nothing (the model provider is
 always the member's own, so a changed shared key or password reaches only new members). A member's first row
 therefore holds only the seed's `llm` (and `git`) sections.
 
-When the administrator saves the Default connectors, the members whose connectors in `system` mode changed are
-updated after the response (FastAPI background task, `connector_defaults_sync.sync_followers`): their row's
+When an administrator saves the platform's or a group's Default connectors, the members whose connectors in
+`system` mode changed are updated after the response (FastAPI background task, `connector_defaults_sync.sync_followers`
+with the changed connectors per group, so a group that sets a connector itself keeps its own): their row's
 `revision` is bumped and the save rollout runs for each of them (Secret, idle restarts, "Restart to apply" on busy
 assistants), one member at a time, a failure never stopping the rest; one `sync_connector_defaults` audit row
 carries the counts. A seed a member's own Save would refuse (a value the sanitizer cannot store, a default instance

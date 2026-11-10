@@ -104,6 +104,8 @@ def settings_entry(
     state = spec.state_of(member_config or {})
     return {
         "mode": mode,
+        # Only the platform sets it (the proxy): no member or group switch.
+        "platform_only": bool(spec.platform_only),
         "type": spec.type,
         "label": spec.label,
         "kind": spec.kind,

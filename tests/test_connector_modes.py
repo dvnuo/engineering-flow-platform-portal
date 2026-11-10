@@ -88,7 +88,8 @@ def test_every_settings_connector_but_the_model_provider_has_managed_sections():
 def test_modes_round_trip_and_default_to_system():
     assert parse_connector_modes(None) == {}
     # A row not classified yet keeps its own values for every connector.
-    assert stored_connector_modes(None) == {spec.type: MODE_CUSTOM for spec in managed_specs()}
+    # (The proxy is the platform's for everyone, so never the member's own.)
+    assert stored_connector_modes(None) == {spec.type: MODE_CUSTOM for spec in managed_specs() if not spec.platform_only}
     assert stored_connector_modes("{}") == {}
     assert parse_connector_modes("not json") == {}
     assert parse_connector_modes('{"jira": "custom", "llm": "custom", "nope": "custom", "github": "weird"}') == {"jira": "custom"}
@@ -109,7 +110,9 @@ def test_effective_config_reads_system_connectors_from_the_seed_and_keeps_the_re
     assert config["llm"] == {"api_key": "my-key"}
     # A system-mode connector the seed has nothing for is absent, as for a new member.
     assert "proxy" not in effective_config({"proxy": {"url": "http://p"}}, {}, SEED)
-    assert effective_config({"proxy": {"url": "http://p"}}, {"proxy": MODE_CUSTOM}, SEED)["proxy"] == {"url": "http://p"}
+    assert effective_config({"jira": MINE_JIRA}, {"jira": MODE_CUSTOM}, {})["jira"] == MINE_JIRA
+    # The proxy is the platform's whatever the row says.
+    assert "proxy" not in effective_config({"proxy": {"url": "http://p"}}, {"proxy": MODE_CUSTOM}, SEED)
 
 
 def test_a_seed_the_sanitizer_refuses_reads_as_empty_instead_of_raising():
@@ -125,7 +128,9 @@ def test_backfill_marks_custom_only_where_the_row_differs_from_the_seed():
     assert backfill_connector_modes(same, SEED) == {}
     assert backfill_connector_modes({"jira": MINE_JIRA}, SEED) == {"jira": MODE_CUSTOM}
     # Values for a connector the seed does not have are the member's own.
-    assert backfill_connector_modes({"proxy": {"url": "http://p"}}, SEED) == {"proxy": MODE_CUSTOM}
+    assert backfill_connector_modes({"jenkins": {"enabled": True, "instances": [{"name": "J", "url": "https://j"}]}}, SEED) == {"jenkins": MODE_CUSTOM}
+    # Except the proxy, which only the platform sets.
+    assert backfill_connector_modes({"proxy": {"url": "http://p"}}, SEED) == {}
     # A member without the section simply follows.
     assert backfill_connector_modes({"llm": {"api_key": "k"}}, SEED) == {}
 
@@ -317,7 +322,7 @@ def test_a_new_members_panel_follows_the_system_default_read_only(monkeypatch):
         assert resp.status_code == 200
         text = resp.text
         assert 'data-connector-mode="system"' in text
-        assert "Follows your administrator" in text
+        assert "Follows the Default connectors of Default" in text
         assert 'data-connector-mode-button="custom"' in text and "Customize" in text
         assert 'hx-post="/app/connectors/jira/mode"' in text
         assert 'value="https://corp.atlassian.net"' in text
@@ -334,8 +339,11 @@ def test_a_connector_without_a_system_default_says_so_and_the_model_provider_has
     env = _build_env(monkeypatch)
     try:
         _seed(env, SEED)
+        jenkins = env.client.get("/app/connectors/jenkins/panel").text
+        assert "Your group has no Jenkins set up yet" in jenkins and "Customize" in jenkins
+        # The proxy is the platform's: no switch at all.
         proxy = env.client.get("/app/connectors/proxy/panel").text
-        assert "has not set up Proxy yet" in proxy and "Customize" in proxy
+        assert "Set by the platform for everyone" in proxy and "data-connector-mode-button" not in proxy
         llm = env.client.get("/app/connectors/llm/panel").text
         assert "data-connector-mode-section" not in llm
         assert '<button type="submit" class="portal-btn is-primary">Save</button>' in llm
@@ -351,8 +359,8 @@ def test_customize_copies_the_default_into_the_row_without_a_restart(monkeypatch
         assert resp.status_code == 200
         assert resp.headers.get("HX-Trigger") == "connectorsChanged"
         assert 'data-connector-mode="custom"' in resp.text
-        assert "starting from the system default" in resp.text
-        assert 'data-connector-mode-button="system"' in resp.text and "Use system default" in resp.text
+        assert "starting from your group&#39;s default" in resp.text
+        assert 'data-connector-mode-button="system"' in resp.text and "Use group default" in resp.text
         assert '<button type="submit" class="portal-btn is-primary">Save</button>' in resp.text
         rp = env.db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == env.owner.id).one()
         assert json.loads(rp.config_json)["jira"]["instances"][0]["url"] == "https://corp.atlassian.net"
@@ -374,7 +382,7 @@ def test_use_system_default_replaces_the_members_values_audits_and_restarts(monk
         assert resp.status_code == 200
         assert resp.headers.get("HX-Trigger") == "connectorsChanged"
         assert 'data-settings-status="success"' in resp.text
-        assert "Jira now follows your administrator&#39;s Default connectors." in resp.text
+        assert "Jira now follows your group&#39;s Default connectors." in resp.text
         assert 'value="https://corp.atlassian.net"' in resp.text and 'value="https://old"' not in resp.text
         env.db.refresh(rp)
         assert rp.revision == 2
@@ -408,7 +416,7 @@ def test_a_failed_rollout_after_following_says_what_to_do(monkeypatch):
         resp = env.client.post("/app/connectors/jira/mode", data={"mode": "system"})
         assert resp.status_code == 200
         assert 'data-settings-status="error"' in resp.text
-        assert "Jira now follows your administrator&#39;s Default connectors, but handing the change to your assistants failed. Use Restart on the assistants listed above." in resp.text
+        assert "Jira now follows your group&#39;s Default connectors, but handing the change to your assistants failed. Use Restart on the assistants listed above." in resp.text
         env.db.refresh(rp)
         assert rp.revision == 2 and json.loads(rp.connector_modes_json) == {}
     finally:

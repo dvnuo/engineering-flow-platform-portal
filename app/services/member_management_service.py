@@ -80,16 +80,33 @@ class MemberManagementService:
         present = [value for value in values if value is not None]
         return max(present) if present else None
 
-    def build_overview(self, *, days: int = DEFAULT_PERIOD_DAYS, now: datetime | None = None) -> dict[str, Any]:
+    def build_overview(
+        self, *, days: int = DEFAULT_PERIOD_DAYS, now: datetime | None = None, group_id: int | None = None
+    ) -> dict[str, Any]:
+        """Every member's row, or only those of ``group_id`` (a group administrator's view)."""
+
+        from app.repositories.group_repo import GroupRepository
+
         period_days = normalize_period_days(days)
         period_start = (now or datetime.utcnow()) - timedelta(days=period_days)
         in_period = AgentExecution.created_at >= period_start
 
+        groups = GroupRepository(self.db).list_all()
+        default_group_id = next((group.id for group in groups if group.is_default), None)
+        group_names = {group.id: group.name for group in groups}
+
+        def group_of(value: int | None) -> int | None:
+            return value if value is not None else default_group_id
+
         users = UserRepository(self.db).list_all()
-        allowlist_entries = UserAllowlistRepository(self.db).list_all()
+        all_allowlist_entries = UserAllowlistRepository(self.db).list_all()
         allowlist_by_username = {
-            normalize_username(entry.username): entry for entry in allowlist_entries
+            normalize_username(entry.username): entry for entry in all_allowlist_entries
         }
+        allowlist_entries = all_allowlist_entries
+        if group_id is not None:
+            users = [user for user in users if group_of(user.group_id) == group_id]
+            allowlist_entries = [entry for entry in all_allowlist_entries if group_of(entry.group_id) == group_id]
 
         agent_counts = self._count_by(Agent.owner_user_id)
         task_counts = self._count_by(AgentTask.owner_user_id)
@@ -126,6 +143,8 @@ class MemberManagementService:
                     "username": user.username,
                     "nickname": user.nickname,
                     "role": user.role,
+                    "group_id": group_of(user.group_id),
+                    "group_name": group_names.get(group_of(user.group_id)),
                     "is_allowlisted": bool(allowlist_entry and allowlist_entry.is_active),
                     "allowlist_entry_id": allowlist_entry.id if allowlist_entry else None,
                     "created_at": user.created_at,
@@ -151,6 +170,9 @@ class MemberManagementService:
                 }
             )
 
+        registered_usernames |= {
+            normalize_username(user.username) for user in UserRepository(self.db).list_all()
+        }
         pending_entries = [
             entry for entry in allowlist_entries if normalize_username(entry.username) not in registered_usernames
         ]
@@ -158,6 +180,10 @@ class MemberManagementService:
             "users": member_rows,
             "allowlist_entries": allowlist_entries,
             "pending_allowlist_entries": pending_entries,
+            "group_id": group_id,
+            "groups": [
+                {"id": group.id, "name": group.name, "is_default": bool(group.is_default)} for group in groups
+            ],
             "period_days": period_days,
             "summary": {
                 "total_users": len(member_rows),
@@ -165,7 +191,7 @@ class MemberManagementService:
                 "admin_users": sum(
                     1
                     for row in member_rows
-                    if row["role"] == "admin" and row["is_allowlisted"]
+                    if row["role"] in ("admin", "group_admin") and row["is_allowlisted"]
                 ),
                 "pending_invitations": len(pending_entries),
                 "period_days": period_days,

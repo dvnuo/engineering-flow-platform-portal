@@ -133,6 +133,7 @@
     // Each pill explains what it grants, replacing the permanent line of helper
     // text that used to sit under the control and break the row's grid.
     ['[data-admin-role-option][value="user"]', t("Owns and runs their own assistants")],
+    ['[data-admin-role-option][value="group_admin"]', t("Manages their own group's members and Default connectors")],
     ['[data-admin-role-option][value="admin"]', t("Full access to every member's assistants, plus member management")],
     ["[data-admin-role-group]", t("What this member can do")],
     ["[data-remove-allowlist]", t("Revoke access. They lose sign-in immediately and existing sessions end.")],

@@ -4,10 +4,11 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.i18n import N_
+from app.services.work_visibility import VISIBILITY_PLATFORM, VISIBILITY_PUBLIC, can_see
 from app.config import get_settings
 from app.contracts.llm_catalog import COPILOT_PROVIDER
 from app.contracts.runtime_type import (
@@ -114,7 +115,7 @@ runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_ser
 
 
 def _can_read(agent, user) -> bool:
-    return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+    return can_see(agent, user)
 
 
 def _can_write(agent, user) -> bool:
@@ -382,8 +383,8 @@ def list_mine(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.get("/public", response_model=list[AgentResponse])
 def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _ = user
-    agents = AgentRepository(db).list_public()
+    """The assistants shared with the caller: their group's public ones and the platform's."""
+    agents = AgentRepository(db).list_public(user)
     return [build_agent_response(r) for r in agents]
 
 
@@ -417,7 +418,7 @@ def list_agent_statuses(user=Depends(get_current_user), db: Session = Depends(ge
     """
     repo = AgentRepository(db)
     seen: dict[str, object] = {}
-    for agent in [*repo.list_by_owner(user.id), *repo.list_public()]:
+    for agent in [*repo.list_by_owner(user.id), *repo.list_public(user)]:
         seen.setdefault(agent.id, agent)
 
     profile_revisions: dict[str, int | None] = {}
@@ -836,11 +837,19 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
 
 
 @router.post("/{agent_id}/share", response_model=AgentResponse)
-def share_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def share_agent(
+    agent_id: str,
+    scope: str = Query(default="group", pattern="^(group|platform)$"),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Share the assistant with its owner's group, or (a system administrator) with every member."""
     repo, agent = _load_writable_agent(agent_id, user, db)
-    agent.visibility = "public"
+    if scope == "platform" and user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only a system administrator can share an assistant with every group"))
+    agent.visibility = VISIBILITY_PLATFORM if scope == "platform" else VISIBILITY_PUBLIC
     repo.save(agent)
-    AuditRepository(db).create("share_agent", "agent", agent.id, user.id)
+    AuditRepository(db).create("share_agent", "agent", agent.id, user.id, {"visibility": agent.visibility})
     return build_agent_response(agent)
 
 

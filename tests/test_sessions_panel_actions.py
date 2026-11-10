@@ -59,6 +59,9 @@ def test_sessions_panel_renders_manage_actions_for_writable_user(monkeypatch):
 
 
 def test_sessions_panel_hides_manage_actions_for_readonly_user(monkeypatch):
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     user = SimpleNamespace(id=99, username="viewer", nickname="Viewer", role="user")
     agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
     client = _setup_client(monkeypatch, user, agent)
@@ -574,6 +577,9 @@ def test_control_plane_delete_session_k8s_disabled_skips_runtime(monkeypatch):
 
 
 def test_control_plane_delete_session_no_write_permission_does_not_call_runtime(monkeypatch):
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     from app.main import app
     import app.web as web_module
     user = SimpleNamespace(id=99, username="viewer", nickname="Viewer", role="user")

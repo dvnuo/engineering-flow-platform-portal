@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.agent_task import AgentTask
 from app.models.user import User
-from app.services.work_visibility import VISIBILITY_PUBLIC
+from app.services.work_visibility import visibility_clause
 from typing import Optional
 
 
@@ -68,6 +68,15 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def _visible_filter(self, user_id: int):
+        """The tasks ``user_id`` may read besides an admin: their own, and the public ones of their group."""
+        from app.models.user import User
+
+        viewer = self.db.get(User, user_id)
+        if viewer is None:
+            return AgentTask.owner_user_id == user_id
+        return visibility_clause(AgentTask, viewer)
+
     def list_visible_to_user(
         self,
         *,
@@ -82,7 +91,7 @@ class AgentTaskRepository:
         """The tasks ``user_id`` may read: their own and the public ones (an admin reads all)."""
         filters = []
         if not is_admin:
-            filters.append(or_(AgentTask.owner_user_id == user_id, AgentTask.visibility == VISIBILITY_PUBLIC))
+            filters.append(self._visible_filter(user_id))
         normalized_status = (status or "").strip().lower()
         if normalized_status == "active":
             filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))
@@ -137,7 +146,7 @@ class AgentTaskRepository:
     ) -> list[dict]:
         filters = []
         if not is_admin:
-            filters.append(or_(AgentTask.owner_user_id == user_id, AgentTask.visibility == VISIBILITY_PUBLIC))
+            filters.append(self._visible_filter(user_id))
         normalized_status = (status or "").strip().lower()
         if normalized_status == "active":
             filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))

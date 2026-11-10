@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.i18n import t
@@ -269,8 +269,10 @@ class WorkOverviewService:
         stmt = select(Agent).order_by(Agent.updated_at.desc(), Agent.created_at.desc())
         if scope == "mine":
             stmt = stmt.where(Agent.owner_user_id == user.id)
-        elif getattr(user, "role", "") != "admin":
-            stmt = stmt.where(or_(Agent.owner_user_id == user.id, Agent.visibility == "public"))
+        else:
+            visible = visibility_clause(Agent, user)
+            if visible is not None:
+                stmt = stmt.where(visible)
         return list(self.db.scalars(stmt).all())
 
     def _visible_tasks(self, user, scope: str) -> list[AgentTask]:

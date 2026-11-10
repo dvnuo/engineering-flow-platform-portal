@@ -7532,3 +7532,32 @@ body.efp-workspace-open { overflow: hidden; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* A group's Default connectors (default_connections_panel.html): the choice
+   per connector, and its fields, read-only unless the group sets it. */
+.portal-group-choice {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.portal-group-choice .portal-form-select {
+  min-width: 220px;
+}
+
+.portal-group-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.portal-group-fieldset[disabled] {
+  opacity: 0.6;
+}
+
+.portal-default-scope .portal-form-select,
+.portal-admin-group-select {
+  min-width: 160px;
+}

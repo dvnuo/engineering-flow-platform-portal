@@ -1,8 +1,8 @@
 <div id="admin-users-panel" class="portal-panel-stack portal-admin-users" data-period-days="{{ period_days }}">
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">{{ t("Member administration") }}</h5>
-      <p class="portal-panel-note">{{ t("Only allowlisted members can register, sign in, or keep using an existing session.") }}</p>
+      <h5 class="portal-panel-title">{% if scope_group %}{{ t("Members of {group}", group=scope_group.name) }}{% else %}{{ t("Member administration") }}{% endif %}</h5>
+      <p class="portal-panel-note">{{ t("Only allowlisted members can register, sign in, or keep using an existing session.") }}{% if scope_group %} {{ t("You manage this group's members; moving someone to another group is a system administrator's call.") }}{% endif %}</p>
     </div>
     <span class="portal-panel-subtitle">{{ tn(summary.total_users, "{n} member", "{n} members") }}</span>
   </div>
@@ -27,6 +27,16 @@
       <label aria-label="{{ t('Search registered members') }}">
         <input class="portal-form-input" type="search" aria-label="{{ t('Search registered members') }}" placeholder="{{ t('Search members') }}" autocomplete="off" data-admin-member-search />
       </label>
+      {% if is_system_admin %}
+      <label aria-label="{{ t('Filter members by group') }}">
+        <select class="portal-form-select" aria-label="{{ t('Filter members by group') }}" data-admin-member-group-filter>
+          <option value="all">{{ t("All groups") }}</option>
+          {% for group in groups %}
+          <option value="{{ group.id }}">{{ group.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
       <label aria-label="{{ t('Filter members by access') }}">
         <select class="portal-form-select" aria-label="{{ t('Filter members by access') }}" data-admin-member-access-filter>
           <option value="all">{{ t("All access") }}</option>
@@ -52,6 +62,7 @@
           <tr>
             <th data-sort-key="member" data-sort-type="text" aria-sort="none">{{ t("Member") }}</th>
             <th data-sort-key="access" data-sort-type="text" aria-sort="none">{{ t("Access") }}</th>
+            <th data-sort-key="group" data-sort-type="text" aria-sort="none">{{ t("Group") }}</th>
             <th class="is-number" data-sort-key="assistants" data-sort-type="number" aria-sort="none">{{ t("Assistants") }}</th>
             <th class="is-number" data-sort-key="executions" data-sort-type="number" aria-sort="none" title="{{ t('Chat turns and task runs in the last {n} days', n=period_days) }}">{{ t("Executions") }}</th>
             <th class="is-number" data-sort-key="chats" data-sort-type="number" aria-sort="none" title="{{ t('Chat turns in the last {n} days', n=period_days) }}">{{ t("Chats") }}</th>
@@ -74,6 +85,7 @@
             data-member-username="{{ u.username|data_attr }}"
             data-member-name="{{ (u.nickname or u.username)|data_attr }}"
             data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
+            data-member-group="{{ u.group_id or '' }}"
             data-member-executions-period="{{ u.execution_count_period }}"
           >
             <td data-sort-value="{{ (u.nickname or u.username)|lower|data_attr }}" data-export-value="{{ (u.nickname or u.username)|data_attr }} (@{{ u.username|data_attr }})">
@@ -84,6 +96,20 @@
             </td>
             <td data-sort-value="{% if u.is_allowlisted %}0{% else %}1{% endif %}">
               <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">{% if u.is_allowlisted %}{{ t("Allowlisted") }}{% else %}{{ t("Blocked by allowlist") }}{% endif %}</span>
+            </td>
+            <td data-sort-value="{{ (u.group_name or '')|lower|data_attr }}" data-export-value="{{ (u.group_name or '')|data_attr }}">
+              {% if is_system_admin %}
+              {# A move restarts the member's idle assistants on the new group's Default connectors (admin_users.js confirms first). #}
+              <select class="portal-form-select portal-admin-group-select" aria-label="{{ t('Group of {username}', username=u.username) }}"
+                      data-admin-group-select data-user-id="{{ u.id }}" data-original-group="{{ u.group_id or '' }}"
+                      data-member-username="{{ u.username|data_attr }}">
+                {% for group in groups %}
+                <option value="{{ group.id }}" {% if group.id == u.group_id %}selected{% endif %}>{{ group.name }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              {{ u.group_name or "" }}
+              {% endif %}
             </td>
             <td class="is-number" data-sort-value="{{ u.assistant_count }}">{{ u.assistant_count }}</td>
             <td class="is-number" data-sort-value="{{ u.execution_count_period }}">{{ u.execution_count_period }}</td>
@@ -97,6 +123,8 @@
             <td class="is-muted" data-sort-value="{{ u.last_activity_at.isoformat() if u.last_activity_at else '' }}" title="{{ t('Last sign-in: {time}', time=local_datetime(u.last_login_at, empty=t('Never')))|striptags }}">{{ local_datetime(u.last_activity_at, empty=t("No activity"))|safe }}</td>
             <td class="is-muted" data-sort-value="{{ u.created_at.isoformat() if u.created_at else '' }}">{{ local_datetime(u.created_at, style='date')|safe }}</td>
             <td data-no-export>
+              {# Own role, and (for a group administrator) a system administrator's, stay as they are. #}
+              {% set role_locked = u.id == current_user.id or (not is_system_admin and u.role == 'admin') %}
               <div class="portal-admin-member-controls">
                 <label class="portal-admin-role-control">
                   <span>{{ t("Role") }}</span>
@@ -114,10 +142,21 @@
                         name="role-{{ u.id }}"
                         value="user"
                         data-admin-role-option
-                        {% if u.role != 'admin' %}checked{% endif %}
-                        {% if u.id == current_user.id %}disabled{% endif %}
+                        {% if u.role not in ('admin', 'group_admin') %}checked{% endif %}
+                        {% if role_locked %}disabled{% endif %}
                       />
                       <span>{{ t("User") }}</span>
+                    </label>
+                    <label class="portal-role-option">
+                      <input
+                        type="radio"
+                        name="role-{{ u.id }}"
+                        value="group_admin"
+                        data-admin-role-option
+                        {% if u.role == 'group_admin' %}checked{% endif %}
+                        {% if role_locked %}disabled{% endif %}
+                      />
+                      <span>{{ t("Group admin") }}</span>
                     </label>
                     <label class="portal-role-option">
                       <input
@@ -126,7 +165,7 @@
                         value="admin"
                         data-admin-role-option
                         {% if u.role == 'admin' %}checked{% endif %}
-                        {% if u.id == current_user.id %}disabled{% endif %}
+                        {% if role_locked or not is_system_admin %}disabled{% endif %}
                       />
                       <span>{{ t("Admin") }}</span>
                     </label>
@@ -134,7 +173,7 @@
                 </label>
                 <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}{{ t("Current account") }}{% endif %}</span>
                 <div class="portal-admin-member-actions">
-                  {% if u.allowlist_entry_id and u.id != current_user.id %}
+                  {% if u.allowlist_entry_id and not role_locked %}
                   <button
                     class="portal-btn is-danger"
                     type="button"
@@ -175,12 +214,13 @@
     </summary>
     <div class="portal-admin-pending-list">
       {# entry.role is the role identifier; only the word shown is translated. #}
-      {% set role_words = {"admin": t("admin"), "user": t("user")} %}
+      {% set role_words = {"admin": t("admin"), "group_admin": t("group admin"), "user": t("user")} %}
       {% for entry in pending_allowlist_entries %}
       <div class="portal-admin-pending-row">
         <div>
           <strong>{{ entry.username }}</strong>
           <span class="portal-admin-role-badge">{{ role_words.get(entry.role, entry.role) }}</span>
+          <span class="portal-admin-role-badge">{{ group_names.get(entry.group_id or default_group_id, "") }}</span>
         </div>
         <button
           class="portal-btn is-secondary"
@@ -199,7 +239,7 @@
       <div class="portal-modal-titlebar">
         <div>
           <h3 id="admin-allowlist-modal-title">{{ t("Add to allowlist") }}</h3>
-          <p class="portal-modal-copy">{{ t("Enter one username per line and assign the same initial role.") }}</p>
+          <p class="portal-modal-copy">{{ t("Enter one username per line; they all join the same group with the same initial role.") }}</p>
         </div>
         <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}" data-close-admin-allowlist-modal>✕</button>
       </div>
@@ -210,11 +250,26 @@
           {% set allowlist_count_html %}<span data-admin-allowlist-count>0</span>{% endset %}
           <small>{{ t("One username per line · {count} ready", count=allowlist_count_html)|safe }}</small>
         </label>
+        {% if is_system_admin %}
+        <label>
+          <span>{{ t("Group") }}</span>
+          {# No group is preselected: every member's group is a choice someone made. #}
+          <select class="portal-form-select" name="group_id" required data-admin-allowlist-group>
+            <option value="">{{ t("Choose a group") }}</option>
+            {% for group in groups %}
+            <option value="{{ group.id }}">{{ group.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        {% else %}
+        <p class="portal-panel-note">{{ t("They join {group}.", group=scope_group.name) }}</p>
+        {% endif %}
         <label>
           <span>{{ t("Initial role") }}</span>
           <select class="portal-form-select" name="role">
             <option value="user">{{ t("User") }}</option>
-            <option value="admin">{{ t("Administrator") }}</option>
+            <option value="group_admin">{{ t("Group administrator") }}</option>
+            {% if is_system_admin %}<option value="admin">{{ t("Administrator") }}</option>{% endif %}
           </select>
         </label>
         <p class="portal-modal-feedback" data-admin-users-feedback aria-live="polite"></p>

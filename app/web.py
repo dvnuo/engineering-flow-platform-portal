@@ -88,15 +88,30 @@ from app.schemas.runtime_profile import (
 )
 from app.services.runtime_profile_audit import audit_runtime_profile_change
 from app.services.connector_defaults_service import (
+    GROUP_CHOICE_CUSTOM,
+    GROUP_CHOICE_PLATFORM,
+    GROUP_CHOICES,
     MODE_CUSTOM,
     MODE_SYSTEM,
     changed_connector_types,
     connector_mode,
     default_step_limit,
+    group_choice,
+    group_sections,
+    group_specs,
     managed_slice,
     sanitized_seed,
 )
-from app.services.connector_defaults_sync import sync_followers
+from app.services.connector_defaults_sync import rollout_profiles, sync_followers
+from app.services.authorization import (
+    ROLE_GROUP_ADMIN,
+    ROLE_SYSTEM_ADMIN,
+    administers_group,
+    assignable_roles,
+    is_administrator,
+    is_system_admin,
+)
+from app.services.group_service import GroupService
 from app.services.connector_registry import get_connector_spec as _connector_spec_by_type
 from app.services.runtime_profile_references import seed_config_error
 from app.services.auth_service import parse_session_token, set_session_cookie
@@ -120,6 +135,7 @@ from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
     RuntimeProfileSeedService,
     redact_seed_for_display,
+    strip_secret_values,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
@@ -301,7 +317,7 @@ def _anonymous_auth_page(request: Request, template_name: str, title: str, **con
 
 
 def _can_access(agent, user) -> bool:
-    return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+    return _can_see_work(agent, user)
 
 
 def _can_write(agent, user) -> bool:
@@ -1173,7 +1189,7 @@ def _connector_settings_panel_context(
     # The Model provider's step limit: the row's own value in the field and
     # what a blank one follows as its placeholder, the administrator's default
     # or, failing that, the runtime's (with_default_step_limit).
-    seed = service.read_seed()
+    seed = service.read_seed_for(runtime_profile.owner_user_id)
     own_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
     max_steps_own = default_step_limit(own_config)
     max_steps_default = default_step_limit(seed) or DEFAULT_MAX_STEPS
@@ -1182,8 +1198,11 @@ def _connector_settings_panel_context(
         "connector": settings_entry(spec, raw_config_data, mode),
         "connector_template": spec.panel_template,
         "connector_extra_template": spec.panel_extra_template,
-        # The system-default / custom switch, for the connectors a mode governs.
+        # The system-default / custom switch, for the connectors a mode governs;
+        # one only the platform sets (the proxy) has no switch.
         "connector_managed": bool(spec.managed_sections),
+        "connector_platform_only": bool(spec.platform_only),
+        "member_group_name": GroupService(db).group_of(_user_for_profile(db, runtime_profile)).name,
         "connector_mode": mode,
         "connector_follows_system": bool(spec.managed_sections) and mode == MODE_SYSTEM,
         "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(seed))),
@@ -2785,6 +2804,19 @@ def runtime_type_description(runtime_type: str) -> str:
     return RUNTIME_TYPE_DESCRIPTIONS.get(runtime_type, "")
 
 
+def _role_label(role: str | None) -> str:
+    """The role word under the account button."""
+    if role == ROLE_SYSTEM_ADMIN:
+        return t("Administrator")
+    if role == ROLE_GROUP_ADMIN:
+        return t("Group administrator")
+    return t("Member")
+
+
+def _user_for_profile(db, runtime_profile):
+    return UserRepository(db).get_by_id(getattr(runtime_profile, "owner_user_id", None)) if runtime_profile else None
+
+
 def _create_runtime_type_options() -> list[dict]:
     """Engine cards for the create-assistant wizard as first rendered, before
     /api/agents/defaults answers: only the markers this Portal offers, with the
@@ -2812,6 +2844,11 @@ def app_page(request: Request):
     chat_upload_policy = get_chat_upload_policy()
     locale_preferences = locale_preferences_for_user(user)
     resolved_locale = resolve_locale_for_request(request, user)
+    db = SessionLocal()
+    try:
+        member_group_name = GroupService(db).group_of(user).name
+    finally:
+        db.close()
     return templates.TemplateResponse(
         "app.html",
         {
@@ -2832,7 +2869,12 @@ def app_page(request: Request):
             # The account button at the bottom of the rail: the directory photo
             # when AVATAR_PHOTO_HOST is set, initials otherwise (and in the
             # browser when the photo request fails).
-            "role_label": t("Administrator") if user.role == "admin" else t("Member"),
+            "role_label": _role_label(user.role),
+            # Administration: a system administrator sees every item, a group
+            # administrator those of their own group (app/services/authorization.py).
+            "is_system_admin": is_system_admin(user),
+            "is_administrator": is_administrator(user),
+            "member_group_name": member_group_name,
             "avatar_url": avatar_photo_url(user.username, get_settings().avatar_photo_host),
             "avatar_initials": avatar_initials(user.nickname, user.username),
             # The help sub-menu is part of the shell, like the other nav lists,
@@ -3077,17 +3119,19 @@ def task_detail_panel(request: Request, task_id: str):
 
 @router.get("/app/users/{user_id}/usage/panel")
 async def app_member_usage_panel(request: Request, user_id: int):
-    """The usage drawer under a member's row in User Management (admin only)."""
+    """The usage drawer under a member's row in User Management (administrators of the member's group)."""
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail=N_("Unauthorized"))
-    if user.role != "admin":
+    if not is_administrator(user):
         raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
         member = UserRepository(db).get_by_id(user_id)
-        if not member:
+        groups = GroupService(db)
+        member_group = groups.find_group_of(member) if member else None
+        if not member or not administers_group(user, member_group.id if member_group else None, groups.default_group_id()):
             raise HTTPException(status_code=404, detail=N_("User not found"))
         days = normalize_period_days(request.query_params.get("days"))
         usage = MemberManagementService(db).member_usage(member.id, days=days)
@@ -3109,20 +3153,32 @@ async def app_users_panel(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail=N_("Unauthorized"))
-    if user.role != "admin":
+    if not is_administrator(user):
         raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
+        groups = GroupService(db)
+        groups.default_group()
+        # A group administrator manages their own group's members only.
+        scope_group = None if is_system_admin(user) else groups.group_of(user)
         # The consumption columns' period (7, 30 or 90 days); the panel's
         # period select reloads it with ?days=.
-        overview = MemberManagementService(db).build_overview(days=normalize_period_days(request.query_params.get("days")))
+        overview = MemberManagementService(db).build_overview(
+            days=normalize_period_days(request.query_params.get("days")),
+            group_id=scope_group.id if scope_group is not None else None,
+        )
         return templates.TemplateResponse(
             "partials/users_panel.html",
             {
                 "request": request,
                 "current_user": user,
                 "period_options": PERIOD_DAYS_OPTIONS,
+                "is_system_admin": is_system_admin(user),
+                "assignable_roles": assignable_roles(user),
+                "scope_group": scope_group,
+                "group_names": {item["id"]: item["name"] for item in overview["groups"]},
+                "default_group_id": next((item["id"] for item in overview["groups"] if item["is_default"]), None),
                 **overview,
             },
         )
@@ -3151,6 +3207,58 @@ def _seed_aws_account_options(aws_section) -> list[dict]:
     return options
 
 
+def _group_defaults_view(db, group, *, seed_override: dict | None = None, choices_override: dict | None = None) -> tuple[dict, dict]:
+    """What a group's Default connectors form shows, and the choice per connector.
+
+    A connector the group sets itself shows its own values; one it follows
+    shows the platform's without their credentials (strip_secret_values),
+    read-only; one it does not provide shows nothing. The proxy is always
+    the platform's. ``seed_override`` / ``choices_override`` re-render a
+    rejected save as it was posted.
+    """
+
+    groups = GroupService(db)
+    platform = strip_secret_values(groups.platform_seed())
+    own = seed_override if seed_override is not None else groups.config_of(group)
+    modes = groups.modes_of(group)
+    choices = {spec.type: group_choice(spec, groups.config_of(group), modes) for spec in group_specs()}
+    if choices_override:
+        choices.update({key: value for key, value in choices_override.items() if key in choices and value in GROUP_CHOICES})
+    view = {key: value for key, value in platform.items()}
+    for spec in group_specs():
+        choice = choices.get(spec.type)
+        for section in group_sections(spec):
+            if choice == GROUP_CHOICE_PLATFORM:
+                continue
+            value = own.get(section) if isinstance(own, dict) else None
+            if choice == GROUP_CHOICE_CUSTOM and isinstance(value, dict) and value:
+                view[section] = value
+            else:
+                view.pop(section, None)
+    return view, choices
+
+
+def _default_connections_scope(db, user, group_id) -> tuple[object | None, list[dict]]:
+    """The group whose Default connectors the panel edits (None: the platform's) and the scopes on offer.
+
+    A system administrator picks the platform or any group; a group
+    administrator always edits their own group.
+    """
+
+    groups = GroupService(db)
+    groups.default_group()
+    if is_system_admin(user):
+        group = groups.repo.get_by_id(group_id) if group_id is not None else None
+        options = [{"value": "", "label": t("Platform (every group follows it)"), "selected": group is None}]
+        options.extend(
+            {"value": str(item.id), "label": item.name, "selected": group is not None and item.id == group.id}
+            for item in groups.repo.list_all()
+        )
+        return group, options
+    own = groups.group_of(user)
+    return own, [{"value": str(own.id), "label": own.name, "selected": True}]
+
+
 def _default_connections_context(
     request: Request,
     db,
@@ -3158,12 +3266,24 @@ def _default_connections_context(
     status_type: str = "",
     status_message: str = "",
     seed_override: dict | None = None,
+    user=None,
+    scope_group=None,
+    scope_options: list[dict] | None = None,
+    choices_override: dict | None = None,
 ) -> dict:
     service = RuntimeProfileSeedService(db)
-    seed = seed_override if seed_override is not None else service.get_seed()
-    # The form shows each credential in a password input the admin reveals on
-    # purpose; the raw dump below it gets the masked copy instead.
-    display_seed = redact_seed_for_display(seed)
+    group_choices: dict = {}
+    if scope_group is not None:
+        seed, group_choices = _group_defaults_view(
+            db, scope_group, seed_override=seed_override, choices_override=choices_override
+        )
+        # The raw dump shows what the group stores itself.
+        display_seed = redact_seed_for_display(seed_override if seed_override is not None else GroupService(db).config_of(scope_group))
+    else:
+        seed = seed_override if seed_override is not None else service.get_seed()
+        # The form shows each credential in a password input the admin reveals on
+        # purpose; the raw dump below it gets the masked copy instead.
+        display_seed = redact_seed_for_display(seed)
     # The Default context size lists what the seeded model takes and
     # preselects what the seeded size means for it (the managed default when
     # nothing is seeded), so neither the first option nor a size the model
@@ -3185,8 +3305,14 @@ def _default_connections_context(
         "seed_aws_account_options": _seed_aws_account_options(seed.get("aws")),
         "aws_regions": list(AWS_REGIONS),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
-        "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
-        "seed_summary": service.seed_summary(),
+        "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if display_seed else "{}",
+        "seed_summary": service.seed_summary() if scope_group is None else [],
+        # The group being edited (None: the platform's Default connectors),
+        # what it does with each connector, and the scope picker.
+        "scope_group": scope_group,
+        "group_choices": group_choices,
+        "scope_options": scope_options or [],
+        "is_system_admin": is_system_admin(user) if user is not None else True,
         # The Proxy connector's cards and table (connectors/_macros.html).
         **_proxy_view(seed.get("proxy"), as_posted=seed_override is not None),
         "pgsql_settings_options": PGSQL_SETTINGS_OPTIONS,
@@ -3392,20 +3518,27 @@ async def app_assistant_types_panel(request: Request):
 
 
 @router.get("/app/admin/default-connections/panel")
-async def app_default_connections_panel(request: Request):
-    """Administration view for the non-secret shape new members inherit."""
+async def app_default_connections_panel(request: Request, group_id: Optional[str] = Query(default=None)):
+    """The platform's Default connectors (system administrators) or a group's (its administrators).
+
+    ``group_id`` is empty for the platform's (the scope picker posts its value as is).
+    """
 
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail=N_("Unauthorized"))
-    if user.role != "admin":
+    if not is_administrator(user):
         raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
+        cleaned = str(group_id or "").strip()
+        scope_group, scope_options = _default_connections_scope(db, user, int(cleaned) if cleaned.isdigit() else None)
         return templates.TemplateResponse(
             "partials/default_connections_panel.html",
-            _default_connections_context(request, db),
+            _default_connections_context(
+                request, db, user=user, scope_group=scope_group, scope_options=scope_options
+            ),
         )
     finally:
         db.close()
@@ -3430,12 +3563,22 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=401, detail=N_("Unauthorized"))
-    if user.role != "admin":
+    if not is_administrator(user):
         raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     form = await request.form()
+    raw_group_id = str(form.get("group_id") or "").strip()
     db = SessionLocal()
     try:
+        scope_group, scope_options = _default_connections_scope(
+            db, user, int(raw_group_id) if raw_group_id.isdigit() else None
+        )
+        if raw_group_id and scope_group is None:
+            raise HTTPException(status_code=404, detail=N_("Group not found"))
+        if scope_group is not None:
+            return _save_group_default_connections(
+                request, db, form, user, scope_group, scope_options, background_tasks
+            )
         service = RuntimeProfileSeedService(db)
         form_errors: list[str] = []
         seed = _seed_config_from_form(form, form_errors)
@@ -3454,7 +3597,8 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
             return templates.TemplateResponse(
                 "partials/default_connections_panel.html",
                 _default_connections_context(
-                    request, db, status_type="error", status_message=error, seed_override=seed
+                    request, db, status_type="error", status_message=error, seed_override=seed,
+                    user=user, scope_options=scope_options,
                 ),
             )
 
@@ -3475,12 +3619,191 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
                 secret_service=runtime_profile_secret_service,
                 triggered_by_user_id=user.id,
                 session_factory=SessionLocal,
+                # A group that sets a changed connector itself keeps its own.
+                changed_by_group=GroupService(db).changes_by_group(old_seed, service.get_seed()),
             )
         return templates.TemplateResponse(
             "partials/default_connections_panel.html",
             _default_connections_context(
-                request, db, status_type="success", status_message=_default_connections_saved_message(changed)
+                request, db, status_type="success", status_message=_default_connections_saved_message(changed),
+                user=user, scope_options=scope_options,
             ),
+        )
+    finally:
+        db.close()
+
+
+def _save_group_default_connections(request: Request, db, form, user, group, scope_options, background_tasks: BackgroundTasks):
+    """Store what ``group`` sets itself from the Default connectors form, then roll it out to its members."""
+
+    form_errors: list[str] = []
+    posted = _seed_config_from_form(form, form_errors)
+    choices = {
+        spec.type: str(form.get(f"group_choice_{spec.type}") or "").strip().lower()
+        for spec in group_specs()
+        if form.get(f"group_choice_{spec.type}") is not None
+    }
+    error = form_errors[0] if form_errors else None
+    changed: list[str] = []
+    if error is None:
+        try:
+            changed = GroupService(db).save_group_defaults(group, posted, choices, actor_id=user.id)
+        except ValueError as exc:
+            error = str(exc)
+    if error:
+        # Re-render what was posted, so a rejected save does not discard the edits.
+        return templates.TemplateResponse(
+            "partials/default_connections_panel.html",
+            _default_connections_context(
+                request, db, status_type="error", status_message=error, seed_override=posted,
+                user=user, scope_group=group, scope_options=scope_options, choices_override=choices,
+            ),
+        )
+    if changed:
+        background_tasks.add_task(
+            sync_followers,
+            changed,
+            secret_service=runtime_profile_secret_service,
+            triggered_by_user_id=user.id,
+            session_factory=SessionLocal,
+            changed_by_group={group.id: changed},
+            audit_target=("group", str(group.id)),
+        )
+    return templates.TemplateResponse(
+        "partials/default_connections_panel.html",
+        _default_connections_context(
+            request, db, status_type="success", status_message=_group_defaults_saved_message(group, changed),
+            user=user, scope_group=group, scope_options=scope_options,
+        ),
+    )
+
+
+def _group_defaults_saved_message(group, changed_types: list[str]) -> str:
+    if not changed_types:
+        return f"Default connectors of {group.name} saved. Nothing changed for its members who follow them."
+    labels = ", ".join(_connector_spec_by_type(item).label for item in changed_types)
+    return (
+        f"Default connectors of {group.name} saved. Its members who follow {labels} are being updated in the background: "
+        "their idle assistants restart, busy ones show Restart to apply."
+    )
+
+
+# ------------------------------------------------------------------ groups
+
+
+def _groups_panel_context(request: Request, db, user, *, status_type: str = "", status_message: str = "") -> dict:
+    groups = GroupService(db)
+    groups.default_group()
+    counts = groups.repo.member_counts()
+    rows = groups.repo.list_all()
+    return {
+        "request": request,
+        "groups": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "description": item.description or "",
+                "is_default": bool(item.is_default),
+                "member_count": counts.get(item.id, 0),
+                "own_connectors": sorted(groups.modes_of(item)),
+            }
+            for item in rows
+        ],
+        "status_type": status_type,
+        "status_message": status_message,
+    }
+
+
+@router.get("/app/admin/groups/panel")
+async def app_groups_panel(request: Request):
+    """Groups: create, rename, delete (system administrators)."""
+
+    user = _admin_from_cookie_or_raise(request)
+    db = SessionLocal()
+    try:
+        return templates.TemplateResponse("partials/groups_panel.html", _groups_panel_context(request, db, user))
+    finally:
+        db.close()
+
+
+@router.post("/app/admin/groups/create")
+async def app_groups_create(request: Request):
+    user = _admin_from_cookie_or_raise(request)
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        try:
+            group = GroupService(db).create_group(form.get("name"), description=form.get("description"), actor_id=user.id)
+            status_type, status_message = "success", f"Group {group.name} created. Add members to it from User Management."
+        except ValueError as exc:
+            status_type, status_message = "error", str(exc)
+        return templates.TemplateResponse(
+            "partials/groups_panel.html",
+            _groups_panel_context(request, db, user, status_type=status_type, status_message=status_message),
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/admin/groups/{group_id}/update")
+async def app_groups_update(request: Request, group_id: int):
+    user = _admin_from_cookie_or_raise(request)
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        groups = GroupService(db)
+        group = groups.repo.get_by_id(group_id)
+        if group is None:
+            raise HTTPException(status_code=404, detail=N_("Group not found"))
+        try:
+            group = groups.update_group(group, name=form.get("name"), description=form.get("description") or "", actor_id=user.id)
+            status_type, status_message = "success", f"Group {group.name} saved."
+        except ValueError as exc:
+            status_type, status_message = "error", str(exc)
+        return templates.TemplateResponse(
+            "partials/groups_panel.html",
+            _groups_panel_context(request, db, user, status_type=status_type, status_message=status_message),
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/admin/groups/{group_id}/delete")
+async def app_groups_delete(request: Request, group_id: int, background_tasks: BackgroundTasks):
+    """Move the group's members to the chosen group, delete it, and roll their settings out."""
+
+    user = _admin_from_cookie_or_raise(request)
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        groups = GroupService(db)
+        group = groups.repo.get_by_id(group_id)
+        raw_target = str(form.get("move_to") or "").strip()
+        target = groups.repo.get_by_id(int(raw_target)) if raw_target.isdigit() else None
+        if group is None:
+            raise HTTPException(status_code=404, detail=N_("Group not found"))
+        if target is None:
+            status_type, status_message = "error", "Choose the group that takes its members."
+        else:
+            try:
+                name = group.name
+                result = groups.delete_group(group, target, actor_id=user.id)
+                if result.profile_ids:
+                    background_tasks.add_task(
+                        rollout_profiles,
+                        result.profile_ids,
+                        secret_service=runtime_profile_secret_service,
+                        triggered_by_user_id=user.id,
+                        session_factory=SessionLocal,
+                        reason="group_deleted",
+                    )
+                status_type = "success"
+                status_message = f"Group {name} deleted; its {len(result.moved)} member(s) are now in {target.name}."
+            except ValueError as exc:
+                status_type, status_message = "error", str(exc)
+        return templates.TemplateResponse(
+            "partials/groups_panel.html",
+            _groups_panel_context(request, db, user, status_type=status_type, status_message=status_message),
         )
     finally:
         db.close()
@@ -4264,7 +4587,11 @@ async def app_connector_save(request: Request, connector_type: str):
                 spec,
                 runtime_profile,
                 status_type="error",
-                status_message=f"{spec.label} follows your administrator's Default connectors. Choose Customize to edit it.",
+                status_message=(
+                    f"{spec.label} is set by the platform for everyone."
+                    if spec.platform_only
+                    else f"{spec.label} follows your group's Default connectors. Choose Customize to edit it."
+                ),
             )
         config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form, db=db)
@@ -4295,6 +4622,8 @@ def _managed_connector_spec_or_404(connector_type: str):
     spec = _settings_connector_spec_or_404(connector_type)
     if not spec.managed_sections:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("This connector has no system default"))
+    if spec.platform_only:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("The platform sets this connector for everyone"))
     return spec
 
 
@@ -4371,16 +4700,16 @@ async def app_connector_mode(request: Request, connector_type: str):
         runtime_profile = service.get_or_create_for_user(user)
         if mode == MODE_CUSTOM:
             runtime_profile, restored = service.customize_connector(runtime_profile, spec)
-            start = "your earlier values are back" if restored else "starting from the system default"
+            start = "your earlier values are back" if restored else "starting from your group's default"
             status_type = "success"
             status_message = (
                 f"{spec.label} is now yours to maintain, {start}. "
-                "Your administrator's changes to Default connectors no longer apply to it."
+                "Changes to your group's Default connectors no longer apply to it."
             )
         else:
             before = service.effective_config_for(runtime_profile)
             runtime_profile, changed = service.follow_system_defaults(runtime_profile, spec)
-            done = f"{spec.label} now follows your administrator's Default connectors"
+            done = f"{spec.label} now follows your group's Default connectors"
             if changed:
                 audit_runtime_profile_change(
                     db,

@@ -5,6 +5,7 @@ from app.models.agent_execution import AgentExecution
 from app.models.agent_session_metadata import AgentSessionMetadata
 from app.models.runtime_profile import RuntimeProfile
 from app.models.session_share import SessionShare
+from app.models.group import Group
 from app.models.user import User
 from app.models.user_allowlist import UserAllowlistEntry
 from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
@@ -17,6 +18,7 @@ from app.models.error_event import ErrorEvent
 
 __all__ = [
     "UserConnector",
+    "Group",
     "User",
     "UserAllowlistEntry",
     "Agent",

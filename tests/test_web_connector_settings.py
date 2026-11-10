@@ -493,15 +493,19 @@ def test_connector_save_response_triggers_connectors_changed(monkeypatch):
     try:
         rp = _bind_profile(env.db, env.agent, {})
         resp = env.client.post(
-            "/app/connectors/proxy/save",
-            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://proxy.example.com:8080"},
+            "/app/connectors/jira/save",
+            data={
+                "__touch_jira": "1",
+                "jira_enabled": "on",
+                "jira_instance_count": "1",
+                "jira_instances_0_name": "Prod",
+                "jira_instances_0_url": "https://jira.example.com",
+            },
         )
         assert resp.status_code == 200
         assert resp.headers.get("HX-Trigger") == "connectorsChanged"
         assert "Saved." in resp.text
-        # The single URL a page from before named proxies posts is stored as
-        # one proxy named "default".
-        assert _saved(env.db, rp)["proxy"]["proxies"] == [{"name": "default", "url": "http://proxy.example.com:8080"}]
+        assert _saved(env.db, rp)["jira"]["instances"][0]["url"] == "https://jira.example.com"
         assert rp.revision == 2
         assert env.calls["apply"] == 1
     finally:
