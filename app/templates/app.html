@@ -43,7 +43,7 @@
               {{ member_avatar(" is-large") }}
               <div class="portal-account-identity-text">
                 <div class="portal-account-name">{{ nickname }}</div>
-                <div class="portal-account-meta">{{ role_label }} &middot; {{ member_group_name }}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>
+                <div class="portal-account-meta">{{ role_label }}{% if member_group_name %} &middot; {{ member_group_name }}{% endif %}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>
               </div>
             </div>
             <div class="portal-account-group" role="group" aria-labelledby="account-theme-label">

@@ -1202,7 +1202,7 @@ def _connector_settings_panel_context(
         # one only the platform sets (the proxy) has no switch.
         "connector_managed": bool(spec.managed_sections),
         "connector_platform_only": bool(spec.platform_only),
-        "member_group_name": GroupService(db).group_of(_user_for_profile(db, runtime_profile)).name,
+        "member_group_name": _member_group_name(db, _user_for_profile(db, runtime_profile)),
         "connector_mode": mode,
         "connector_follows_system": bool(spec.managed_sections) and mode == MODE_SYSTEM,
         "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(seed))),
@@ -2813,6 +2813,16 @@ def _role_label(role: str | None) -> str:
     return t("Member")
 
 
+def _member_group_name(db, user) -> str:
+    """The member's group, for display; empty when it cannot be read, so it never blocks a page."""
+    try:
+        return GroupService(db).group_of(user).name
+    except Exception:
+        db.rollback()
+        logger.warning("Member's group could not be read user_id=%s", getattr(user, "id", None), exc_info=True)
+        return ""
+
+
 def _user_for_profile(db, runtime_profile):
     return UserRepository(db).get_by_id(getattr(runtime_profile, "owner_user_id", None)) if runtime_profile else None
 
@@ -2846,7 +2856,7 @@ def app_page(request: Request):
     resolved_locale = resolve_locale_for_request(request, user)
     db = SessionLocal()
     try:
-        member_group_name = GroupService(db).group_of(user).name
+        member_group_name = _member_group_name(db, user)
     finally:
         db.close()
     return templates.TemplateResponse(
