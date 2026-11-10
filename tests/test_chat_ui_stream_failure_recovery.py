@@ -62,90 +62,125 @@ def test_try_recover_broken_chat_stream_behavior_node_smoke():
     js_source = SRC.read_text(encoding="utf-8")
     functions = "\n".join(
         _extract_js_function(js_source, name)
-        for name in ["tryRecoverBrokenChatStream", "isTerminalChatRunState", "normalizeChatRunStatus"]
+        for name in ["tryRecoverBrokenChatStream", "chatRunStatusSaysNotFound", "isTerminalChatRunState", "normalizeChatRunStatus"]
     )
+    delays = re.search(r"^const BROKEN_STREAM_STATUS_RETRY_DELAYS_MS = .+;$", js_source, re.MULTILINE)
+    assert delays, "missing const BROKEN_STREAM_STATUS_RETRY_DELAYS_MS in chat_ui.js"
     script = (
-        """
+        delays.group(0)
+        + """
 const assert = require("node:assert/strict");
 
 const calls = [];
 let chatState;
-let statusResponse;
-let statusError = null;
-let recoverResult = true;
+// One answer per status call: an Error is thrown, anything else returned.
+let statusAnswers = [];
 
 const state = { selectedAgentId: "agent-1" };
 
 function ensureChatState(_agentId) { return chatState; }
-function cancelAssistantTypewriter(_ctx) { calls.push(["cancelTypewriter"]); }
+function cancelAssistantTypewriter(ctx) { calls.push(["cancelTypewriter"]); if (ctx.typewriter) ctx.typewriter.cancelled = true; }
 async function fetchChatRunStatusForAgent(agentId, sessionId, requestId) {
   calls.push(["status", agentId, sessionId, requestId]);
-  if (statusError) throw statusError;
-  return statusResponse;
+  const answer = statusAnswers.length > 1 ? statusAnswers.shift() : statusAnswers[0];
+  if (answer instanceof Error) throw answer;
+  return answer;
 }
+async function waitForChatRunRetry(ms) { calls.push(["wait", ms]); }
 async function finishRecoveredChatRun(agentId, sessionId, requestId, _ctx, payload) {
   calls.push(["finish", agentId, sessionId, requestId, payload && payload.state]);
 }
 function persistInflightChatRun(agentId, entry) { calls.push(["persist", agentId, entry.session_id, entry.request_id]); }
 function setChatStatus(text) { calls.push(["chatStatus", text]); }
-async function recoverInflightChatRunForAgent(agentId, sessionId, _metadata, _options) {
-  calls.push(["recover", agentId, sessionId]);
-  return recoverResult;
-}
+function ensureEventSocketForAgent(agentId, sessionId, requestId, options) { calls.push(["socket", sessionId, requestId, options && options.reattach]); }
+function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId) { calls.push(["poll", requestId]); }
+async function reconnectRecoveredChatStreamForAgent(agentId, ctx) { calls.push(["reconnectStream", ctx.clientRequestId]); }
+async function recoverInflightChatRunForAgent() { calls.push(["recover"]); return true; }
 
 """
         + functions
         + """
 
 (async () => {
-  // 1. Running run: hands off to the recovery flow, clears the broken request.
-  const requestCtx = { clientRequestId: "req-1", sessionIdAtSend: "s-1", message: "hello", startedAt: Date.now(), usedStream: true };
-  chatState = { currentRequest: requestCtx, sessionId: "s-1" };
-  statusResponse = { ok: true, state: "running", terminal: false };
+  // 1. Running run: followed from here, in place -- the request, its stream
+  // and timeline stay, and the socket picks up after what was drawn.
+  const requestCtx = { clientRequestId: "req-1", sessionIdAtSend: "s-1", message: "hello", startedAt: Date.now(), usedStream: true, liveStream: true, streamedText: "Hel", typewriter: { targetText: "Hel", visibleText: "He", cancelled: false } };
+  chatState = { currentRequest: requestCtx, sessionId: "s-1", inflightAgentTimeline: { assistantText: "Hello" } };
+  statusAnswers = [{ ok: true, state: "running", terminal: false, source_of_truth: "run_registry" }];
   let recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx);
   assert.equal(recovered, true);
+  assert.equal(chatState.currentRequest, requestCtx);
+  assert.equal(requestCtx.recovered, true);
+  assert.equal(requestCtx.liveStream, false);
+  assert.equal(requestCtx.typewriter.cancelled, false);
+  assert.equal(requestCtx.typewriter.visibleText, "Hello");
   assert.ok(calls.some((c) => c[0] === "persist" && c[3] === "req-1"));
-  assert.ok(calls.some((c) => c[0] === "recover" && c[2] === "s-1"));
-  assert.equal(chatState.currentRequest, null);
+  assert.ok(calls.some((c) => c[0] === "socket" && c[1] === "s-1" && c[2] === "req-1" && c[3] === true));
+  assert.ok(calls.some((c) => c[0] === "poll" && c[1] === "req-1"));
+  assert.ok(calls.some((c) => c[0] === "reconnectStream" && c[1] === "req-1"));
+  assert.ok(!calls.some((c) => c[0] === "recover"));
 
   // 2. Terminal run: delivers the finished response from history.
   calls.length = 0;
   const requestCtx2 = { clientRequestId: "req-2", sessionIdAtSend: "s-2", usedStream: true };
   chatState = { currentRequest: requestCtx2, sessionId: "s-2" };
-  statusResponse = { ok: true, state: "completed", terminal: true };
+  statusAnswers = [{ ok: true, state: "completed", terminal: true }];
   recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx2);
   assert.equal(recovered, true);
   assert.ok(calls.some((c) => c[0] === "finish" && c[3] === "req-2" && c[4] === "completed"));
-  assert.ok(!calls.some((c) => c[0] === "recover"));
 
-  // 3. Status fetch fails: falls back to normal failure handling.
+  // 3. The status cannot be fetched (network, proxy): asked again, with
+  // growing waits, until the runtime answers -- never "Send failed" on the
+  // first try. Not from the run registry: no reconnect stream.
   calls.length = 0;
   const requestCtx3 = { clientRequestId: "req-3", sessionIdAtSend: "s-3", usedStream: true };
   chatState = { currentRequest: requestCtx3, sessionId: "s-3" };
-  statusError = new Error("network down");
+  statusAnswers = [new TypeError("Failed to fetch"), new Error("502 Bad Gateway"), { ok: true, state: "running", terminal: false, source_of_truth: "session_metadata" }];
   recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx3);
-  assert.equal(recovered, false);
-  assert.equal(chatState.currentRequest, requestCtx3);
-  statusError = null;
+  assert.equal(recovered, true);
+  assert.deepEqual(calls.filter((c) => c[0] === "wait").map((c) => c[1]), [1000, 2000]);
+  assert.equal(calls.filter((c) => c[0] === "status").length, 3);
+  assert.ok(calls.some((c) => c[0] === "chatStatus" && /Connection lost/.test(c[1])));
+  assert.ok(!calls.some((c) => c[0] === "reconnectStream"));
 
-  // 4. Unknown state: falls back to normal failure handling.
+  // 4. The runtime says it has no such run: that settles it at once.
   calls.length = 0;
   const requestCtx4 = { clientRequestId: "req-4", sessionIdAtSend: "s-4", usedStream: true };
   chatState = { currentRequest: requestCtx4, sessionId: "s-4" };
-  statusResponse = { ok: false, state: "unknown", error: "chat_run_not_found" };
+  statusAnswers = [new Error('{"ok": false, "state": "unknown", "error": "chat_run_not_found"}')];
   recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx4);
   assert.equal(recovered, false);
-  assert.ok(!calls.some((c) => c[0] === "recover" || c[0] === "finish"));
+  assert.ok(!calls.some((c) => c[0] === "wait" || c[0] === "finish"));
+  assert.equal(requestCtx4.runOutcomeUnknown, undefined);
 
-  // 5. Recovery handoff fails: the broken request is restored for failure UX.
+  // 5. Unknown state: falls back to normal failure handling.
   calls.length = 0;
   const requestCtx5 = { clientRequestId: "req-5", sessionIdAtSend: "s-5", usedStream: true };
   chatState = { currentRequest: requestCtx5, sessionId: "s-5" };
-  statusResponse = { ok: true, state: "running", terminal: false };
-  recoverResult = false;
+  statusAnswers = [{ ok: false, state: "unknown", error: "chat_run_not_found" }];
   recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx5);
   assert.equal(recovered, false);
-  assert.equal(chatState.currentRequest, requestCtx5);
+  assert.ok(!calls.some((c) => c[0] === "finish" || c[0] === "socket"));
+
+  // 6. Never reachable: given up after the last wait, outcome unknown.
+  calls.length = 0;
+  const requestCtx6 = { clientRequestId: "req-6", sessionIdAtSend: "s-6", usedStream: true };
+  chatState = { currentRequest: requestCtx6, sessionId: "s-6" };
+  statusAnswers = [new TypeError("Failed to fetch")];
+  recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx6);
+  assert.equal(recovered, false);
+  assert.equal(requestCtx6.runOutcomeUnknown, true);
+  assert.deepEqual(calls.filter((c) => c[0] === "wait").map((c) => c[1]), BROKEN_STREAM_STATUS_RETRY_DELAYS_MS);
+
+  // 7. Stopped while waiting: whoever stopped it owns the row now.
+  calls.length = 0;
+  const requestCtx7 = { clientRequestId: "req-7", sessionIdAtSend: "s-7", usedStream: true };
+  chatState = { currentRequest: requestCtx7, sessionId: "s-7" };
+  statusAnswers = [new TypeError("Failed to fetch")];
+  waitForChatRunRetry = async () => { requestCtx7.aborted = true; };
+  recovered = await tryRecoverBrokenChatStream("agent-1", requestCtx7);
+  assert.equal(recovered, true);
+  assert.equal(calls.filter((c) => c[0] === "status").length, 1);
 
   console.log("ok");
 })().catch((error) => { console.error(error); process.exit(1); });

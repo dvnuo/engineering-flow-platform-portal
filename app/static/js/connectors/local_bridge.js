@@ -743,6 +743,24 @@
     return { event, data };
   }
 
+  // A request the chat page marks as replayed was sent to whoever watched the
+  // run when it happened -- this very tab, maybe, before it was refreshed. It
+  // runs again only while the runtime still waits for its answer. A runtime
+  // that cannot say (no such endpoint, not reachable) is taken at its word, as
+  // before.
+  async function connectorRequestStillPending(agentId, sessionId, requestId) {
+    try {
+      const { ok, payload } = await requestJson(
+        `/a/${encodeURIComponent(agentId)}/api/sessions/${encodeURIComponent(sessionId)}/connectors/pending`,
+        { method: "GET" }
+      );
+      if (!ok || !payload || !Array.isArray(payload.requests)) return true;
+      return payload.requests.some((item) => item && String(item.id || item.request_id || "") === requestId);
+    } catch (_error) {
+      return true;
+    }
+  }
+
   async function handleConnectorRequest(detail) {
     const { event, data } = eventData(detail);
     const request = data.connector_request || data.connectorRequest;
@@ -762,6 +780,7 @@
       const first = state.handled.values().next().value;
       state.handled.delete(first);
     }
+    if (event.replayed && !(await connectorRequestStillPending(agentId, sessionId, requestId))) return;
     let outcome;
     try {
       outcome = await module.execute(request, { agentId, sessionId });
