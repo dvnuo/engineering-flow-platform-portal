@@ -137,6 +137,25 @@ def test_share_view_renders_like_the_chat():
     assert all(ord(ch) < 128 for ch in css)
 
 
+def test_an_answered_question_reads_like_the_chat():
+    # The question and the answer shared one member bubble as a two-column
+    # list sized to the question, so a long question squeezed the answer to a
+    # letter per line outside the bubble. Now the question stays on the
+    # assistant's side and the bubble holds the answers, as in the chat.
+    js = _read("app/static/js/share_view.js")
+    branch = js.split('if (entry.type === "answer") {', 1)[1].split('if (entry.type === "tool") {', 1)[0]
+    asked, answered = branch.split('"<section class=\\"share-msg share-msg--user share-answer\\">"', 1)
+    assert "share-msg--assistant share-asked" in asked
+    assert "metaHtml(assistantName" in asked
+    assert "pair.label" in asked
+    assert "share-answer-line" in answered
+    assert "pair.label" not in answered
+    css = _read("app/static/css/share.css")
+    assert "share-answer-pairs" not in js + css
+    assert ".share-asked-body {" in css
+    assert "border-left: 2px solid var(--share-accent)" in css.split(".share-asked-body {", 1)[1].split("}", 1)[0]
+
+
 def test_login_scripts_only_return_to_a_share_path():
     js = _read("app/static/js/auth_form.js")
     assert "function postLoginDestination(" in js

@@ -6263,7 +6263,14 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 /* -- interactive input (questions and approvals) -------------------------- */
 
-.portal-interactive-row { width: 100%; }
+/* The card stands in for the composer while it is up, so it sits where the
+   composer does: centred in the column, above the centred switch bar. Left
+   to size itself, it hugged the left edge at the width of its longest
+   question, which on a wide column left most of the row empty and changed
+   width from one question to the next. Its width follows the column, capped
+   like the member's bubble. */
+.portal-interactive-row { width: 100%; align-items: center; }
+.portal-interactive-row .portal-interactive-card { width: min(100%, calc(var(--portal-chat-width, 980px) * 0.78)); }
 
 @keyframes portal-interactive-in {
   from { opacity: 0; transform: translateY(10px) scale(0.985); }
