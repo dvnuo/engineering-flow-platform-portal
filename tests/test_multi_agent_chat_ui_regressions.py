@@ -1920,7 +1920,8 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
 
     assert "closed:old" in data["events"]
-    assert data["directUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=s-1&request_id=req-1&replay=1"
+    # A run's socket asks for what follows the last event drawn of it (none yet).
+    assert data["directUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=s-1&request_id=req-1&replay=1&after_seq=0&replay_limit=500"
     assert data["firstUrl"] == "wss://portal.test/a/agent-A/api/events?session_id=new-session&replay=1"
     assert data["firstSession"] == "new-session"
     assert data["firstCreated"] == 2
@@ -2152,8 +2153,10 @@ def test_recovered_chat_stream_only_reconnects_for_run_registry_status():
     assert "renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText)" in recover_slice
     assert 'pendingText = "Reconnecting"' in recover_slice, "rejoining a run still says so"
     assert "source_of_truth: \"session_metadata\"" in recover_slice
-    assert "requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === \"run_registry\";" in recover_slice
-    assert "if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);" in recover_slice
+    assert "reconnectStreamAllowed: statusPayload?.source_of_truth === \"run_registry\"," in recover_slice
+    follow = _extract_js_function(js_file, "startFollowingRecoveredChatRun")
+    assert "requestCtx.reconnectStreamAllowed = Boolean(reconnectStreamAllowed);" in follow
+    assert "if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);" in follow
 
 
 def test_load_session_uses_recovery_notice_only_when_not_locally_active():

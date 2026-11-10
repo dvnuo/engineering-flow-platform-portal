@@ -3639,6 +3639,11 @@ function normalizeRuntimeEvent(payload) {
     created_at: candidate?.created_at || mergedData.created_at || "",
     summary: candidate?.summary || mergedData.summary || mergedData.message || "",
     replayed,
+    // Where the event sits in its run, when the runtime numbers them (the
+    // native runtime does); a merged copy of several deltas also says where
+    // it starts.
+    run_seq: Number(pickField("run_seq")) || 0,
+    run_seq_from: Number(pickField("run_seq_from")) || 0,
   };
 }
 // RUNTIME_EVENT_HELPER_END: normalizeRuntimeEvent
@@ -3940,6 +3945,14 @@ function dropInflightAgentTimelineState(chatState) {
   chatState.inflightAgentTimeline = null;
 }
 
+// A hidden page gets its timers late (once a second, later once a minute), so
+// anything drawn at a pace -- steps revealed one by one, text typed out --
+// fell minutes behind the run, and the answer waited for the typing. Hidden,
+// it is drawn whole; resyncLiveChatRunViews draws the rest on return.
+function chatPageIsHidden() {
+  return typeof document !== "undefined" && document.hidden === true;
+}
+
 function scheduleAgentTimelineReveal(agentId, chatState, requestCtx = {}) {
   const timeline = chatState?.inflightAgentTimeline;
   if (!timeline || timeline.completed) {
@@ -3949,6 +3962,11 @@ function scheduleAgentTimelineReveal(agentId, chatState, requestCtx = {}) {
   const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;
   if (Number(timeline.visibleItemCount || 0) >= pacedTotal) {
     clearAgentTimelineRevealTimer(timeline);
+    return;
+  }
+  if (typeof chatPageIsHidden === "function" && chatPageIsHidden()) {
+    clearAgentTimelineRevealTimer(timeline);
+    advanceAgentTimelineReveal(timeline, Infinity);
     return;
   }
   if (timeline.revealTimer) return;
@@ -4851,7 +4869,12 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
   const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
   if (listNode) {
     const rows = renderAgentTimelineRowsHtml(timeline);
-    listNode.innerHTML = rows || `<div class="agent-timeline-empty">${t("Waiting for runtime events...")}</div>`;
+    // Joined late, after the runtime let go of the run's first events: said,
+    // rather than showing a run that seems to start midway.
+    const gapNote = timeline.earlierStepsMissing
+      ? `<div class="agent-timeline-empty" data-agent-timeline-gap="1">${t("Earlier steps are not shown.")}</div>`
+      : "";
+    listNode.innerHTML = gapNote + (rows || `<div class="agent-timeline-empty">${t("Waiting for runtime events...")}</div>`);
     keepAgentTimelineListPinned(listNode);
     wireAgentTimelineRowToggle(listNode, () => chatState.inflightAgentTimeline);
   }
@@ -5055,6 +5078,131 @@ function markStreamTerminalFromEvent(chatState, entry = {}) {
   return false;
 }
 
+// A runtime that keeps a journal of each run (the native runtime) numbers its
+// events, run_seq 1, 2, 3... per run. The page keeps the last number it has
+// drawn of the run it follows, so that of the two copies of every event (chat
+// stream, event socket) the second is recognised by its number, a socket that
+// opens again asks for what came after it (after_seq), and a gap reads as a
+// gap. Kept per request id on the chat state, not on the stream or timeline,
+// which are replaced while the run goes on.
+const RUN_SEQ_CURSOR_LIMIT = 8;
+// How long the chat stream gets to deliver what the socket says it skipped
+// before the socket is asked again: both carry every event, the stream first.
+const RUN_CATCH_UP_GRACE_MS = 3000;
+
+function runSeqCursorFor(chatState, requestId) {
+  if (!chatState || !requestId) return 0;
+  return Number(chatState.runSeqCursors?.[requestId] || 0);
+}
+
+function setRunSeqCursor(chatState, requestId, seq) {
+  if (!chatState || !requestId) return;
+  if (!chatState.runSeqCursors || typeof chatState.runSeqCursors !== "object") chatState.runSeqCursors = {};
+  const cursors = chatState.runSeqCursors;
+  if (!Object.prototype.hasOwnProperty.call(cursors, requestId)) {
+    const keys = Object.keys(cursors);
+    while (keys.length >= RUN_SEQ_CURSOR_LIMIT) delete cursors[keys.shift()];
+  }
+  cursors[requestId] = Math.max(0, Number(seq) || 0);
+}
+
+function isFollowingChatRun(chatState, requestId) {
+  const requestCtx = chatState?.currentRequest;
+  if (!requestCtx || !requestId) return false;
+  return requestCtx.clientRequestId === requestId || requestCtx.requestId === requestId;
+}
+
+// Whether a numbered event of the run this page follows is new. Events without
+// a number (another runtime, the page's own placeholders) and events of runs
+// the page does not follow pass; the id check further on still applies to them.
+function acceptRunSeq(agentId, chatState, entry, socketCtx = {}) {
+  const seq = Number(entry?.run_seq || 0);
+  const requestId = String(entry?.request_id || "");
+  if (!seq || !requestId || !isFollowingChatRun(chatState, requestId)) return true;
+  const last = runSeqCursorFor(chatState, requestId);
+  if (seq <= last) return false;
+  // A merged copy of several text deltas covers run_seq_from..run_seq.
+  const first = Number(entry.run_seq_from || 0) || seq;
+  // The chat stream carries every event of the run in order, so it is never
+  // held back; the socket is, when it would skip something.
+  if (first === last + 1 || !socketCtx.viaSocket) {
+    setRunSeqCursor(chatState, requestId, seq);
+    return true;
+  }
+  // The socket was asked for what follows `last` and starts later: the runtime
+  // no longer has the events in between. Take what there is.
+  if (first > last + 1 && socketCtx.attachedAfterSeq === last && socketCtx.requestId === requestId) {
+    noteRunJournalHole(agentId, chatState, requestId, first);
+    setRunSeqCursor(chatState, requestId, seq);
+    return true;
+  }
+  requestRunCatchUp(agentId, chatState, requestId);
+  return false;
+}
+
+// The socket got ahead of what the page has drawn. While the page's own chat
+// stream is being read it is about to deliver the rest; otherwise (or if it
+// does not) the socket is opened again from the last number drawn.
+function requestRunCatchUp(agentId, chatState, requestId) {
+  if (!chatState || !requestId || chatState.runCatchUpTimer) return;
+  const ownStreamLive = Boolean(chatState.currentRequest?.liveStream);
+  const cursorAtRequest = runSeqCursorFor(chatState, requestId);
+  chatState.runCatchUpTimer = setTimeout(() => {
+    chatState.runCatchUpTimer = null;
+    if (!isFollowingChatRun(chatState, requestId)) return;
+    if (ownStreamLive && runSeqCursorFor(chatState, requestId) > cursorAtRequest) return;
+    ensureEventSocketForAgent(agentId, chatState.sessionId || "", requestId, { reattach: true });
+  }, ownStreamLive ? RUN_CATCH_UP_GRACE_MS : 250);
+}
+
+// The runtime says the run's events before `firstSeq` are not coming (it kept
+// only the newest of a long run). The timeline says so rather than looking
+// like a run that started midway.
+function noteRunJournalHole(agentId, chatState, requestId, firstSeq) {
+  if (!isFollowingChatRun(chatState, requestId)) return;
+  const first = Number(firstSeq || 0);
+  if (first > runSeqCursorFor(chatState, requestId) + 1) setRunSeqCursor(chatState, requestId, first - 1);
+  const timeline = chatState.inflightAgentTimeline;
+  if (!timeline || timeline.requestId !== requestId || timeline.earlierStepsMissing) return;
+  timeline.earlierStepsMissing = true;
+  if (chatState.currentRequest && typeof renderAgentTimelineForCurrentRequest === "function") {
+    renderAgentTimelineForCurrentRequest(agentId, chatState, { requestCtx: chatState.currentRequest });
+  }
+}
+
+// Messages from the socket itself rather than from the run: the welcome, whose
+// `attach` block says whether the runtime attached the socket to the run (and
+// up to which number it is catching up), and `resync`. Returns true for a
+// message that stops here.
+function handleEventSocketControlMessage(agentId, raw, socketCtx = {}) {
+  if (typeof raw !== "string" || raw.length > 4096) return false;
+  if (!raw.includes('"connected"') && !raw.includes('"resync"')) return false;
+  let payload = null;
+  try { payload = JSON.parse(raw); } catch { return false; }
+  if (!payload || typeof payload !== "object") return false;
+  const chatState = ensureChatState(agentId);
+  if (payload.type === "connected") {
+    const attach = payload.attach;
+    if (attach && typeof attach === "object" && socketCtx.requestId && attach.request_id === socketCtx.requestId) {
+      socketCtx.attachMode = true;
+      socketCtx.catchUpThroughSeq = Number(attach.last_seq || 0);
+      const firstSeq = Number(attach.first_seq || 0);
+      if (attach.found && firstSeq > runSeqCursorFor(chatState, socketCtx.requestId) + 1) {
+        noteRunJournalHole(agentId, chatState, socketCtx.requestId, firstSeq);
+      }
+    }
+    // The welcome goes on to the event handler as it always has.
+    return false;
+  }
+  if (payload.type === "resync") {
+    const data = (payload.data && typeof payload.data === "object") ? payload.data : {};
+    const requestId = String(data.request_id || socketCtx.requestId || "");
+    noteRunJournalHole(agentId, chatState, requestId, Number(data.first_seq || 0));
+    return true;
+  }
+  return false;
+}
+
 function handleAgentEventMessage(raw, socketCtx = {}) {
   let payload = null;
   try { payload = JSON.parse(raw); } catch { return; }
@@ -5071,6 +5219,17 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
+  // What a socket sends to bring a late viewer up to date already happened in
+  // front of whoever was watching then. Listeners that act on an event (the
+  // browser bridge) read this and ask the runtime before they act again.
+  if (
+    socketCtx.catchUpThroughSeq
+    && entry.run_seq
+    && entry.run_seq <= socketCtx.catchUpThroughSeq
+    && entry.request_id === (socketCtx.requestId || "")
+  ) {
+    entry.replayed = true;
+  }
   try {
     document.dispatchEvent(new CustomEvent("portal:runtime-event", {
       detail: { event: entry, agentId: currentAgentId, sessionId: currentSessionId },
@@ -5126,6 +5285,18 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     // Drop unmatched stale events when no current session is bound.
     // Otherwise they can recreate inflightEventStream and cause false busy/session pollution.
     return;
+  }
+
+  // A runtime that numbers the events of a run says with the number which of
+  // the two copies (chat stream, event socket) is new and whether a viewer
+  // skipped something. It comes before the type filter below: the events
+  // that filter drops carry numbers too, and skipping them here would read
+  // as a hole in the run.
+  if (typeof acceptRunSeq === "function" && !acceptRunSeq(currentAgentId, chatState, entry, socketCtx)) return;
+  // The runtime is speaking, whichever channel brought it: a run followed
+  // from its socket alone is not "waiting for runtime events".
+  if (entry.run_seq && typeof isFollowingChatRun === "function" && isFollowingChatRun(chatState, entry.request_id)) {
+    chatState.currentRequest.sawRuntimeEvent = true;
   }
 
   // Handle additive runtime state fields while keeping existing event semantics.
@@ -5265,13 +5436,17 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     ) {
       chatState.currentRequest.streamedText = chatState.inflightAgentTimeline.assistantText;
     }
-    if (typeof renderAgentTimelineForCurrentRequest === "function") {
+    // Only a run the page follows is drawn. Events of a run nobody here sent
+    // or recovered yet (a socket opened while a recovery is still asking the
+    // runtime about the run) found any placeholder on the page and painted a
+    // timeline into it that the recovery then replaced with an empty one.
+    if (chatState.currentRequest && typeof renderAgentTimelineForCurrentRequest === "function") {
       renderAgentTimelineForCurrentRequest(currentAgentId, chatState, {
-        requestCtx: chatState.currentRequest || {},
+        requestCtx: chatState.currentRequest,
       });
     }
-    if (typeof scheduleAgentTimelineReveal === "function") {
-      scheduleAgentTimelineReveal(currentAgentId, chatState, chatState.currentRequest || {});
+    if (chatState.currentRequest && typeof scheduleAgentTimelineReveal === "function") {
+      scheduleAgentTimelineReveal(currentAgentId, chatState, chatState.currentRequest);
     }
   }
 
@@ -5376,7 +5551,9 @@ function scheduleEventSocketReconnect(agentId, sessionId, requestId = "") {
   }, baseDelay + jitter);
 }
 
-function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
+// `reattach` opens the socket again even when one for the same run is open:
+// the page asks the runtime for the run from the last event it has drawn.
+function ensureEventSocketForAgent(agentId, sessionId, requestId = null, { reattach = false } = {}) {
   if (!agentId) return;
   const chatState = ensureChatState(agentId);
   const session = sessionId || chatState?.sessionId || "";
@@ -5386,7 +5563,7 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
     const sameSession = (state.eventWsSessionId || "") === (session || "");
     const sameRequest = (state.eventWsRequestId || "") === (requestId || "");
     const readyState = state.eventWs.readyState;
-    if (sameAgent && sameSession && sameRequest && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
+    if (!reattach && sameAgent && sameSession && sameRequest && (readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING)) return;
     disconnectEventSocket();
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -5394,9 +5571,22 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
   if (session) params.set("session_id", session);
   if (requestId) params.set("request_id", requestId);
   params.set("replay", "1");
-  const lastEventAt = chatState?.inflightEventStream?.lastEventCreatedAt
-    || chatState?.lastEventStreamSnapshot?.lastEventCreatedAt
-    || "";
+  // A socket for one run asks for what follows the last numbered event the
+  // page has drawn of it. A runtime with a run journal answers from it (and
+  // says so in its welcome); one without ignores after_seq and replays by
+  // time, up to its largest batch.
+  let afterSeq = null;
+  if (requestId) {
+    afterSeq = typeof runSeqCursorFor === "function" ? runSeqCursorFor(chatState, requestId) : 0;
+    params.set("after_seq", String(afterSeq));
+    params.set("replay_limit", "500");
+  }
+  // The time cursor of a run socket is that run's own: another run's last
+  // event would cut this run's replay short.
+  const inflightStream = chatState?.inflightEventStream;
+  const lastEventAt = requestId
+    ? ((inflightStream && (inflightStream.requestId === requestId || inflightStream.id === requestId)) ? (inflightStream.lastEventCreatedAt || "") : "")
+    : (inflightStream?.lastEventCreatedAt || chatState?.lastEventStreamSnapshot?.lastEventCreatedAt || "");
   if (lastEventAt) params.set("last_event_at", lastEventAt);
   const query = params.toString();
   const wsUrl = `${protocol}//${window.location.host}/a/${agentId}/api/events${query ? `?${query}` : ""}`;
@@ -5413,9 +5603,13 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
     state.eventWsReconnectAttempt = 0;
     updateEventSocketStatus(agentId, "connected");
   };
+  // Shared by every message of this socket: the welcome fills in how far the
+  // runtime's catch-up goes.
+  const socketCtx = { agentId, sessionId: session, requestId, viaSocket: true, attachedAfterSeq: afterSeq };
   ws.onmessage = (event) => {
     try {
-      handleAgentEventMessage(event.data, { agentId, sessionId: session, requestId });
+      if (typeof handleEventSocketControlMessage === "function" && handleEventSocketControlMessage(agentId, event.data, socketCtx)) return;
+      handleAgentEventMessage(event.data, socketCtx);
     } catch (error) {
       console.error("Portal chat event handler failed", error);
       const latestChatState = ensureChatState(agentId);
@@ -8401,7 +8595,10 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
   state.cachedSkills = state.cachedSkillsByAgent.get(agentId) || [];
   state.selectedSuggestionIndex = -1;
-  disconnectEventSocket();
+  // Selecting the assistant that is already selected (startup does it twice)
+  // keeps its socket: nothing reopened it afterwards, so a reply in flight
+  // stopped updating until the next send.
+  if (previousAgentId !== agentId) disconnectEventSocket();
 
   if (dom.chatAgentId) dom.chatAgentId.value = agentId || "";
   syncHiddenSessionInputFromState();
@@ -9047,6 +9244,10 @@ async function submitChatForSelectedAgent() {
       content_type: pf.uploadedData?.content_type || pf.file?.type || "",
       size: pf.uploadedData?.size ?? pf.file?.size,
     }));
+    // Kept to draw the message again if the transcript is rebuilt from
+    // history before the runtime has stored it.
+    requestCtx.displayMessage = displayMessage;
+    requestCtx.displayAttachments = displayAttachments;
     dom.messageList.insertAdjacentHTML(
       "beforeend",
       buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })
@@ -9485,7 +9686,9 @@ function queueAssistantTypewriter(agentId, requestCtx, targetText) {
   const tw = getAssistantTypewriterState(requestCtx);
   if (!tw || tw.cancelled) return;
   tw.targetText = String(targetText || "");
-  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const drawWhole = (typeof chatPageIsHidden === "function" && chatPageIsHidden())
+    || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  if (drawWhole) {
     tw.visibleText = tw.targetText;
     updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: true, requestCtx });
     return;
@@ -9517,7 +9720,10 @@ async function flushAssistantTypewriter(agentId, requestCtx, finalText, { maxWai
   tw.finalizing = true;
   queueAssistantTypewriter(agentId, requestCtx, finalText || "");
   const deadline = Date.now() + maxWaitMs;
+  // Hidden, each of these waits takes a second or more; the text is drawn
+  // whole below anyway.
   while (!tw.cancelled && tw.visibleText.length < tw.targetText.length && Date.now() < deadline) {
+    if (typeof chatPageIsHidden === "function" && chatPageIsHidden()) break;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   tw.visibleText = tw.targetText;
@@ -10853,9 +11059,20 @@ async function handleSessionBusyRefusal(agentIdAtSend, requestCtx, refusal = {})
     interrupt: false,
     queuedAt: Date.now(),
   };
-  chatState.queuedMessage = queued;
-  setChatSubmittingForAgent(agentIdAtSend, false, { suppressSync: true });
   const activeRequestId = String(refusal?.active_request_id || "");
+  // The run still answering is this same message, sent before and reported
+  // failed while the runtime could not be reached (handleAgentChatFailure):
+  // join it rather than queue the message to run a second time.
+  const unconfirmed = chatState.unconfirmedSend;
+  const sameMessageAgain = Boolean(
+    unconfirmed
+    && activeRequestId
+    && unconfirmed.requestId === activeRequestId
+    && unconfirmed.message === queued.text
+  );
+  chatState.unconfirmedSend = null;
+  chatState.queuedMessage = sameMessageAgain ? null : queued;
+  setChatSubmittingForAgent(agentIdAtSend, false, { suppressSync: true });
   const sessionId = requestCtx?.sessionIdAtSend || chatState.sessionId || "";
   let joined = false;
   if (activeRequestId && sessionId && typeof recoverInflightChatRunForAgent === "function") {
@@ -10872,7 +11089,9 @@ async function handleSessionBusyRefusal(agentIdAtSend, requestCtx, refusal = {})
     setChatStatus(t("The assistant is still answering a previous message. Try again in a moment."), true);
     showToast(t("The assistant is still answering a previous message. Try again in a moment."));
   } else if (state.selectedAgentId === agentIdAtSend) {
-    setChatStatus(t("Joined the reply in progress; your message is sent when it finishes."));
+    setChatStatus(sameMessageAgain
+      ? t("Joined the reply in progress.")
+      : t("Joined the reply in progress; your message is sent when it finishes."));
   }
   syncSelectedAgentChatActionControls();
 }
@@ -10943,6 +11162,9 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
   if (requestCtx?.stopFinalized) return "event";
   const outerType = normalizeChatStreamEventName(eventName);
   const eventData = normalizeChatStreamEventData(data);
+  // A send that joined a run already under way is answered with that run's
+  // status only; its events come from the socket.
+  if (outerType === "start" && eventData.resumed === true && requestCtx) requestCtx.liveStream = false;
   const embeddedType = normalizeChatStreamEventName(eventData.type || eventData.event_type || eventData?.data?.type || eventData?.data?.event_type || eventData.event || "");
   const localGetCompletionState = (typeof getCompletionState === "function")
     ? getCompletionState
@@ -11324,6 +11546,9 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     throw new Error(await handleErrorResponse(resp));
   }
   requestCtx.usedStream = true;
+  // While this body is read the page gets every event of the run from it
+  // first; the reconnect variant carries only the run's status.
+  requestCtx.liveStream = requestBody?.reconnect !== true;
   const localFinalizeNonSuccessChatResponse = (typeof finalizeNonSuccessChatResponse === "function")
     ? finalizeNonSuccessChatResponse
     : (agentId, ctx, payload, source) => handleIncompleteChatStream(agentId, ctx, source || "non_success", payload);
@@ -11398,6 +11623,8 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     if (sawEvent && requestCtx?.recovered) return 'unsupported';
     if (sawEvent) throw e;
     return 'unsupported';
+  } finally {
+    requestCtx.liveStream = false;
   }
   if (
     requestCtx.streamCompleted ||
@@ -11722,20 +11949,67 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   }
 }
 
+// How long a broken chat stream gets before the send is reported as failed.
+// The run goes on on the runtime whatever happens to the browser's connection
+// (a network change, a proxy restart), so the page keeps asking the runtime
+// about it -- at once again when the network or the tab comes back.
+const BROKEN_STREAM_STATUS_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000, 15000, 15000];
+
+const chatRunRetryWaiters = new Set();
+
+function waitForChatRunRetry(ms) {
+  return new Promise((resolve) => {
+    let timer = null;
+    const waiter = () => {
+      clearTimeout(timer);
+      chatRunRetryWaiters.delete(waiter);
+      resolve();
+    };
+    timer = setTimeout(waiter, ms);
+    chatRunRetryWaiters.add(waiter);
+  });
+}
+
+function wakeChatRunRetryWaiters() {
+  Array.from(chatRunRetryWaiters).forEach((waiter) => waiter());
+}
+
+// Only the runtime saying it has no such run (404, chat_run_not_found) settles
+// it. A network error or a proxy's 502 says nothing about the run.
+function chatRunStatusSaysNotFound(error) {
+  return String(error?.message || error || "").includes("chat_run_not_found");
+}
+
 async function tryRecoverBrokenChatStream(agentIdAtSend, requestCtx) {
   const chatState = ensureChatState(agentIdAtSend);
   const requestId = requestCtx?.clientRequestId || "";
   if (!chatState || !requestId) return false;
   cancelAssistantTypewriter(requestCtx);
   let statusPayload = null;
-  try {
-    statusPayload = await fetchChatRunStatusForAgent(
-      agentIdAtSend,
-      requestCtx.sessionIdAtSend || chatState.sessionId || "",
-      requestId,
-    );
-  } catch {
-    return false;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      statusPayload = await fetchChatRunStatusForAgent(
+        agentIdAtSend,
+        requestCtx.sessionIdAtSend || chatState.sessionId || "",
+        requestId,
+      );
+      break;
+    } catch (error) {
+      if (chatRunStatusSaysNotFound(error)) return false;
+      const delay = BROKEN_STREAM_STATUS_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) {
+        // Not reachable for minutes: reported as failed, but the run may
+        // well be answering still (see handleSessionBusyRefusal).
+        requestCtx.runOutcomeUnknown = true;
+        return false;
+      }
+      if (attempt === 0 && state.selectedAgentId === agentIdAtSend) {
+        setChatStatus(t("Connection lost. Reconnecting to running response..."));
+      }
+      await waitForChatRunRetry(delay);
+      // Stopped, or taken over by something else, while waiting.
+      if (chatState.currentRequest !== requestCtx || requestCtx.aborted) return true;
+    }
   }
   const runState = normalizeChatRunStatus(statusPayload?.state);
   const sessionId = requestCtx.sessionIdAtSend || chatState.sessionId || String(statusPayload?.session_id || "");
@@ -11746,26 +12020,30 @@ async function tryRecoverBrokenChatStream(agentIdAtSend, requestCtx) {
     return true;
   }
   if (runState !== "running") return false;
-  // The run is still executing detached; hand off to the standard recovery
-  // flow instead of reporting a false send failure.
+  // Still running on the runtime: follow it from here instead of reporting a
+  // false send failure. What is on screen stays -- the stream, the timeline
+  // and the last event number drawn are this page's own -- and the socket
+  // picks the run up after that number.
+  requestCtx.recovered = true;
+  requestCtx.liveStream = false;
+  requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === "run_registry";
+  requestCtx.reconnectStreamStarted = false;
+  // Cancelled above; the answer still lands through it, from what is shown.
+  const shownText = String(chatState.inflightAgentTimeline?.assistantText || requestCtx.streamedText || "");
+  requestCtx.typewriter = { targetText: shownText, visibleText: shownText, timerId: null, finalizing: false, cancelled: false };
   persistInflightChatRun(agentIdAtSend, {
     session_id: sessionId,
     request_id: requestId,
     message_preview: requestCtx.message || "",
     started_at: requestCtx.startedAt ? new Date(requestCtx.startedAt).toISOString() : new Date().toISOString(),
   });
-  chatState.currentRequest = null;
   if (state.selectedAgentId === agentIdAtSend) {
-    setChatStatus(t("Connection lost. Reconnecting to running response..."));
+    setChatStatus(t("Reconnected to running response."));
   }
-  const recovered = await recoverInflightChatRunForAgent(
-    agentIdAtSend,
-    sessionId,
-    {},
-    { render: state.selectedAgentId === agentIdAtSend },
-  );
-  if (!recovered) chatState.currentRequest = requestCtx;
-  return recovered;
+  ensureEventSocketForAgent(agentIdAtSend, sessionId, requestId, { reattach: true });
+  scheduleRecoveredChatRunPoll(agentIdAtSend, sessionId, requestId, requestCtx);
+  if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentIdAtSend, requestCtx);
+  return true;
 }
 
 async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
@@ -11780,6 +12058,16 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
       // Fall through to the regular failure handling.
     }
     if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  }
+  // The runtime could not be asked about the run, so the message goes back
+  // to the composer -- but the run may still be answering it. Remembered so
+  // that sending the same message again joins that run instead of queueing
+  // it to run twice.
+  if (requestCtx.runOutcomeUnknown) {
+    chatState.unconfirmedSend = {
+      requestId: requestCtx.clientRequestId,
+      message: String(requestCtx.backupMessage || ""),
+    };
   }
   const restoredMessage = requestCtx.backupMessage || "";
   const errorMsg = error?.message || t("Send failed");
@@ -13847,6 +14135,23 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     return true;
   }
 
+  startFollowingRecoveredChatRun(agentId, sessionId, candidate, {
+    reconnectStreamAllowed: statusPayload?.source_of_truth === "run_registry",
+  });
+  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
+  if (state.selectedAgentId === agentId) {
+    setChatStatus(pendingText === "Reconnecting" ? t("Reconnected to running response.") : t("Working..."));
+  }
+  return true;
+}
+
+// Follow a run this page did not send, or no longer holds: a fresh request
+// context, stream and timeline, the socket attached to the run from its first
+// event, the status poll, and the reconnect stream for its outcome. Fresh, so
+// everything drawn comes from the run's own events and nothing a session
+// socket half-built before survives into it.
+function startFollowingRecoveredChatRun(agentId, sessionId, candidate, { reconnectStreamAllowed = false, liveRun = null } = {}) {
+  const chatState = ensureChatState(agentId);
   const requestCtx = {
     requestId: candidate.request_id,
     clientRequestId: candidate.request_id,
@@ -13865,8 +14170,9 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     usedStream: true,
     typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
   };
+  if (liveRun) requestCtx.liveRun = liveRun;
   chatState.currentRequest = requestCtx;
-  requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === "run_registry";
+  requestCtx.reconnectStreamAllowed = Boolean(reconnectStreamAllowed);
   chatState.inflightEventStream = {
     id: candidate.request_id,
     requestId: candidate.request_id,
@@ -13881,12 +14187,10 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     else chatState.inflightAgentTimeline = null;
     chatState.inflightAgentTimeline = createAgentTimelineState({ requestId: candidate.request_id, sessionId });
   }
+  // Drawn from the run's first event again.
+  if (typeof setRunSeqCursor === "function") setRunSeqCursor(chatState, candidate.request_id, 0);
   setChatSubmittingForAgent(agentId, true);
-  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
-  if (state.selectedAgentId === agentId) {
-    setChatStatus(pendingText === "Reconnecting" ? t("Reconnected to running response.") : t("Working..."));
-  }
-  ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
+  ensureEventSocketForAgent(agentId, sessionId, candidate.request_id, { reattach: true });
   startWaitingForRuntimeEventsTimer(agentId, requestCtx);
   scheduleRecoveredChatRunPoll(agentId, sessionId, candidate.request_id, requestCtx);
   if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);
@@ -13896,6 +14200,140 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     message_preview: candidate.message_preview || "",
     started_at: candidate.started_at || new Date().toISOString(),
   });
+  return requestCtx;
+}
+
+// The run in flight in a session as a runtime with a run journal reports it
+// alongside the session (live_run): known to be running, so the page follows
+// it without asking first, and knows when it started.
+function liveRunFromSessionPayload(data) {
+  const liveRun = data?.live_run;
+  if (!liveRun || typeof liveRun !== "object") return null;
+  const requestId = String(liveRun.request_id || "").trim();
+  if (!requestId) return null;
+  const runState = normalizeChatRunState(liveRun.state) || "running";
+  if (!RUNNING_CHAT_RUN_STATES.has(runState)) return null;
+  return {
+    request_id: requestId,
+    state: runState,
+    started_at: String(liveRun.started_at || ""),
+    last_seq: Number(liveRun.last_seq || 0) || 0,
+  };
+}
+
+function adoptLiveChatRunForAgent(agentId, sessionId, liveRun) {
+  const chatState = ensureChatState(agentId);
+  if (!agentId || !sessionId || !chatState || chatState.currentRequest || !liveRun?.request_id) return false;
+  const persisted = getPersistedInflightChatRun(agentId);
+  const persistedSameRun = Boolean(persisted && String(persisted.request_id || "") === liveRun.request_id);
+  startFollowingRecoveredChatRun(agentId, sessionId, {
+    agent_id: agentId,
+    session_id: sessionId,
+    request_id: liveRun.request_id,
+    message_preview: persistedSameRun ? String(persisted.message_preview || "") : "",
+    started_at: liveRun.started_at || (persistedSameRun ? String(persisted.started_at || "") : ""),
+  }, { reconnectStreamAllowed: true, liveRun });
+  return true;
+}
+
+// Runtime timestamps are ISO-8601 in UTC, with microseconds; one without a
+// zone is UTC too. Epoch seconds pass as well.
+function runtimeTimestampMs(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
+  const text = String(value || "").trim().replace(" ", "T");
+  if (!text) return NaN;
+  return Date.parse(/(z|[+-]\d\d:?\d\d)$/i.test(text) ? text : `${text}Z`);
+}
+
+function storedUserMessageIs(message, text) {
+  const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const stored = normalize(getHistoryUserVisibleContent(message));
+  const sent = normalize(text);
+  if (sent === "[attachment]") return !stored || stored === sent;
+  return Boolean(sent) && stored === sent;
+}
+
+// The part of a session's stored history that the row of the run in flight
+// draws itself, so that the history above the row leaves it out. With the
+// run's start time (live_run) that is every assistant and tool message the
+// run has stored so far. Without it, and only for a run this page sent: what
+// follows the page's own message, when that message is the last one stored.
+// `userMessage` is the turn's own message when history already has it.
+function splitHistoryForFollowedRun(agentId, sessionId, messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const chatState = ensureChatState(agentId);
+  const requestCtx = chatState?.currentRequest;
+  const runSessionId = requestCtx ? (requestCtx.sessionIdAtSend || chatState.sessionId || "") : "";
+  // An edit's regeneration rewrites the history it follows; it keeps its own
+  // flow (pollEditedSessionUntilComplete).
+  if (!requestCtx || requestCtx.edit || !sessionId || runSessionId !== sessionId) {
+    return { messages: list, userMessage: null, followed: false };
+  }
+  const startedAtMs = runtimeTimestampMs(requestCtx.liveRun?.started_at);
+  if (Number.isFinite(startedAtMs)) {
+    const ofThisRun = (message) => runtimeTimestampMs(message?.created_at || message?.timestamp) >= startedAtMs;
+    const kept = list.filter((message) => message?.role === "user" || !ofThisRun(message));
+    const lastUser = [...kept].reverse().find((message) => message?.role === "user") || null;
+    return { messages: kept, userMessage: lastUser && ofThisRun(lastUser) ? lastUser : null, followed: true };
+  }
+  if (requestCtx.recovered) return { messages: list, userMessage: null, followed: true };
+  let lastUserIndex = -1;
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    if (list[index]?.role === "user") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+  if (lastUserIndex >= 0 && storedUserMessageIs(list[lastUserIndex], requestCtx.message)) {
+    return { messages: list.slice(0, lastUserIndex + 1), userMessage: list[lastUserIndex], followed: true };
+  }
+  return { messages: list, userMessage: null, followed: true };
+}
+
+// The transcript was just drawn from history while this page follows a run
+// (the member came back to the assistant, or the page joined a run in flight).
+// The run's row goes back under its message and is drawn from what the page
+// already holds, all at once rather than typed out again. The turn's message
+// is marked as this send's, so that the answer lands in place instead of
+// through another reload.
+function restoreFollowedChatRunView(agentId, split = {}) {
+  const chatState = ensureChatState(agentId);
+  const requestCtx = chatState?.currentRequest;
+  if (!split.followed || !requestCtx || !dom.messageList) return false;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx.sessionIdAtSend)) return false;
+  const requestId = requestCtx.clientRequestId || requestCtx.requestId || "";
+  if (!requestId) return false;
+  removeWelcomeMessageIfPresent();
+  if (!requestCtx.recovered) {
+    const userArticles = dom.messageList.querySelectorAll('article[data-local-user="1"]');
+    const lastUserArticle = userArticles[userArticles.length - 1] || null;
+    if (split.userMessage && lastUserArticle) {
+      lastUserArticle.dataset.optimisticUser = "1";
+      lastUserArticle.dataset.clientRequestId = requestId;
+    } else if (!split.userMessage) {
+      const attachments = Array.isArray(requestCtx.displayAttachments) ? requestCtx.displayAttachments : [];
+      dom.messageList.insertAdjacentHTML("beforeend", buildUserMessageArticle(
+        requestCtx.displayMessage || requestCtx.backupMessage || requestCtx.message || "",
+        attachments,
+        { clientRequestId: requestId },
+      ));
+      if (attachments.length) renderIcons(dom.messageList.lastElementChild);
+    }
+  }
+  if (!dom.messageList.querySelector('article[data-pending-assistant="1"]')) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, requestCtx.recovered ? "Reconnecting" : "Thinking"));
+  }
+  const timeline = chatState.inflightAgentTimeline;
+  if (timeline && agentTimelineMatchesRequest(timeline, requestCtx)) {
+    advanceAgentTimelineReveal(timeline, Infinity);
+    renderAgentTimelineForCurrentRequestNow(agentId, chatState, { requestCtx });
+  }
+  const tw = requestCtx.typewriter;
+  if (tw && !tw.cancelled && tw.targetText) {
+    tw.visibleText = tw.targetText;
+    if (!timeline?.assistantText) updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: true, requestCtx });
+  }
+  scrollToBottom({ force: true });
   return true;
 }
 
@@ -13916,6 +14354,9 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     && transcript.sessionId === normalized
     && !ensureChatState(agentId)?.needsReload
   ) {
+    // The conversation is on screen; its socket may not be open, and a reply
+    // in flight needs it.
+    if (agentId === state.selectedAgentId) ensureEventSocketForSelectedAgent();
     return;
   }
   // Claimed before anything is fetched, so a load that is overtaken while
@@ -13968,6 +14409,23 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     }
     throw error;
   }
+  // A runtime with a run journal says with the session whether a run is in
+  // flight (live_run), and also when none is. A run it reports is followed
+  // from here, before updateAgentSession opens the socket, so that the socket
+  // is the run's own from the start; the history drawn below then leaves out
+  // what the run's row draws itself.
+  const reportsLiveRun = Boolean(data && typeof data === "object" && Object.prototype.hasOwnProperty.call(data, "live_run"));
+  const liveRun = reportsLiveRun ? liveRunFromSessionPayload(data) : null;
+  const followedRun = chatState?.currentRequest || null;
+  let joinedLiveRun = false;
+  if (liveRun && followedRun && isFollowingChatRun(chatState, liveRun.request_id)) {
+    followedRun.liveRun = liveRun;
+  } else if (recoverRunning && reportsLiveRun && !followedRun) {
+    if (liveRun) joinedLiveRun = adoptLiveChatRunForAgent(agentId, normalized, liveRun);
+    // Nothing in flight, and the runtime would know: a record left by an
+    // earlier visit is not a run to go looking for.
+    else clearPersistedInflightChatRun(agentId);
+  }
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
@@ -14019,13 +14477,21 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
       state.selectedAgentName = agent?.name || null;
     }
-    renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
+    // While a run is followed, its row is drawn from the run itself; the
+    // history leaves that part out and the row goes back in under it.
+    const split = (typeof splitHistoryForFollowedRun === "function")
+      ? splitHistoryForFollowedRun(agentId, normalized, normalizedPayload.messages || [])
+      : { messages: normalizedPayload.messages || [], followed: false };
+    renderChatHistory(split.messages, normalizedPayload.metadata || {});
     markTranscriptReady(token);
+    if (split.followed && typeof restoreFollowedChatRunView === "function") restoreFollowedChatRunView(agentId, split);
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.currentRequest) setChatStatus(t("Loaded session {session}", { session: normalized }));
+    else if (joinedLiveRun) setChatStatus(t("Reconnected to running response."));
     applyRecoveryNotice();
   }
-  if (recoverRunning) {
+  // A runtime that reports live_run has answered already, either way.
+  if (recoverRunning && !reportsLiveRun) {
     await recoverInflightChatRunForAgent(agentId, normalized, normalizedPayload.metadata || {}, { render });
   }
   void refreshContextUsageForAgent(agentId, normalized, {
@@ -21146,6 +21612,36 @@ window.addEventListener("popstate", () => {
 });
 
 window.addEventListener("beforeunload", disconnectEventSocket);
+
+// Coming back to the page -- the tab shown again, the page restored from the
+// back-forward cache, the network back -- brings the run in flight up to date
+// at once: what arrived while hidden is drawn whole, the socket is opened
+// again if it went, and a broken stream waiting to ask about its run asks now.
+function resyncLiveChatRunViews() {
+  wakeChatRunRetryWaiters();
+  const agentId = state.selectedAgentId;
+  if (!agentId) return;
+  const chatState = ensureChatState(agentId);
+  const requestCtx = chatState?.currentRequest;
+  if (!requestCtx) return;
+  const timeline = chatState.inflightAgentTimeline;
+  if (timeline && agentTimelineMatchesRequest(timeline, requestCtx)) {
+    advanceAgentTimelineReveal(timeline, Infinity);
+    renderAgentTimelineForCurrentRequestNow(agentId, chatState, { requestCtx });
+  }
+  const tw = requestCtx.typewriter;
+  if (tw && !tw.cancelled && tw.targetText && tw.visibleText !== tw.targetText) {
+    tw.visibleText = tw.targetText;
+    updatePendingAssistantStreamContent(agentId, tw.visibleText, { streaming: true, requestCtx });
+  }
+  ensureEventSocketForSelectedAgent();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) resyncLiveChatRunViews();
+});
+window.addEventListener("pageshow", resyncLiveChatRunViews);
+window.addEventListener("online", resyncLiveChatRunViews);
 
 
 
