@@ -86,10 +86,22 @@ def test_a_group_administrator_edits_only_their_groups_default_connectors(monkey
 
         assert env.client.get("/app/admin/groups/panel").status_code == 403
         assert env.client.get("/app/admin/errors/panel").status_code == 403
+        # Pending entries of the group: a system administrator's has no Remove
+        # for a group administrator, who could not remove it.
+        from app.models import UserAllowlistEntry
+
+        env.db.add_all([
+            UserAllowlistEntry(username="pending-member", role="user", is_active=True, group_id=dev.id),
+            UserAllowlistEntry(username="pending-root", role="admin", is_active=True, group_id=dev.id),
+        ])
+        env.db.commit()
         users = env.client.get("/app/users/panel")
         assert users.status_code == 200
         assert "Members of Dev" in users.text
         assert "@owner" not in users.text
+        assert 'data-allowlist-username="pending-member"' in users.text
+        assert 'data-allowlist-username="pending-root"' not in users.text
+        assert "Ops" not in users.text
     finally:
         env.cleanup()
 

@@ -45,12 +45,14 @@ class UserAllowlistRepository:
         *,
         role: str = "user",
         added_by_user_id: Optional[int] = None,
+        group_id: Optional[int] = None,
     ) -> UserAllowlistEntry:
         entry = UserAllowlistEntry(
             username=normalize_username(username),
             role=role,
             is_active=True,
             added_by_user_id=added_by_user_id,
+            group_id=group_id,
         )
         self.db.add(entry)
         self.db.commit()
@@ -65,7 +67,11 @@ class UserAllowlistRepository:
         added_by_user_id: Optional[int] = None,
         reactivate: bool = False,
         update_role: bool = True,
+        group_id: Optional[int] = None,
     ) -> UserAllowlistEntry:
+        """The entry for ``username``, created or updated; ``group_id`` (when given)
+        is stored in the same commit, so an account created from the entry at
+        that moment already joins the right group."""
         entry = self.get_by_username(username)
         if entry:
             changed = False
@@ -75,12 +81,15 @@ class UserAllowlistRepository:
             if update_role and entry.role != role:
                 entry.role = role
                 changed = True
+            if group_id is not None and entry.group_id != group_id:
+                entry.group_id = group_id
+                changed = True
             if changed:
                 self.db.add(entry)
                 self.db.commit()
                 self.db.refresh(entry)
             return entry
-        return self.create(username, role=role, added_by_user_id=added_by_user_id)
+        return self.create(username, role=role, added_by_user_id=added_by_user_id, group_id=group_id)
 
     def update_role(self, entry: UserAllowlistEntry, role: str) -> UserAllowlistEntry:
         entry.role = role

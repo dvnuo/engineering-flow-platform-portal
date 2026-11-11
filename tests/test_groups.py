@@ -429,6 +429,32 @@ def test_a_group_administrator_manages_roles_inside_the_group_only(api):
 
     overview = client.get("/api/users/admin-overview").json()
     assert {row["username"] for row in overview["users"]} == {"lead", "member", "root"}
+    # Other groups stay unseen, their names included.
+    assert [group["id"] for group in overview["groups"]] == [dev.id]
+    assert {row["username"] for row in client.get("/api/users").json()} == {"lead", "member", "root"}
+
+
+def test_an_allowlist_entry_is_stored_with_its_group_in_one_commit():
+    # An account created from the entry at any moment after the commit (a
+    # first SSO sign-in, say) must already find the group on it.
+    from app.repositories.user_allowlist_repo import UserAllowlistRepository
+
+    db, default, dev, ops = _world()
+    repo = UserAllowlistRepository(db)
+    commits = []
+    original_commit = db.commit
+
+    def counting_commit():
+        commits.append(1)
+        original_commit()
+
+    db.commit = counting_commit
+    created = repo.ensure("fresh", role="user", reactivate=True, group_id=dev.id)
+    assert created.group_id == dev.id and len(commits) == 1
+
+    commits.clear()
+    again = repo.ensure("fresh", role="user", reactivate=True, group_id=ops.id)
+    assert again.group_id == ops.id and len(commits) == 1
 
 
 def test_a_system_administrator_moves_members_between_groups(api):

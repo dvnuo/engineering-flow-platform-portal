@@ -79,20 +79,20 @@ def in_same_group(db: Any, owner_user_id: Any, user: Any) -> bool:
 
     if db is None or owner_user_id is None or user is None:
         return False
-    from app.models.group import Group
     from app.models.user import User
+    from app.repositories.group_repo import GroupRepository
+    from app.services.authorization import group_id_of
 
     owner = db.get(User, owner_user_id)
     if owner is None:
         return False
-    if owner.group_id is not None and owner.group_id == getattr(user, "group_id", None):
-        return True
-    default_id = db.scalar(select(Group.id).where(Group.is_default.is_(True)).order_by(Group.id.asc()).limit(1))
-
-    def key(value):
-        return value if value is not None else default_id
-
-    return key(owner.group_id) == key(getattr(user, "group_id", None))
+    viewer_group_id = getattr(user, "group_id", None)
+    if owner.group_id is not None and viewer_group_id is not None:
+        return owner.group_id == viewer_group_id
+    # Only an account with no group needs the default group's id.
+    default = GroupRepository(db).get_default()
+    default_id = default.id if default is not None else None
+    return group_id_of(owner, default_id) == group_id_of(user, default_id)
 
 
 def can_see(row: Any, user: Any, db: Any = None) -> bool:

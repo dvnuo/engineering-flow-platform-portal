@@ -98,7 +98,8 @@ class MemberManagementService:
         def group_of(value: int | None) -> int | None:
             return value if value is not None else default_group_id
 
-        users = UserRepository(self.db).list_all()
+        all_users = UserRepository(self.db).list_all()
+        users = all_users
         all_allowlist_entries = UserAllowlistRepository(self.db).list_all()
         allowlist_by_username = {
             normalize_username(entry.username): entry for entry in all_allowlist_entries
@@ -170,9 +171,8 @@ class MemberManagementService:
                 }
             )
 
-        registered_usernames |= {
-            normalize_username(user.username) for user in UserRepository(self.db).list_all()
-        }
+        # An entry for an account in another group is not pending either.
+        registered_usernames |= {normalize_username(user.username) for user in all_users}
         pending_entries = [
             entry for entry in allowlist_entries if normalize_username(entry.username) not in registered_usernames
         ]
@@ -181,8 +181,11 @@ class MemberManagementService:
             "allowlist_entries": allowlist_entries,
             "pending_allowlist_entries": pending_entries,
             "group_id": group_id,
+            # A group administrator's overview names their own group only.
             "groups": [
-                {"id": group.id, "name": group.name, "is_default": bool(group.is_default)} for group in groups
+                {"id": group.id, "name": group.name, "is_default": bool(group.is_default)}
+                for group in groups
+                if group_id is None or group.id == group_id
             ],
             "period_days": period_days,
             "summary": {

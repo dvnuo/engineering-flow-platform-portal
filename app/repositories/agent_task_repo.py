@@ -70,8 +70,6 @@ class AgentTaskRepository:
 
     def _visible_filter(self, user_id: int):
         """The tasks ``user_id`` may read besides an admin: their own, and the public ones of their group."""
-        from app.models.user import User
-
         viewer = self.db.get(User, user_id)
         if viewer is None:
             return AgentTask.owner_user_id == user_id

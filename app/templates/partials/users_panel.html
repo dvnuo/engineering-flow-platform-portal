@@ -222,12 +222,15 @@
           <span class="portal-admin-role-badge">{{ role_words.get(entry.role, entry.role) }}</span>
           <span class="portal-admin-role-badge">{{ group_names.get(entry.group_id or default_group_id, "") }}</span>
         </div>
+        {# A system administrator's entry is a system administrator's to remove. #}
+        {% if is_system_admin or entry.role != 'admin' %}
         <button
           class="portal-btn is-secondary"
           type="button"
           data-remove-allowlist="{{ entry.id }}"
           data-allowlist-username="{{ entry.username|data_attr }}"
         >{{ t("Remove") }}</button>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

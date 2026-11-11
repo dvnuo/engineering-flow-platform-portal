@@ -24,6 +24,7 @@ from app.services.authorization import (
     ROLE_SYSTEM_ADMIN,
     assignable_roles,
     can_manage_member,
+    group_id_of,
     is_system_admin,
 )
 from app.services.connector_defaults_sync import rollout_profiles
@@ -132,18 +133,13 @@ def _ensure_allowlist_access(
         role=role,
         added_by_user_id=admin_id,
         reactivate=True,
+        group_id=group.id if group is not None else None,
     )
     profile_id = None
     existing_user = UserRepository(db).get_by_username_case_insensitive(username)
-    if group is not None:
-        if existing_user is not None:
-            profile_id = GroupService(db).move_member(existing_user, group, actor_id=admin_id).profile_id
-            db.refresh(entry)
-        if entry.group_id != group.id:
-            entry.group_id = group.id
-            db.add(entry)
-            db.commit()
-            db.refresh(entry)
+    if group is not None and existing_user is not None:
+        profile_id = GroupService(db).move_member(existing_user, group, actor_id=admin_id).profile_id
+        db.refresh(entry)
     if existing_user and existing_user.role != role:
         UserRepository(db).update_access(existing_user, role=role)
     if entry.role != role:
@@ -170,15 +166,13 @@ def create_user(payload: UserCreateRequest, admin=Depends(require_admin), db: Se
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Username already exists"))
     group = _target_group(admin, payload.group_id, GroupService(db))
 
-    entry = UserAllowlistRepository(db).ensure(
+    UserAllowlistRepository(db).ensure(
         username,
         role=payload.role,
         added_by_user_id=admin.id,
         reactivate=True,
+        group_id=group.id,
     )
-    entry.group_id = group.id
-    db.add(entry)
-    db.commit()
     user = repo.create(username, hash_password(payload.password), payload.role)
     user.group_id = group.id
     db.add(user)
@@ -201,7 +195,8 @@ def list_users(actor=Depends(require_administrator), db: Session = Depends(get_d
     if not is_system_admin(actor):
         groups = GroupService(db)
         own_id = groups.group_of(actor).id
-        users = [user for user in users if getattr(groups.find_group_of(user), "id", None) == own_id]
+        default_id = groups.default_group_id()
+        users = [user for user in users if group_id_of(user, default_id) == own_id]
     return [UserResponse.model_validate(user) for user in users]
 
 
