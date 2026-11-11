@@ -1131,6 +1131,17 @@ def test_the_card_arrives_with_an_entrance():
     assert ".portal-interactive-card { animation: none; }" in css, "respect prefers-reduced-motion"
 
 
+def test_the_card_is_centred_at_a_width_that_follows_the_column():
+    # Left to size itself in an assistant row, the card hugged the left edge
+    # at the width of its longest question: on a wide column most of the row
+    # stood empty beside it, and the switch bar under it was centred.
+    css = CSS.read_text(encoding="utf-8")
+
+    assert ".portal-interactive-row { width: 100%; align-items: center; }" in css
+    card = css.split(".portal-interactive-row .portal-interactive-card {", 1)[1].split("}", 1)[0]
+    assert "width: min(100%, calc(var(--portal-chat-width, 980px) * 0.78));" in card
+
+
 def test_the_switch_bar_keeps_the_foot_of_the_conversation_in_shape():
     # It stands where the composer would, so the transcript does not jump when
     # the card appears -- and the bottom reserve follows it down, giving the

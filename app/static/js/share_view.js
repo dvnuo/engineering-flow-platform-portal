@@ -363,15 +363,27 @@
           + attachmentsHtml(user.attachments) + "</div></section>";
       }
       if (entry.type === "answer") {
+        // The question on the assistant's side and the answer alone in the
+        // member's bubble, as the chat draws it (appendQuestionAnswerRows in
+        // chat_ui.js). Both in the member's bubble put the assistant's words
+        // under the member's name, and a long question in its label column
+        // squeezed the answer to one letter per line.
         var answer = entry.message;
         var pairs = Array.isArray(answer.pairs) ? answer.pairs : [];
-        return "<section class=\"share-msg share-msg--user share-answer\">"
+        var asked = pairs.map(function (pair) { return String(pair.label || "").trim(); }).filter(Boolean);
+        var askedHtml = asked.length
+          ? "<section class=\"share-msg share-msg--assistant share-asked\">"
+            + metaHtml(assistantName, "", { avatar: true })
+            + "<div class=\"share-asked-body\">" + asked.map(function (question) {
+              return "<div class=\"share-asked-question\">" + escapeHtml(question) + "</div>";
+            }).join("") + "</div></section>"
+          : "";
+        return askedHtml
+          + "<section class=\"share-msg share-msg--user share-answer\">"
           + metaHtml(answer.author || t("User"), formatTime(answer.timestamp))
-          + "<div class=\"share-bubble share-bubble--answer\">"
-          + "<div class=\"share-answer-note\"><i data-lucide=\"circle-check\" class=\"share-icon\" aria-hidden=\"true\"></i>" + escapeHtml(t("Answered the assistant's question")) + "</div>"
-          + "<dl class=\"share-answer-pairs\">" + pairs.map(function (pair) {
-            return "<dt>" + escapeHtml(pair.label || t("Answer")) + "</dt><dd>" + escapeHtml(pair.value || "") + "</dd>";
-          }).join("") + "</dl></div></section>";
+          + "<div class=\"share-bubble\">" + pairs.map(function (pair) {
+            return "<div class=\"share-answer-line\">" + escapeHtml(pair.value || "") + "</div>";
+          }).join("") + "</div></section>";
       }
       if (entry.type === "tool") {
         var tool = entry.message;
