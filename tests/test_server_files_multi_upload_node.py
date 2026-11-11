@@ -27,13 +27,14 @@ FUNCTIONS = [
 ]
 
 HARNESS = r"""
-const state = { selectedAgentId: "agent-A" };
+const SERVER_FILES_UPLOAD_FAILURES_SHOWN = 5;
+const state = { selectedAgentId: "agent-A", toolPanelOpen: false, activeUtilityPanel: null };
 const out = { requests: [], panels: [], reloads: [], toasts: [], maxInFlight: 0, multiple: null };
 let inFlight = 0;
 let answers = [];
 let onRequest = null;
 function escapeHtml(v) { return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-function setToolPanel(title, html, kind) { out.panels.push(html); }
+function setToolPanel(title, html, kind) { out.panels.push(html); state.toolPanelOpen = true; state.activeUtilityPanel = kind; }
 function loadServerFiles(path) { out.reloads.push([state.selectedAgentId, path]); }
 function showToast(message, opts) { out.toasts.push([message, (opts && opts.variant) || ""]); }
 class FormData {
@@ -48,12 +49,15 @@ async function fetch(url, options) {
   await new Promise((resolve) => setTimeout(resolve, 5));
   inFlight -= 1;
   const [status, body] = answers.shift();
+  // A string body is sent as-is (plain text or HTML); anything else as JSON.
+  const raw = typeof body === "string" ? body : JSON.stringify(body);
   let used = false;
+  const read = () => { if (used) throw new TypeError("body used"); used = true; return raw; };
   return {
     ok: status >= 200 && status < 300,
     status,
-    json: async () => { used = true; return body; },
-    text: async () => { if (used) throw new TypeError("body used"); return JSON.stringify(body); },
+    json: async () => JSON.parse(read()),
+    text: async () => read(),
   };
 }
 const document = {
@@ -114,7 +118,8 @@ def test_picker_allows_several_files_and_uploads_each_in_order():
         '<div class="portal-inline-state">Uploading 3 of 3: c.zip\u2026</div>',
     ]
     assert out["reloads"] == [["agent-A", "/workspace/docs"]]
-    assert out["toasts"] == [["Uploaded 3 files", ""]]
+    # The zip was unpacked, not saved, and the toast says so.
+    assert out["toasts"] == [["Uploaded 3 files. Extracted 4 files to /workspace/docs", ""]]
 
 
 def test_failed_file_does_not_stop_the_rest_and_is_named_with_its_reason():
@@ -179,3 +184,55 @@ def test_switching_assistant_mid_batch_keeps_uploads_on_the_original_one():
     assert not any("2 of 2" in p for p in out["panels"])
     assert out["reloads"] == []
     assert out["toasts"] == [["Uploaded 2 files", ""]]
+
+
+def test_closing_the_panel_mid_batch_does_not_reopen_it():
+    out = _run_case(
+        """
+        answers = [
+          [200, { success: true, mode: "file_save", uploaded_filename: "a.txt" }],
+          [200, { success: true, mode: "file_save", uploaded_filename: "b.txt" }],
+          [200, { success: true, mode: "file_save", uploaded_filename: "c.txt" }],
+        ];
+        onRequest = (n) => { if (n === 1) { state.toolPanelOpen = false; state.activeUtilityPanel = null; } };
+        await pick([{ name: "a.txt" }, { name: "b.txt" }, { name: "c.txt" }]);
+        """
+    )
+
+    assert len(out["requests"]) == 3
+    assert out["panels"] == ['<div class="portal-inline-state">Uploading 1 of 3: a.txt\u2026</div>']
+    assert out["reloads"] == []
+    assert out["toasts"] == [["Uploaded 3 files", ""]]
+
+
+def test_failure_list_is_capped():
+    out = _run_case(
+        """
+        answers = Array.from({ length: 7 }, () => [200, { success: false }]);
+        await pick(Array.from({ length: 7 }, (_, i) => ({ name: `f${i}.txt` })));
+        """
+    )
+
+    assert out["toasts"] == [[
+        "Uploaded 0 of 7 files. Failed: f0.txt: Upload failed; f1.txt: Upload failed; f2.txt: Upload failed; "
+        "f3.txt: Upload failed; f4.txt: Upload failed; and 2 more",
+        "error",
+    ]]
+
+
+def test_plain_text_and_html_error_bodies_keep_their_reason():
+    out = _run_case(
+        """
+        answers = [
+          [502, "upstream connect error"],
+          [413, "<html><head><title>413 Request Entity Too Large</title></head><body>nginx</body></html>"],
+          [500, "{}"],
+        ];
+        await pick([{ name: "a.txt" }, { name: "b.iso" }, { name: "c.txt" }]);
+        """
+    )
+
+    assert out["toasts"] == [[
+        "Uploaded 0 of 3 files. Failed: a.txt: upstream connect error; b.iso: 413 Request Entity Too Large; c.txt: HTTP 500",
+        "error",
+    ]]

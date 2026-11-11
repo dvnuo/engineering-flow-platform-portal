@@ -148,6 +148,7 @@
   "Always the default: its tools only read the environment.": "始终使用默认代理：它的工具只读取环境变量。",
   "An app on the private network needs {browserstack_local} on this computer. mobile-auto downloads it by itself; when your network blocks that download, get it from BrowserStack yourself: {windows} or {macos} (Intel and Apple silicon), unzip it, and put {windows_program} (Windows) or {macos_program} (macOS) in {bin_folder}, the local bridge's folder, or anywhere on your PATH.": "私有网络中的应用需要这台电脑上有 {browserstack_local}。mobile-auto 会自行下载它；如果你的网络阻止了下载，请自己从 BrowserStack 获取：{windows} 或 {macos}（Intel 和 Apple 芯片），解压后把 {windows_program}（Windows）或 {macos_program}（macOS）放到 {bin_folder}（本地桥接程序所在的文件夹）或 PATH 中的任意位置。",
   "An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.": "助手是一个运行中的、可以对话的工作区。一组连接已经为你设置好，现在就可以创建一个。",
+  "and {n} more": "还有 {n} 个",
   "Another active execution was detected for the same agent session.": "检测到同一个助手会话中还有另一个正在进行的执行。",
   "Another browser command was still running. Wait a moment and test again.": "另一条浏览器命令仍在运行。请稍等片刻再测试。",
   "Answer": "回答",

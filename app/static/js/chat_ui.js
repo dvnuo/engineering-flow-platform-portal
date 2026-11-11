@@ -15207,8 +15207,17 @@ function getSelectedFiles(panel) {
 }
 
 async function parseRuntimeErrorResponse(resp) {
+  // Read the body once: a failed resp.json() would consume it and lose a
+  // plain-text or HTML reason (an ingress 413 or 502).
+  let raw = '';
   try {
-    const data = await resp.json();
+    raw = await resp.text();
+  } catch (_err) {
+    return `HTTP ${resp.status}`;
+  }
+
+  try {
+    const data = JSON.parse(raw);
     if (data && typeof data === 'object') {
       const errorText = (typeof data.error === 'string' && data.error.trim()) ? data.error.trim() : '';
       const detailText = (typeof data.detail === 'string' && data.detail.trim()) ? data.detail.trim() : '';
@@ -15218,17 +15227,18 @@ async function parseRuntimeErrorResponse(resp) {
       }
       // The Portal's own refusals (413 too large, 403) carry only `detail`.
       if (detailText) return tv(detailText);
+      return `HTTP ${resp.status}`;
     }
   } catch (_err) {
-    // Fall through to plain text fallback.
+    // Not JSON: fall through to the text itself.
   }
 
-  try {
-    const errText = await resp.text();
-    return errText || `HTTP ${resp.status}`;
-  } catch (_err) {
-    return `HTTP ${resp.status}`;
+  const text = raw.trim();
+  if (text.startsWith('<')) {
+    const title = /<title>([^<]*)<\/title>/i.exec(text);
+    return (title && title[1].trim()) || `HTTP ${resp.status}`;
   }
+  return text || `HTTP ${resp.status}`;
 }
 
 function updateDownloadButton(panel) {
@@ -15310,25 +15320,32 @@ async function uploadOneServerFile(agentId, targetPath, file) {
     }
     const data = await resp.json();
     if (!data.success) {
-      return { ok: false, error: String(data.error || `HTTP ${resp.status}`) };
+      return { ok: false, error: String(data.error || t("Upload failed")) };
     }
-    return { ok: true, message: describeServerFileUpload(data, file) };
+    return { ok: true, message: describeServerFileUpload(data, file), extracted: data.mode === 'zip_extract' };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
   }
 }
 
+const SERVER_FILES_UPLOAD_FAILURES_SHOWN = 5;
+
 // Uploads the picked files one after another into targetPath, then reloads
 // the folder and reports the outcome in a toast. A failed file does not stop
-// the rest; the toast names each one with its reason.
+// the rest; the toast names the first few with their reasons. Progress and
+// the reload only touch the panel while it still shows Server Files of the
+// same assistant, so a member who moves on mid-batch is not pulled back.
 async function uploadFilesToServerFiles(targetPath, files) {
   const agentId = state.selectedAgentId;
-  const sameAgent = () => state.selectedAgentId === agentId;
+  const panelStillOurs = () => state.selectedAgentId === agentId
+    && state.toolPanelOpen
+    && state.activeUtilityPanel === "server-files";
   const failures = [];
+  const extracted = [];
   let lastMessage = '';
 
   for (const [index, file] of files.entries()) {
-    if (sameAgent()) {
+    if (index === 0 || panelStillOurs()) {
       const progress = files.length === 1
         ? t("Uploading {name}…", { name: escapeHtml(file.name) })
         : t("Uploading {current} of {total}: {name}…", { current: index + 1, total: files.length, name: escapeHtml(file.name) });
@@ -15337,22 +15354,32 @@ async function uploadFilesToServerFiles(targetPath, files) {
     const result = await uploadOneServerFile(agentId, targetPath, file);
     if (result.ok) {
       lastMessage = result.message;
+      if (result.extracted) extracted.push(result.message);
     } else {
       failures.push({ name: file.name, error: result.error });
     }
   }
 
-  if (sameAgent()) loadServerFiles(targetPath);
+  if (panelStillOurs()) loadServerFiles(targetPath);
 
   const uploaded = files.length - failures.length;
-  if (failures.length === 0) {
-    showToast(files.length === 1 ? lastMessage : tn(uploaded, "Uploaded {n} file", "Uploaded {n} files"));
-  } else if (files.length === 1) {
-    showToast(t("Upload failed: {error}", { error: failures[0].error }), { variant: 'error' });
-  } else {
-    const details = failures.map((f) => `${f.name}: ${f.error}`).join('; ');
-    showToast(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: files.length, details }), { variant: 'error' });
+  if (files.length === 1) {
+    if (failures.length === 0) showToast(lastMessage);
+    else showToast(t("Upload failed: {error}", { error: failures[0].error }), { variant: 'error' });
+    return;
   }
+  const summary = [];
+  if (failures.length === 0) {
+    summary.push(tn(uploaded, "Uploaded {n} file", "Uploaded {n} files"));
+  } else {
+    const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
+    const hidden = failures.length - shown.length;
+    if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
+    summary.push(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: files.length, details: shown.join('; ') }));
+  }
+  // A zip is unpacked rather than saved, which "Uploaded n files" alone would hide.
+  summary.push(...extracted);
+  showToast(summary.join('. '), failures.length === 0 ? {} : { variant: 'error' });
 }
 
 async function uploadToServerFiles(targetPath) {
