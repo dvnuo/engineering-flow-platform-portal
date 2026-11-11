@@ -93,6 +93,7 @@
             data-member-name="{{ (u.nickname or u.username)|data_attr }}"
             data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
             data-member-group="{{ u.group_id or '' }}"
+            data-member-role="{{ u.role }}"
             data-member-executions-period="{{ u.execution_count_period }}"
           >
             {% if is_system_admin %}

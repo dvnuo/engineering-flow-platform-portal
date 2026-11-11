@@ -123,6 +123,31 @@ def test_one_failing_move_does_not_stop_the_others(api, monkeypatch):  # noqa: F
     assert broken.group_id == dev.id
 
 
+def test_a_move_that_fails_on_the_settings_leaves_the_member_where_they_were(api, monkeypatch):  # noqa: F811
+    # move_member writes the group, the allowlist entry and the settings in
+    # one commit, so a failure half-way does not leave a member in the new
+    # group with the old group's settings and nothing rolled out.
+    db, dev, ops = api["db"], api["dev"], api["ops"]
+    api["user"] = _user(db, "root", role="admin", group=api["default"])
+    broken = _user(db, "broken", role="group_admin", group=dev)
+    RuntimeProfileService(db).get_or_create_for_user(broken)
+
+    def explode(_config_json):
+        raise RuntimeError("cannot store settings")
+
+    monkeypatch.setattr(RuntimeProfileService, "normalize_persisted_config_json", staticmethod(explode))
+
+    response = api["client"].post("/api/users/move-to-group", json={"user_ids": [broken.id], "group_id": ops.id})
+
+    assert response.status_code == 200 and response.json()["failed"] == ["broken"]
+    db.expire_all()
+    assert db.get(User, broken.id).group_id == dev.id
+    assert db.get(User, broken.id).role == "group_admin"
+    entry = db.query(UserAllowlistEntry).filter(UserAllowlistEntry.username == "broken").one()
+    assert entry.group_id == dev.id and entry.role == "group_admin"
+    assert api["rollouts"] == []
+
+
 # ------------------------------------------------------------------ the panel
 
 
@@ -204,6 +229,7 @@ const bar = {
 };
 const body = { querySelectorAll: () => rows.slice() };
 const root = {
+  contains: (el) => rows.some((row) => row.box === el),
   querySelectorAll: (sel) => (sel === "[data-admin-member-select]" ? rows.map((row) => row.box) : []),
   querySelector(sel) {
     return { "[data-admin-member-select-all]": all, "[data-admin-member-bulk-bar]": bar, "[data-admin-member-rows]": body }[sel] || null;
@@ -254,6 +280,16 @@ pickShownMembers(root, false);
 out.dropShown = state();
 clearSelection(root);
 out.cleared = state();
+// An anchor from a panel that was loaded again is not in this table: a
+// shift-click picks only the row clicked.
+click("1");
+selectionAnchor = { closest: () => null };
+rows[0].hidden = false;
+rows[4].hidden = false;
+clearSelection(root);
+selectionAnchor = { closest: () => null };
+click("5", true);
+out.staleAnchor = state();
 console.log(JSON.stringify(out));
 """))
 
@@ -270,10 +306,11 @@ console.log(JSON.stringify(out));
     assert result["shownAll"]["all"] is True and result["shownAll"]["indeterminate"] is False
     # A picked row the filters hide stays picked, and the bar says so.
     assert result["hiddenPicked"]["selected"] == ["1", "2", "3", "4"]
-    assert result["hiddenPicked"]["count"] == "4 members selected · 1 hidden by the filters"
+    assert result["hiddenPicked"]["count"] == "4 members selected \u00b7 1 hidden by the filters"
     # The header box drops the shown rows only.
     assert result["dropShown"]["selected"] == ["1"]
     assert result["cleared"]["selected"] == [] and result["cleared"]["barHidden"] is True
+    assert result["staleAnchor"]["selected"] == ["5"]
 
 
 def test_the_summary_says_what_the_move_did():
@@ -296,12 +333,34 @@ console.log(JSON.stringify({ full, plain, six: names(6), eight: names(8) }));
     assert result["eight"] == "u1, u2, u3, u4, u5 and 3 more"
 
 
+def test_large_selections_go_in_batches_and_the_answers_add_up():
+    script = "var MOVE_BATCH_SIZE = 500;\n" + _extract_js_function(ADMIN_JS, "sendMoves") + r"""
+const sent = [];
+async function request(url, options) {
+  const body = JSON.parse(options.body);
+  sent.push({ url, size: body.user_ids.length, first: body.user_ids[0], group: body.group_id });
+  return { group_id: 3, group_name: "Ops", moved: body.user_ids.map(String), unchanged: [], demoted: [], llm_needs_attention: [], failed: [], not_found: [] };
+}
+(async () => {
+  const ids = Array.from({ length: 1200 }, (_v, i) => i + 1);
+  const total = await sendMoves(ids, 3);
+  console.log(JSON.stringify({ sent, moved: total.moved.length, last: total.moved[total.moved.length - 1] }));
+})();
+"""
+    result = _run_node(script)
+    assert [(item["size"], item["first"]) for item in result["sent"]] == [(500, 1), (500, 501), (200, 1001)]
+    assert {item["url"] for item in result["sent"]} == {"/api/users/move-to-group"}
+    assert result["moved"] == 1200 and result["last"] == "1200"
+
+
 def test_the_script_sends_every_selected_member_after_a_confirm():
     move = _extract_js_function(ADMIN_JS, "moveSelectedMembers")
-    assert 'request("/api/users/move-to-group"' in move
-    assert "user_ids: rows.map(" in move and "group_id: groupId" in move
+    assert "sendMoves(rows.map(" in move and "groupId)" in move
+    # Group administrators are named only when some are moving.
+    assert 'row.dataset.memberRole === "group_admin"' in move
+    assert "A group administrator becomes a member of the new group." not in move
     # Members already in the group are counted out of the title, not out of the request.
-    assert move.index("window.showConfirm") < move.index("request(")
+    assert move.index("window.showConfirm") < move.index("sendMoves(")
     assert "if (!confirmed) return;" in move
     assert "reloadPanel(summary, partial)" in move
     # Filters keep the bar and the header box in step.

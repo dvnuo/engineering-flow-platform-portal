@@ -97,8 +97,13 @@
 
   // ---- several members at once: pick rows, move them to one group ----
 
-  // The member last clicked, so a shift-click picks every shown row between.
+  // The box last clicked, so a shift-click picks every shown row between. An
+  // element, not a member id: once the panel is loaded again it is no longer
+  // in the page and a shift-click starts over.
   var selectionAnchor = null;
+
+  // Ids per request; the server takes up to 1000.
+  var MOVE_BATCH_SIZE = 500;
 
   function selectBoxes(root) {
     return root ? Array.prototype.slice.call(root.querySelectorAll("[data-admin-member-select]")) : [];
@@ -153,11 +158,10 @@
 
   function pickMember(box, extend) {
     var root = panelRoot(box);
-    if (extend && selectionAnchor !== null) {
+    if (extend && selectionAnchor && root && root.contains(selectionAnchor)) {
       var rows = memberRows(root).filter(function (row) { return !row.hidden; });
-      var ids = rows.map(function (row) { return row.dataset.memberId; });
-      var from = ids.indexOf(selectionAnchor);
-      var to = ids.indexOf(box.value);
+      var from = rows.indexOf(selectionAnchor.closest("tr[data-member-id]"));
+      var to = rows.indexOf(box.closest("tr[data-member-id]"));
       if (from !== -1 && to !== -1) {
         rows.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (row) {
           var other = row.querySelector("[data-admin-member-select]");
@@ -165,7 +169,7 @@
         });
       }
     }
-    selectionAnchor = box.value;
+    selectionAnchor = box;
     refreshSelection(root);
   }
 
@@ -190,6 +194,27 @@
     var names = rows.map(function (row) { return row.dataset.memberUsername || ""; });
     if (names.length <= 6) return names.join(", ");
     return t("{usernames} and {n} more", { usernames: names.slice(0, 5).join(", "), n: names.length - 5 });
+  }
+
+  // One request per batch, the answers added up; a batch that fails stops the
+  // rest, after the earlier ones went through.
+  async function sendMoves(userIds, groupId) {
+    var total = null;
+    for (var start = 0; start < userIds.length; start += MOVE_BATCH_SIZE) {
+      var result = await request("/api/users/move-to-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_ids: userIds.slice(start, start + MOVE_BATCH_SIZE), group_id: groupId }),
+      });
+      if (!total) {
+        total = result;
+        continue;
+      }
+      ["moved", "unchanged", "demoted", "llm_needs_attention", "failed", "not_found"].forEach(function (key) {
+        total[key] = total[key].concat(result[key] || []);
+      });
+    }
+    return total;
   }
 
   function moveSummary(result) {
@@ -230,8 +255,17 @@
     }
     var message = [
       t("Moving: {usernames}.", { usernames: usernameList(moving) }),
-      t("They follow {group}'s Default connectors from now on; their idle assistants restart to pick that up. A group administrator becomes a member of the new group.", { group: label }),
+      t("They follow {group}'s Default connectors from now on; their idle assistants restart to pick that up.", { group: label }),
     ];
+    var leads = moving.filter(function (row) { return row.dataset.memberRole === "group_admin"; });
+    if (leads.length) {
+      message.push(tn(
+        leads.length,
+        "{usernames} is a group administrator and becomes a member of {group}.",
+        "{usernames} are group administrators and become members of {group}.",
+        { usernames: usernameList(leads), group: label }
+      ));
+    }
     if (moving.length < rows.length) {
       message.push(tn(rows.length - moving.length, "{n} selected member is already in {group}.", "{n} selected members are already in {group}.", { group: label }));
     }
@@ -242,24 +276,20 @@
     if (!confirmed) return;
     button.disabled = true;
     try {
-      var result = await request("/api/users/move-to-group", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_ids: rows.map(function (row) { return Number(row.dataset.memberId); }),
-          group_id: groupId,
-        }),
-      });
+      var result = await sendMoves(rows.map(function (row) { return Number(row.dataset.memberId); }), groupId);
       var summary = moveSummary(result);
       var partial = result.failed.length > 0;
       await reloadPanel(summary, partial);
       if (window.showToast) window.showToast(summary, { variant: partial ? "error" : "success" });
     } catch (error) {
-      button.disabled = false;
+      // An earlier batch may have gone through: show the groups as they are now.
+      try {
+        await reloadPanel(error.message, true);
+      } catch (_reloadError) {
+        button.disabled = false;
+      }
       if (window.showAlert) {
         await window.showAlert({ title: t("Unable to move members"), message: error.message });
-      } else {
-        feedback(root, error.message, true);
       }
     }
   }

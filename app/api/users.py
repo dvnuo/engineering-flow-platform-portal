@@ -413,26 +413,21 @@ def move_members_to_group(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("Group not found"))
 
     repo = UserRepository(db)
-    result = MemberBulkMoveResponse(
-        group_id=target.id,
-        group_name=target.name,
-        moved=[],
-        unchanged=[],
-        demoted=[],
-        llm_needs_attention=[],
-        failed=[],
-        not_found=[],
-    )
+    result = MemberBulkMoveResponse(group_id=target.id, group_name=target.name)
+    # Read once: every member is measured against the same Default connectors.
+    platform_seed = groups.platform_seed()
     profile_ids: list[str] = []
     for user_id in payload.user_ids:
-        user = repo.get_by_id(user_id)
-        if user is None:
-            result.not_found.append(user_id)
-            continue
-        username = user.username
+        username = f"#{user_id}"
         try:
-            moved = groups.move_member(user, target, actor_id=admin.id)
+            user = repo.get_by_id(user_id)
+            if user is None:
+                result.not_found.append(user_id)
+                continue
+            username = user.username
+            moved = groups.move_member(user, target, actor_id=admin.id, platform_seed=platform_seed)
         except Exception:
+            # move_member writes in one commit, so the member stays where they were.
             db.rollback()
             logger.exception("Moving member user_id=%s to group_id=%s failed", user_id, target.id)
             result.failed.append(username)
