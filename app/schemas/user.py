@@ -32,6 +32,42 @@ class UserAdminUpdateRequest(BaseModel):
     group_id: Optional[int] = None
 
 
+MEMBER_BULK_MOVE_MAX = 1000
+
+
+class MemberBulkMoveRequest(BaseModel):
+    """Several members to one group at once (User Management, the selected rows)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_ids: list[int] = Field(..., min_length=1, max_length=MEMBER_BULK_MOVE_MAX)
+    group_id: int
+
+    @field_validator("user_ids")
+    @classmethod
+    def unique_user_ids(cls, value):
+        return list(dict.fromkeys(value))
+
+
+class MemberBulkMoveResponse(BaseModel):
+    group_id: int
+    group_name: str
+    # Usernames, in the order the ids were sent.
+    moved: list[str] = Field(default_factory=list)
+    # Already in the group: nothing to do.
+    unchanged: list[str] = Field(default_factory=list)
+    # Group administrators who became members of the new group.
+    demoted: list[str] = Field(default_factory=list)
+    # Members who must sign in to the model provider again: they had chosen
+    # their own model and the old group's shared credential was dropped
+    # (group_service.member_llm_after_group_change).
+    llm_needs_attention: list[str] = Field(default_factory=list)
+    # Moves that raised and were rolled back; the rest went ahead.
+    failed: list[str] = Field(default_factory=list)
+    # Ids with no account.
+    not_found: list[int] = Field(default_factory=list)
+
+
 class AllowlistCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     role: UserRole = "user"

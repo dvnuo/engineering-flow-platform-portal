@@ -396,12 +396,23 @@ class GroupService:
 
     # ------------------------------------------------------------ members
 
-    def move_member(self, user: User, target: Group, *, actor_id: int | None = None, audit: bool = True) -> MoveResult:
+    def move_member(
+        self,
+        user: User,
+        target: Group,
+        *,
+        actor_id: int | None = None,
+        audit: bool = True,
+        platform_seed: Mapping[str, Any] | None = None,
+    ) -> MoveResult:
         """Put ``user`` in ``target``; the caller rolls out ``result.profile_id`` when set.
 
         A group administrator who changes group becomes a member of the new
         one: administering a group is given by that group. The allowlist
-        entry follows, so access and group never disagree.
+        entry follows, so access and group never disagree. The group, the
+        entry and the member's settings are written in one commit: a failure
+        leaves the member where they were. ``platform_seed`` saves reading the
+        platform's Default connectors again when moving many members.
         """
 
         from app.services.runtime_profile_service import RuntimeProfileService
@@ -415,7 +426,7 @@ class GroupService:
         profiles = RuntimeProfileService(self.db)
         profile = profiles.get_for_owner(user.id)
         before = profiles.effective_config_for(profile) if profile is not None else None
-        old_seed = self.seed_for_group(source)
+        old_seed = self.seed_for_group(source, platform_seed)
 
         user.group_id = target.id
         if not same_group and str(user.role or "") == ROLE_GROUP_ADMIN:
@@ -427,11 +438,11 @@ class GroupService:
             entry.group_id = target.id
             entry.role = user.role
             self.db.add(entry)
-        self.db.commit()
+        self.db.flush()
         result.moved = not same_group
 
         if profile is not None and not same_group:
-            new_seed = self.seed_for_group(target)
+            new_seed = self.seed_for_group(target, platform_seed)
             config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
             llm, attention = member_llm_after_group_change(
                 config.get("llm"), _stored_llm(profiles, old_seed), _stored_llm(profiles, new_seed)
@@ -445,7 +456,8 @@ class GroupService:
             if profiles.effective_config_for(profile) != before:
                 profile.revision = (profile.revision or 0) + 1
                 result.profile_id = profile.id
-            profiles.repo.save(profile)
+            self.db.add(profile)
+        self.db.commit()
 
         if audit and result.moved:
             AuditRepository(self.db).create(

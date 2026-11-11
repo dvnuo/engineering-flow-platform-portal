@@ -3497,6 +3497,95 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   display: none;
 }
 
+/* Picking members (system administrators): a narrow box column before the
+   member, both kept in view while the table scrolls sideways, and a bar that
+   stays at the bottom of the pane while rows are picked. */
+.portal-admin-member-table .portal-admin-select-cell {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+}
+
+.portal-admin-member-table.is-selectable .portal-admin-select-cell {
+  box-shadow: none;
+}
+
+.portal-admin-member-table.is-selectable th:nth-child(2),
+.portal-admin-member-table.is-selectable td:nth-child(2) {
+  position: sticky;
+  left: 40px;
+  z-index: 1;
+  background: var(--portal-surface);
+  box-shadow: 1px 0 0 var(--portal-border);
+}
+
+.portal-admin-member-table.is-selectable th:nth-child(2) {
+  z-index: 2;
+  background: var(--portal-surface-soft);
+}
+
+.portal-admin-select-box {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--portal-accent);
+  cursor: pointer;
+}
+
+.portal-admin-member-table.is-selectable tr.is-selected > td {
+  background: color-mix(in srgb, var(--portal-accent) 9%, var(--portal-surface));
+}
+
+.portal-admin-bulk-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--portal-accent) 40%, var(--portal-border));
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface);
+  box-shadow: var(--portal-shadow-lg);
+}
+
+.portal-admin-bulk-bar[hidden] {
+  display: none;
+}
+
+.portal-admin-bulk-count {
+  margin-right: auto;
+  color: var(--portal-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.portal-admin-bulk-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-admin-bulk-target .portal-form-select {
+  width: auto;
+  min-width: 160px;
+}
+
+.portal-admin-bulk-bar .portal-btn {
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
 .portal-admin-pending-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));

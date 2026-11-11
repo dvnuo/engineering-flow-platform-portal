@@ -95,6 +95,205 @@
     }
   }
 
+  // ---- several members at once: pick rows, move them to one group ----
+
+  // The box last clicked, so a shift-click picks every shown row between. An
+  // element, not a member id: once the panel is loaded again it is no longer
+  // in the page and a shift-click starts over.
+  var selectionAnchor = null;
+
+  // Ids per request; the server takes up to 1000.
+  var MOVE_BATCH_SIZE = 500;
+
+  function selectBoxes(root) {
+    return root ? Array.prototype.slice.call(root.querySelectorAll("[data-admin-member-select]")) : [];
+  }
+
+  function selectedMemberRows(root) {
+    return selectBoxes(root)
+      .filter(function (box) { return box.checked; })
+      .map(function (box) { return box.closest("tr[data-member-id]"); })
+      .filter(Boolean);
+  }
+
+  // The header box, the row tint and the bar follow the boxes. A row the
+  // filters hide stays selected (search, pick, search again), and the bar
+  // says how many of the selected are out of sight.
+  function refreshSelection(root) {
+    var boxes = selectBoxes(root);
+    if (!boxes.length) return;
+    var selected = 0;
+    var hiddenSelected = 0;
+    var shown = 0;
+    var shownSelected = 0;
+    boxes.forEach(function (box) {
+      var row = box.closest("tr[data-member-id]");
+      var visible = !!row && !row.hidden;
+      if (row) row.classList.toggle("is-selected", box.checked);
+      if (visible) shown += 1;
+      if (!box.checked) return;
+      selected += 1;
+      if (visible) shownSelected += 1;
+      else hiddenSelected += 1;
+    });
+    var all = root.querySelector("[data-admin-member-select-all]");
+    if (all) {
+      all.checked = shown > 0 && shownSelected === shown;
+      all.indeterminate = shownSelected > 0 && shownSelected < shown;
+      all.disabled = shown === 0;
+    }
+    var bar = root.querySelector("[data-admin-member-bulk-bar]");
+    if (!bar) return;
+    bar.hidden = selected === 0;
+    var count = bar.querySelector("[data-admin-member-selected-count]");
+    if (count) {
+      var text = tn(selected, "{n} member selected", "{n} members selected");
+      if (hiddenSelected) text += " \u00b7 " + t("{n} hidden by the filters", { n: hiddenSelected });
+      count.textContent = text;
+    }
+    var target = bar.querySelector("[data-admin-member-bulk-group]");
+    var move = bar.querySelector("[data-admin-member-bulk-move]");
+    if (move) move.disabled = selected === 0 || !groupIdOf(target && target.value);
+  }
+
+  function pickMember(box, extend) {
+    var root = panelRoot(box);
+    if (extend && selectionAnchor && root && root.contains(selectionAnchor)) {
+      var rows = memberRows(root).filter(function (row) { return !row.hidden; });
+      var from = rows.indexOf(selectionAnchor.closest("tr[data-member-id]"));
+      var to = rows.indexOf(box.closest("tr[data-member-id]"));
+      if (from !== -1 && to !== -1) {
+        rows.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (row) {
+          var other = row.querySelector("[data-admin-member-select]");
+          if (other) other.checked = box.checked;
+        });
+      }
+    }
+    selectionAnchor = box;
+    refreshSelection(root);
+  }
+
+  // The header box picks (or drops) every row shown; hidden rows keep their state.
+  function pickShownMembers(root, checked) {
+    memberRows(root).forEach(function (row) {
+      if (row.hidden) return;
+      var box = row.querySelector("[data-admin-member-select]");
+      if (box) box.checked = checked;
+    });
+    selectionAnchor = null;
+    refreshSelection(root);
+  }
+
+  function clearSelection(root) {
+    selectBoxes(root).forEach(function (box) { box.checked = false; });
+    selectionAnchor = null;
+    refreshSelection(root);
+  }
+
+  function usernameList(rows) {
+    var names = rows.map(function (row) { return row.dataset.memberUsername || ""; });
+    if (names.length <= 6) return names.join(", ");
+    return t("{usernames} and {n} more", { usernames: names.slice(0, 5).join(", "), n: names.length - 5 });
+  }
+
+  // One request per batch, the answers added up; a batch that fails stops the
+  // rest, after the earlier ones went through.
+  async function sendMoves(userIds, groupId) {
+    var total = null;
+    for (var start = 0; start < userIds.length; start += MOVE_BATCH_SIZE) {
+      var result = await request("/api/users/move-to-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_ids: userIds.slice(start, start + MOVE_BATCH_SIZE), group_id: groupId }),
+      });
+      if (!total) {
+        total = result;
+        continue;
+      }
+      ["moved", "unchanged", "demoted", "llm_needs_attention", "failed", "not_found"].forEach(function (key) {
+        total[key] = total[key].concat(result[key] || []);
+      });
+    }
+    return total;
+  }
+
+  function moveSummary(result) {
+    var parts = [tn(result.moved.length, "Moved {n} member to {group}.", "Moved {n} members to {group}.", { group: result.group_name })];
+    if (result.unchanged.length) {
+      parts.push(tn(result.unchanged.length, "{n} was already there.", "{n} were already there."));
+    }
+    if (result.demoted.length) {
+      parts.push(tn(result.demoted.length, "{n} group administrator is now a member.", "{n} group administrators are now members."));
+    }
+    if (result.llm_needs_attention.length) {
+      parts.push(tn(result.llm_needs_attention.length, "{usernames} needs to sign in to the model provider again.", "{usernames} need to sign in to the model provider again.", { usernames: result.llm_needs_attention.join(", ") }));
+    }
+    if (result.failed.length) {
+      parts.push(t("Not moved: {usernames}.", { usernames: result.failed.join(", ") }));
+    }
+    if (result.not_found.length) {
+      parts.push(tn(result.not_found.length, "{n} member no longer exists.", "{n} members no longer exist."));
+    }
+    return parts.join(" ");
+  }
+
+  // Every selected member moves the way one does from the row's select; the
+  // ones already in the group stay as they are.
+  async function moveSelectedMembers(button) {
+    var root = panelRoot(button);
+    var target = root && root.querySelector("[data-admin-member-bulk-group]");
+    var groupId = groupIdOf(target && target.value);
+    var rows = selectedMemberRows(root);
+    if (!groupId || !rows.length) return;
+    var label = target.options[target.selectedIndex] ? target.options[target.selectedIndex].text : "";
+    var moving = rows.filter(function (row) { return String(row.dataset.memberGroup || "") !== String(groupId); });
+    if (!moving.length) {
+      var already = tn(rows.length, "The selected member is already in {group}.", "The selected members are already in {group}.", { group: label });
+      if (window.showAlert) await window.showAlert({ title: t("Nothing to move"), message: already });
+      else if (window.showToast) window.showToast(already, { variant: "info" });
+      return;
+    }
+    var message = [
+      t("Moving: {usernames}.", { usernames: usernameList(moving) }),
+      t("They follow {group}'s Default connectors from now on; their idle assistants restart to pick that up.", { group: label }),
+    ];
+    var leads = moving.filter(function (row) { return row.dataset.memberRole === "group_admin"; });
+    if (leads.length) {
+      message.push(tn(
+        leads.length,
+        "{usernames} is a group administrator and becomes a member of {group}.",
+        "{usernames} are group administrators and become members of {group}.",
+        { usernames: usernameList(leads), group: label }
+      ));
+    }
+    if (moving.length < rows.length) {
+      message.push(tn(rows.length - moving.length, "{n} selected member is already in {group}.", "{n} selected members are already in {group}.", { group: label }));
+    }
+    var title = tn(moving.length, "Move {n} member to {group}?", "Move {n} members to {group}?", { group: label });
+    var confirmed = window.showConfirm
+      ? await window.showConfirm({ title: title, message: message.join(" "), confirmText: t("Move members") })
+      : window.confirm(title);
+    if (!confirmed) return;
+    button.disabled = true;
+    try {
+      var result = await sendMoves(rows.map(function (row) { return Number(row.dataset.memberId); }), groupId);
+      var summary = moveSummary(result);
+      var partial = result.failed.length > 0;
+      await reloadPanel(summary, partial);
+      if (window.showToast) window.showToast(summary, { variant: partial ? "error" : "success" });
+    } catch (error) {
+      // An earlier batch may have gone through: show the groups as they are now.
+      try {
+        await reloadPanel(error.message, true);
+      } catch (_reloadError) {
+        button.disabled = false;
+      }
+      if (window.showAlert) {
+        await window.showAlert({ title: t("Unable to move members"), message: error.message });
+      }
+    }
+  }
+
   function parseUsernames(value) {
     var seen = Object.create(null);
     return String(value || "")
@@ -134,6 +333,7 @@
   }
 
   async function reloadPanel(message, isError) {
+    selectionAnchor = null;
     await htmx.ajax("GET", "/app/users/panel?days=" + encodeURIComponent(selectedPeriodDays()), {
       target: "#workspace-detail-content",
       swap: "innerHTML",
@@ -282,6 +482,7 @@
     if (resultCount) resultCount.textContent = t("{n} shown", { n: visible });
     var empty = root.querySelector("[data-admin-member-filter-empty]");
     if (empty) empty.hidden = visible !== 0;
+    refreshSelection(root);
   }
 
   document.addEventListener("input", function (event) {
@@ -341,6 +542,10 @@
   document.addEventListener("change", async function (event) {
     if (event.target.closest("[data-admin-member-access-filter]") || event.target.closest("[data-admin-member-group-filter]")) {
       applyMemberFilters(panelRoot(event.target));
+      return;
+    }
+    if (event.target.closest("[data-admin-member-bulk-group]")) {
+      refreshSelection(panelRoot(event.target));
       return;
     }
     var groupSelect = event.target.closest("[data-admin-group-select]");
@@ -405,6 +610,30 @@
   });
 
   document.addEventListener("click", async function (event) {
+    // A box is already toggled when its click arrives (mouse or Space).
+    var memberBox = event.target.closest("[data-admin-member-select]");
+    if (memberBox) {
+      pickMember(memberBox, event.shiftKey);
+      return;
+    }
+    var allBox = event.target.closest("[data-admin-member-select-all]");
+    if (allBox) {
+      pickShownMembers(panelRoot(allBox), allBox.checked);
+      return;
+    }
+    var bulkMove = event.target.closest("[data-admin-member-bulk-move]");
+    if (bulkMove) {
+      event.preventDefault();
+      await moveSelectedMembers(bulkMove);
+      return;
+    }
+    var clearButton = event.target.closest("[data-admin-member-clear-selection]");
+    if (clearButton) {
+      event.preventDefault();
+      clearSelection(panelRoot(clearButton));
+      return;
+    }
+
     var openButton = event.target.closest("[data-open-admin-allowlist-modal]");
     if (openButton) {
       event.preventDefault();
