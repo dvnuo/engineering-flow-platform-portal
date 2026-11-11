@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,8 @@ from app.schemas.user import (
     AllowlistBulkResponse,
     AllowlistCreateRequest,
     AllowlistResponse,
+    MemberBulkMoveRequest,
+    MemberBulkMoveResponse,
     MemberOverviewResponse,
     UserAdminUpdateRequest,
     UserCreateRequest,
@@ -33,6 +37,7 @@ from app.services.member_management_service import DEFAULT_PERIOD_DAYS, PERIOD_D
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
 settings = get_settings()
 runtime_profile_secret_service = RuntimeProfileSecretService()
@@ -382,6 +387,68 @@ def remove_from_allowlist(
         details=audit_details,
     )
     return {"ok": True}
+
+
+@router.post("/move-to-group", response_model=MemberBulkMoveResponse)
+def move_members_to_group(
+    payload: MemberBulkMoveRequest,
+    background_tasks: BackgroundTasks,
+    admin=Depends(require_administrator),
+    db: Session = Depends(get_db),
+):
+    """Move several members to one group (User Management, the selected rows).
+
+    Each member moves the way ``PATCH /api/users/{id}`` with ``group_id``
+    moves one (``GroupService.move_member``, one audit row each): they follow
+    the new group's Default connectors, a group administrator becomes a
+    member there, and the changed settings roll out after the response. A
+    member already in the group is left as is; one move that fails does not
+    stop the others.
+    """
+    if not is_system_admin(admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only a system administrator can move members between groups"))
+    groups = GroupService(db)
+    target = groups.repo.get_by_id(payload.group_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("Group not found"))
+
+    repo = UserRepository(db)
+    result = MemberBulkMoveResponse(
+        group_id=target.id,
+        group_name=target.name,
+        moved=[],
+        unchanged=[],
+        demoted=[],
+        llm_needs_attention=[],
+        failed=[],
+        not_found=[],
+    )
+    profile_ids: list[str] = []
+    for user_id in payload.user_ids:
+        user = repo.get_by_id(user_id)
+        if user is None:
+            result.not_found.append(user_id)
+            continue
+        username = user.username
+        try:
+            moved = groups.move_member(user, target, actor_id=admin.id)
+        except Exception:
+            db.rollback()
+            logger.exception("Moving member user_id=%s to group_id=%s failed", user_id, target.id)
+            result.failed.append(username)
+            continue
+        if moved.profile_id:
+            profile_ids.append(moved.profile_id)
+        if not moved.moved:
+            result.unchanged.append(username)
+            continue
+        result.moved.append(username)
+        if moved.demoted:
+            result.demoted.append(username)
+        if moved.llm_needs_attention:
+            result.llm_needs_attention.append(username)
+    _schedule_rollout(background_tasks, profile_ids, admin.id, "moved_group")
+    return result
 
 
 @router.patch("/{user_id}", response_model=UserResponse)

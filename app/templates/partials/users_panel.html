@@ -57,9 +57,16 @@
 
     {% if users %}
     <div class="portal-data-table-wrap portal-admin-member-table-wrap">
-      <table class="portal-data-table portal-admin-member-table" data-admin-member-table>
+      <table class="portal-data-table portal-admin-member-table{% if is_system_admin %} is-selectable{% endif %}" data-admin-member-table>
         <thead>
           <tr>
+            {% if is_system_admin %}
+            {# Selected rows move to another group together (the bar under the table). #}
+            <th class="portal-admin-select-cell" data-no-export>
+              <input type="checkbox" class="portal-admin-select-box" data-admin-member-select-all
+                     aria-label="{{ t('Select every member shown') }}" title="{{ t('Select every member shown') }}" />
+            </th>
+            {% endif %}
             <th data-sort-key="member" data-sort-type="text" aria-sort="none">{{ t("Member") }}</th>
             <th data-sort-key="access" data-sort-type="text" aria-sort="none">{{ t("Access") }}</th>
             <th data-sort-key="group" data-sort-type="text" aria-sort="none">{{ t("Group") }}</th>
@@ -88,6 +95,12 @@
             data-member-group="{{ u.group_id or '' }}"
             data-member-executions-period="{{ u.execution_count_period }}"
           >
+            {% if is_system_admin %}
+            <td class="portal-admin-select-cell" data-no-export>
+              <input type="checkbox" class="portal-admin-select-box" data-admin-member-select value="{{ u.id }}"
+                     aria-label="{{ t('Select {username}', username=u.username) }}" />
+            </td>
+            {% endif %}
             <td data-sort-value="{{ (u.nickname or u.username)|lower|data_attr }}" data-export-value="{{ (u.nickname or u.username)|data_attr }} (@{{ u.username|data_attr }})">
               <div class="portal-admin-member-identity">
                 <strong><button type="button" class="portal-admin-member-name" data-admin-member-detail="{{ u.id }}" aria-expanded="false" title="{{ t('Show daily credits and models for {username}', username=u.username) }}">{{ u.nickname or u.username }}</button>{% if u.id == current_user.id %} <span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}</strong>
@@ -197,6 +210,23 @@
       </table>
     </div>
     <div class="portal-panel-empty" data-admin-member-filter-empty hidden>{{ t("No members match this search.") }}</div>
+    {% if is_system_admin %}
+    {# Stays in view at the bottom of the pane while rows are picked; admin_users.js shows it from the first selected row. #}
+    <div class="portal-admin-bulk-bar" role="region" aria-label="{{ t('Selected members') }}" data-admin-member-bulk-bar hidden>
+      <span class="portal-admin-bulk-count" aria-live="polite" data-admin-member-selected-count></span>
+      <label class="portal-admin-bulk-target">
+        <span>{{ t("Move to") }}</span>
+        <select class="portal-form-select" aria-label="{{ t('Group to move the selected members to') }}" data-admin-member-bulk-group>
+          <option value="">{{ t("Choose a group") }}</option>
+          {% for group in groups %}
+          <option value="{{ group.id }}">{{ group.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="portal-btn is-primary" type="button" data-admin-member-bulk-move disabled>{{ t("Move members") }}</button>
+      <button class="portal-btn is-secondary" type="button" data-admin-member-clear-selection>{{ t("Clear selection") }}</button>
+    </div>
+    {% endif %}
     {% else %}
     <div class="portal-panel-empty">{{ t("No users found.") }}</div>
     {% endif %}
