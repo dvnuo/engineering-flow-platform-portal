@@ -109,14 +109,15 @@ def test_viewer_role_is_gone_everywhere():
     # not exist.
     from app.services.access_control_service import ALLOWED_USER_ROLES
 
-    assert ALLOWED_USER_ROLES == {"admin", "user"}
+    # group_admin is the group administrator (app/services/authorization.py).
+    assert ALLOWED_USER_ROLES == {"admin", "group_admin", "user"}
     assert "viewer" not in USERS_HTML.lower()
     # The explanatory comment in user.py names the removed role, so assert the
     # Literal itself rather than the whole file.
     from app.schemas.user import UserRole
     from typing import get_args
 
-    assert set(get_args(UserRole)) == {"admin", "user"}
+    assert set(get_args(UserRole)) == {"admin", "group_admin", "user"}
 
 
 def test_member_count_is_pluralised():

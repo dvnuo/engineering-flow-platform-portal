@@ -80,6 +80,9 @@ def test_app_chat_send_forwards_identity_and_trace_headers(monkeypatch):
 
 
 def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_headers(monkeypatch):
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     from app.main import app
     import app.web as web_module
 

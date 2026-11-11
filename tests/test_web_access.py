@@ -51,9 +51,11 @@ def test_admin_can_access_all():
     assert _can_access(agent, user) is True
 
 
-def test_can_access_public_agent():
-    """Test can access public agent."""
+def test_can_access_public_agent(monkeypatch):
+    """A public assistant reaches the members of its owner's group (work_visibility)."""
     from app.web import _can_access
+
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     
     agent = MagicMock()
     agent.owner_user_id = "user-123"
@@ -64,3 +66,7 @@ def test_can_access_public_agent():
     user.role = "user"
     
     assert _can_access(agent, user) is True
+
+    # Not to a member of another group.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: False)
+    assert _can_access(agent, user) is False

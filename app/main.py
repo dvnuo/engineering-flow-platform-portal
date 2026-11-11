@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -20,6 +21,7 @@ from app.api.agents import router as agents_router
 from app.api.assistant_types import router as assistant_types_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
+from app.api.groups import router as groups_router
 from app.api.copilot import router as copilot_router
 from app.api.model_catalog import router as model_catalog_router
 from app.api.connectors import router as connectors_router
@@ -31,6 +33,9 @@ from app.log_context import bind_log_context, generate_span_id, generate_trace_i
 from app.services.locale_service import resolve_locale_for_request
 from app.logger import setup_logging
 from app.services.access_control_service import AccessControlService
+from app.services.connector_defaults_sync import rollout_profiles
+from app.services.group_service import GroupService
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.schema_guard import (
     assert_phase5_schema_compatibility,
@@ -110,8 +115,12 @@ def on_startup() -> None:
     assert_runtime_profile_schema_compatibility(engine)
 
     db = SessionLocal()
+    released_profile_ids: list[str] = []
     try:
         runtime_profile_service = RuntimeProfileService(db)
+        # The group the env allowlist, the bootstrap admin and accounts nobody
+        # has allowlisted yet belong to (app/services/group_service.py).
+        GroupService(db).default_group()
         admin_user = AccessControlService(db).ensure_configured_access(settings)
         if admin_user:
             runtime_profile_service.ensure_user_has_default_profile(admin_user)
@@ -126,8 +135,23 @@ def on_startup() -> None:
         # Rows from before connector modes existed: follow the Default
         # connectors where their values still equal them, custom elsewhere.
         runtime_profile_service.backfill_connector_modes()
+        # The proxy is the platform's own now: rows that kept their own
+        # follow the platform's, and their assistants pick it up below.
+        released_profile_ids = [profile.id for profile in runtime_profile_service.release_platform_only_connectors()]
     finally:
         db.close()
+    if released_profile_ids:
+        threading.Thread(
+            target=rollout_profiles,
+            args=(released_profile_ids,),
+            kwargs={
+                "secret_service": RuntimeProfileSecretService(),
+                "session_factory": SessionLocal,
+                "reason": "proxy_follows_platform",
+            },
+            name="release-platform-proxy",
+            daemon=True,
+        ).start()
 
     if settings.delegation_rules_worker_enabled:
         worker_singleton.start()
@@ -191,6 +215,7 @@ app.mount("/static", static_app, name="static")
 app.include_router(web_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(groups_router)
 app.include_router(agents_router)
 app.include_router(assistant_types_router)
 app.include_router(git_repos_router)

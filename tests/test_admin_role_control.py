@@ -83,7 +83,8 @@ def test_controls_row_child_count_matches_its_grid_columns(rendered_panel):
 def test_role_is_a_segmented_toggle_rather_than_a_dropdown():
     assert 'class="portal-role-toggle"' in USERS_HTML
     assert 'role="radiogroup"' in USERS_HTML
-    assert USERS_HTML.count("data-admin-role-option") == 2
+    # Member, group administrator, system administrator (app/services/authorization.py).
+    assert USERS_HTML.count("data-admin-role-option") == 3
     assert "data-admin-role-select" not in USERS_HTML
     assert "<select" not in USERS_HTML.split("portal-admin-role-control", 1)[1].split("</label>", 1)[0]
 
@@ -91,7 +92,7 @@ def test_role_is_a_segmented_toggle_rather_than_a_dropdown():
 def test_pill_labels_stay_short_so_they_cannot_truncate():
     toggle = USERS_HTML.split('class="portal-role-toggle"', 1)[1].split("</div>", 1)[0]
     labels = re.findall(r"<span>([^<]+)</span>", toggle)
-    assert labels == ['{{ t("User") }}', '{{ t("Admin") }}']
+    assert labels == ['{{ t("User") }}', '{{ t("Group admin") }}', '{{ t("Admin") }}']
 
 
 def test_radio_names_are_scoped_per_member():
@@ -100,8 +101,12 @@ def test_radio_names_are_scoped_per_member():
 
 
 def test_own_account_cannot_change_its_own_role():
+    # role_locked covers the own account (and, for a group administrator, a
+    # system administrator's); only a system administrator can give "Admin".
+    assert "{% set role_locked = u.id == current_user.id or (not is_system_admin and u.role == 'admin') %}" in USERS_HTML
     toggle = USERS_HTML.split('class="portal-role-toggle"', 1)[1].split("</div>", 1)[0]
-    assert toggle.count("{% if u.id == current_user.id %}disabled{% endif %}") == 2
+    assert toggle.count("{% if role_locked %}disabled{% endif %}") == 2
+    assert toggle.count("{% if role_locked or not is_system_admin %}disabled{% endif %}") == 1
 
 
 def test_no_permanent_helper_text_under_the_control():
@@ -112,6 +117,7 @@ def test_no_permanent_helper_text_under_the_control():
 def test_each_pill_explains_what_it_grants():
     assert '[data-admin-role-option][value="user"]' in TOOLTIP_JS
     assert '[data-admin-role-option][value="admin"]' in TOOLTIP_JS
+    assert '[data-admin-role-option][value="group_admin"]' in TOOLTIP_JS
     assert "Owns and runs their own assistants" in TOOLTIP_JS
     assert "Full access to every member's assistants, plus member management" in TOOLTIP_JS
 

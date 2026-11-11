@@ -34,6 +34,7 @@ REQUIRED_PORTAL_TABLES = (
     "session_shares",
     "usage_daily_rollups",
     "error_events",
+    "groups",
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",
@@ -42,6 +43,7 @@ REQUIRED_USER_COLUMNS = (
     "last_login_at",
     "onboarding_completed_at",
     "preferences_json",
+    "group_id",
 )
 
 

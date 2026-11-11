@@ -46,16 +46,60 @@
 </div>
 <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="{{ group }}">{{ t("+ Add {label} instance", label=label) }}</button>
 {%- endmacro %}
+{#- A group's panel: what the group does with each connector, and its fields
+    read-only unless it sets the connector itself (assistant_setup.js toggles
+    the fieldset when the choice changes). Nothing of this on the platform's. -#}
+{% macro group_scope_open(type) -%}
+{% if scope_group %}
+{% set choice = group_choices.get(type, 'platform') %}
+<div class="portal-group-choice" data-group-choice="{{ type }}">
+  <label class="portal-form-label">
+    <span class="portal-form-label">{{ t("For {group}", group=scope_group.name) }}</span>
+    <select name="group_choice_{{ type }}" class="portal-form-select" data-group-choice-select="{{ type }}">
+      <option value="platform" {% if choice == 'platform' %}selected{% endif %}>{{ t("Follow the platform's default") }}</option>
+      <option value="custom" {% if choice == 'custom' %}selected{% endif %}>{{ t("Set for this group") }}</option>
+      {% if type != 'llm' %}<option value="none" {% if choice == 'none' %}selected{% endif %}>{{ t("Not provided to this group") }}</option>{% endif %}
+    </select>
+  </label>
+</div>
+<fieldset class="portal-group-fieldset" data-group-fieldset="{{ type }}"{% if choice != 'custom' %} disabled{% endif %}>
+{% endif %}
+{%- endmacro %}
+{% macro group_scope_close() -%}{% if scope_group %}</fieldset>{% endif %}{%- endmacro %}
+{% macro platform_scope_open() -%}
+{% if scope_group %}
+<p class="portal-inline-note">{{ t("The platform sets the proxy for every group. A system administrator changes it in the platform's Default connectors.") }}</p>
+<fieldset class="portal-group-fieldset" disabled>
+{% endif %}
+{%- endmacro %}
+{% macro platform_scope_close() -%}{% if scope_group %}</fieldset>{% endif %}{%- endmacro %}
 
 <div id="default-connections-panel-root" class="portal-panel-stack" data-default-connections-panel
      data-copilot-auth-base="/api/copilot/auth">
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">{{ t("Default connectors") }}</h5>
+      <h5 class="portal-panel-title">{% if scope_group %}{{ t("Default connectors of {group}", group=scope_group.name) }}{% else %}{{ t("Default connectors") }}{% endif %}</h5>
       <p class="portal-panel-note">
+        {% if scope_group %}
+        {{ t("What members of this group follow. Each connector follows the platform's default unless the group sets it itself, or does not provide it at all.") }}
+        {% else %}
         {{ t("What every new member's connectors start from. They open Connectors to find these already filled in, and change or complete whatever they need.") }}
+        {% if is_system_admin %}{{ t("Every group follows these, except for the connectors a group sets itself.") }}{% endif %}
+        {% endif %}
       </p>
     </div>
+    {% if scope_options|length > 1 %}
+    <label class="portal-form-label portal-default-scope">
+      <span class="portal-form-label">{{ t("Defaults of") }}</span>
+      <select class="portal-form-select" name="group_id" aria-label="{{ t('Whose Default connectors to edit') }}"
+              hx-get="/app/admin/default-connections/panel" hx-trigger="change"
+              hx-target="#workspace-detail-content" hx-swap="innerHTML">
+        {% for option in scope_options %}
+        <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
   </div>
 
   {% if status_message %}
@@ -64,16 +108,23 @@
   {% endif %}
 
   <div class="portal-callout is-warning">
+    {% if scope_group %}
+    <strong>{{ t("Credentials set here are shared with this group's members.") }}</strong>
+    {{ t("Every member of the group who follows a connector uses the credentials set for it. The platform's credentials are never shown here: a connector set for the group starts without them.") }}
+    {% else %}
     <strong>{{ t("Credentials here are shared with every new member.") }}</strong>
     {{ t("Fill one in only for an account meant to be shared — a service or team account. Leave it blank and the field arrives empty, for the member to fill in with their own. A seeded credential is copied into each new member's connectors, where they can see it and change it.") }}
+    {% endif %}
   </div>
 
   <form id="default-connections-form" class="portal-panel-stack"
         hx-post="/app/admin/default-connections/save"
         hx-target="#workspace-detail-content"
         hx-swap="innerHTML">
+    {% if scope_group %}<input type="hidden" name="group_id" value="{{ scope_group.id }}" />{% endif %}
 
     <section class="portal-panel-section">
+      {{ group_scope_open('llm') }}
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("LLM model") }}</h6></div>
       <p class="portal-panel-note">{{ t("Which provider and model a new member starts on.") }}</p>
       <div class="grid grid-cols-2 gap-3">
@@ -149,9 +200,11 @@
         </div>
         <div class="portal-inline-note">{{ t("AI Platform needs all three to sign in, so seed the whole set or none of it. Connection endpoints are managed centrally by the Portal configuration.") }}</div>
       </div>
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="jira">
+      {{ group_scope_open('jira') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jira</h6></div>
       </div>
@@ -172,9 +225,11 @@
           {'key': 'api_version', 'label': t('API version'), 'type': 'select', 'options': [
               {'value': '', 'label': t('Auto')}, {'value': '2', 'label': 'REST API v2'}, {'value': '3', 'label': 'REST API v3'}]}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="confluence">
+      {{ group_scope_open('confluence') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Confluence</h6></div>
       </div>
@@ -193,9 +248,11 @@
           {'key': 'token', 'label': t('Shared API token'), 'type': 'password', 'placeholder': t('Optional')},
           {'key': 'space', 'label': t('Default space key'), 'placeholder': 'ENG'}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section">
+      {{ group_scope_open('github') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>GitHub</h6></div>
       </div>
@@ -220,9 +277,11 @@
           <span class="portal-form-hint">{{ t("A machine account's token every new member starts with. Blank means each brings their own.") }}</span>
         </label>
       </div>
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="jenkins">
+      {{ group_scope_open('jenkins') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jenkins</h6></div>
       </div>
@@ -240,9 +299,11 @@
           {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
           {'key': 'token', 'label': t('Shared API token'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="nexus">
+      {{ group_scope_open('nexus') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Nexus Repository</h6></div>
       </div>
@@ -261,9 +322,11 @@
           {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
           {'key': 'token', 'label': t('Shared user token'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="splunk">
+      {{ group_scope_open('splunk') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Splunk</h6></div>
       </div>
@@ -285,9 +348,11 @@
           {'key': 'default_earliest', 'label': t('Default earliest'), 'placeholder': '-1h'},
           {'key': 'max_results', 'label': t('Max results'), 'type': 'number', 'placeholder': '1000'}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="pgsql">
+      {{ group_scope_open('pgsql') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>PostgreSQL</h6></div>
       </div>
@@ -328,9 +393,11 @@
           {'key': 'username', 'label': t('Shared username (read-only role)'), 'placeholder': t('Optional')},
           {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section">
+      {{ platform_scope_open() }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Network proxy") }}</h6></div>
       </div>
@@ -349,9 +416,11 @@
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Which proxy each connector uses") }}</h6></div>
       <p class="portal-panel-note">{{ t("Default is the proxy above. None reaches the service directly. AWS and GitHub always use the default: their tools only read the environment.") }}</p>
       {{ proxy_assignment_table(proxy_connectors, proxy_entries) }}
+      {{ platform_scope_close() }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="aws_accounts">
+      {{ group_scope_open('aws') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AWS</h6></div>
       </div>
@@ -409,9 +478,11 @@
           ]},
           {'key': 'tls_server_name', 'label': t('TLS server name (optional)'), 'placeholder': t('Normally empty')}
       ], seed_aws_eks_clusters) }}
+      {{ group_scope_close() }}
     </section>
 
     <section class="portal-panel-section">
+      {{ group_scope_open('browserstack') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>BrowserStack</h6></div>
       </div>
@@ -429,11 +500,12 @@
       </div>
       {# Network, platform, idle timeout, Appium version, addresses: what members following the system default record with. #}
       {{ browserstack_advanced(seed.get('mobile-auto', {}).get('defaults', {}), browserstack, mobile_default_network, 'admin') }}
+      {{ group_scope_close() }}
     </section>
 
     <div class="flex items-center gap-2">
       <button type="submit" class="portal-btn is-primary">{{ t("Save defaults") }}</button>
-      <span class="portal-panel-note">{{ t("Members whose connectors follow the system default get these automatically: saving updates their assistants in the background (idle ones restart, busy ones show Restart to apply). Members who customized a connector keep their own values. Model provider is the exception: it is always the member's own, so a changed shared key or password reaches only new members.") }}</span>
+      <span class="portal-panel-note">{% if scope_group %}{{ t("This group's members whose connectors follow the default get these automatically: saving updates their assistants in the background (idle ones restart, busy ones show Restart to apply). Members who customized a connector keep their own values. Model provider settings reach members who join the group from now on.") }}{% else %}{{ t("Members whose connectors follow the system default get these automatically: saving updates their assistants in the background (idle ones restart, busy ones show Restart to apply). Members who customized a connector keep their own values. Model provider is the exception: it is always the member's own, so a changed shared key or password reaches only new members.") }}{% endif %}</span>
     </div>
   </form>
 

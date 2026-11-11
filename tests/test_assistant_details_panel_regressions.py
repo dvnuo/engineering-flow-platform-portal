@@ -24,8 +24,9 @@ def test_render_agent_actions_has_no_settings_button_and_keeps_core_actions():
     assert "/api/tasks" not in render_agent_actions
     assert "/api/internal" not in render_agent_actions
 
-    assert 'agent.visibility === "public" ? t("Unshare") : t("Share")' in render_agent_actions
-    assert 'agent.visibility === "public" ? "unshare" : "share"' in render_agent_actions
+    # Shared with the owner's group ("public") or every group ("platform"; work_visibility).
+    assert 'agentIsShared(agent) ? t("Unshare") : t("Share with your group")' in render_agent_actions
+    assert 'agentIsShared(agent) ? "unshare" : "share"' in render_agent_actions
 
 
 def test_render_agent_meta_defines_skill_repo_section_before_template_use_without_tools_repo_regression():

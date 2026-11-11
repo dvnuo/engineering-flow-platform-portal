@@ -21,22 +21,26 @@
   {% include "partials/connectors/_restart_notice.html" %}
 
   {% if connector_managed %}
-  {# The system-default / custom switch (web.py app_connector_mode). In system mode the form below is read-only (chat_ui.js applySystemDefaultReadOnly) and shows the administrator's current Default connectors. #}
+  {# The system-default / custom switch (web.py app_connector_mode). In system mode the form below is read-only (chat_ui.js applySystemDefaultReadOnly) and shows the member's group's current Default connectors. A connector only the platform sets (the proxy) has no switch. #}
   <section class="portal-panel-section portal-connector-mode is-{{ connector_mode }}" data-connector-mode-section>
     <div class="portal-connector-mode-main">
       <div class="portal-connector-mode-text">
-        {% if connector_follows_system %}
-        <strong>{{ t("Follows your administrator's Default connectors") }}</strong>
-        <p class="portal-panel-note">{% if admin_defaults_available %}{{ t("Changes your administrator makes apply to you automatically. Customize to maintain {label} yourself.", label=connector_label) }}{% else %}{{ t("Your administrator has not set up {label} yet. Customize to set it up yourself.", label=connector_label) }}{% endif %}</p>
+        {% if connector_platform_only %}
+        <strong>{{ t("Set by the platform for everyone") }}</strong>
+        <p class="portal-panel-note">{{ t("Every assistant on the platform uses the same {label}. A system administrator changes it in Default connectors.", label=connector_label) }}</p>
+        {% elif connector_follows_system %}
+        <strong>{{ t("Follows the Default connectors of {group}", group=member_group_name) }}</strong>
+        <p class="portal-panel-note">{% if admin_defaults_available %}{{ t("Changes your group's administrators make apply to you automatically. Customize to maintain {label} yourself.", label=connector_label) }}{% else %}{{ t("Your group has no {label} set up yet. Customize to set it up yourself.", label=connector_label) }}{% endif %}</p>
         {% else %}
         <strong>{{ t("Maintained by you") }}</strong>
-        <p class="portal-panel-note">{{ t("Your administrator's changes to Default connectors do not affect {label}. Use the system default to follow them again.", label=connector_label) }}</p>
+        <p class="portal-panel-note">{{ t("Changes to your group's Default connectors do not affect {label}. Use the group default to follow them again.", label=connector_label) }}</p>
         {% endif %}
       </div>
-      {% if connector_follows_system %}
+      {% if connector_platform_only %}
+      {% elif connector_follows_system %}
       <button type="button" class="portal-btn is-secondary" data-connector-mode-button="custom" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "custom"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this">{{ t("Customize") }}</button>
       {% else %}
-      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="system" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "system"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="{{ t('Your {label} settings are replaced by your administrator\'s Default connectors and saved; from then on their changes apply to you automatically. Idle assistants restart to pick it up; a busy one asks you to restart it when you are ready.', label=connector_label) }}" data-confirm-title="{{ t('Use the system default for {label}?', label=connector_label) }}" data-confirm-ok="{{ t('Use system default') }}" data-confirm-danger="1">{{ t("Use system default") }}</button>
+      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="system" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "system"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="{{ t('Your {label} settings are replaced by your group\'s Default connectors and saved; from then on their changes apply to you automatically. Idle assistants restart to pick it up; a busy one asks you to restart it when you are ready.', label=connector_label) }}" data-confirm-title="{{ t('Use the group default for {label}?', label=connector_label) }}" data-confirm-ok="{{ t('Use group default') }}" data-confirm-danger="1">{{ t("Use group default") }}</button>
       {% endif %}
     </div>
   </section>
@@ -53,8 +57,10 @@
     {% include connector_template %}
 
     <div class="portal-connector-save-row">
-      {% if connector_follows_system %}
-      <span class="portal-inline-note">{{ t("These values are your administrator's Default connectors and change with them. Test runs on them; to edit them, choose Customize above.") }}</span>
+      {% if connector_platform_only %}
+      <span class="portal-inline-note">{{ t("These values are the platform's and change with them. Test runs on them.") }}</span>
+      {% elif connector_follows_system %}
+      <span class="portal-inline-note">{{ t("These values are your group's Default connectors and change with them. Test runs on them; to edit them, choose Customize above.") }}</span>
       {% else %}
       <button type="submit" class="portal-btn is-primary">{{ t("Save") }}</button>
       <span class="portal-inline-note">{{ t("Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.") }}</span>

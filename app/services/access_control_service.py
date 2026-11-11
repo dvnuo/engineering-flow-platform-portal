@@ -8,7 +8,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.auth_service import hash_password
 
 
-ALLOWED_USER_ROLES = {"admin", "user"}
+ALLOWED_USER_ROLES = {"admin", "group_admin", "user"}
 
 
 def configured_allowlist_usernames(raw_value: str) -> list[str]:

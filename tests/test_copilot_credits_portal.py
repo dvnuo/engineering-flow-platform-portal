@@ -119,6 +119,9 @@ def _proxy_client(monkeypatch, *, user, agent):
 
 
 def test_quota_lookup_is_forwarded_for_a_member_who_can_only_read_the_assistant(monkeypatch):
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     viewer = SimpleNamespace(id=99, username="viewer", nickname="Viewer", role="user")
     public_agent = SimpleNamespace(id="agent-1", owner_user_id=55, visibility="public", status="running", name="Agent One")
     client, captured, app = _proxy_client(monkeypatch, user=viewer, agent=public_agent)

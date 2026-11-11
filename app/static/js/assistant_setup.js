@@ -418,6 +418,19 @@
 
   // Panels arrive as innerHTML, so their controls are bound by delegation from
   // a container that is always present.
+  // A group's Default connectors: a connector's fields are editable only
+  // while the group sets it itself (default_connections_panel.html,
+  // group_scope_open); following the platform or not providing it leaves
+  // them read-only, and a disabled fieldset posts nothing.
+  function bindGroupDefaultChoices() {
+    document.addEventListener("change", (event) => {
+      const select = event.target.closest("[data-group-choice-select]");
+      if (!select) return;
+      const fieldset = document.querySelector(`[data-group-fieldset="${select.dataset.groupChoiceSelect}"]`);
+      if (fieldset) fieldset.disabled = select.value !== "custom";
+    });
+  }
+
   function bindAdminPanelDelegation() {
     const root = document.getElementById("workspace-detail-content");
     if (!root) return;
@@ -625,6 +638,7 @@
     bindOnboarding();
     bindAdminNav();
     bindAdminPanelDelegation();
+    bindGroupDefaultChoices();
     // Onboarding decides for itself whether to show; it is a no-op for anyone
     // who has already been through it.
     maybeStartOnboarding();

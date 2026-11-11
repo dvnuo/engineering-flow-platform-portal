@@ -1,0 +1,94 @@
+{#
+  Groups (system administrators, web.py app_groups_*): every member is in one
+  group, and a group's Default connectors are the platform's with the
+  connectors it sets itself. Members join a group from User Management; a
+  group's Default connectors are edited from Default connectors.
+#}
+<div id="groups-panel" class="portal-panel-stack portal-groups" data-groups-panel>
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">{{ t("Groups") }}</h5>
+      <p class="portal-panel-note">
+        {{ t("Every member belongs to one group and follows its Default connectors: the platform's, except for the connectors the group sets itself. Group administrators manage their own group's members and Default connectors.") }}
+      </p>
+    </div>
+    <span class="portal-panel-subtitle">{{ tn(groups|length, "{n} group", "{n} groups") }}</span>
+  </div>
+
+  {% if status_message %}
+  <div class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+       data-groups-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
+  {% endif %}
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("New group") }}</h6></div>
+    <form class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end" data-group-create-form
+          hx-post="/app/admin/groups/create" hx-target="#workspace-detail-content" hx-swap="innerHTML">
+      <label class="portal-form-label">
+        <span class="portal-form-label">{{ t("Name") }}</span>
+        <input type="text" name="name" class="portal-form-input" maxlength="64" required autocomplete="off" />
+      </label>
+      <label class="portal-form-label">
+        <span class="portal-form-label">{{ t("Description") }}</span>
+        <input type="text" name="description" class="portal-form-input" placeholder="{{ t('Optional') }}" autocomplete="off" />
+      </label>
+      <div>
+        <button type="submit" class="portal-btn is-primary">{{ t("Create group") }}</button>
+      </div>
+    </form>
+  </section>
+
+  {% for group in groups %}
+  <section class="portal-panel-section portal-group-row" data-group-row="{{ group.id }}">
+    <div class="portal-settings-section-head">
+      <div class="portal-settings-section-title">
+        <span class="portal-section-accent" aria-hidden="true"></span>
+        <h6>{{ group.name }}</h6>
+        {% if group.is_default %}<span class="portal-admin-role-badge">{{ t("Default group") }}</span>{% endif %}
+      </div>
+      <span class="portal-panel-subtitle">{{ tn(group.member_count, "{n} member", "{n} members") }}</span>
+    </div>
+    <p class="portal-panel-note">
+      {% if group.own_connectors %}
+      {{ t("Sets itself: {connectors}. Follows the platform for the rest.", connectors=group.own_connectors|join(", ")) }}
+      {% else %}
+      {{ t("Follows the platform's Default connectors for every connector.") }}
+      {% endif %}
+      {% if group.is_default %}{{ t("Members added from the deployment's allowlist, and accounts nobody has allowlisted yet, wait here until they are moved to their group.") }}{% endif %}
+    </p>
+    <form class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
+          hx-post="/app/admin/groups/{{ group.id }}/update" hx-target="#workspace-detail-content" hx-swap="innerHTML">
+      <label class="portal-form-label">
+        <span class="portal-form-label">{{ t("Name") }}</span>
+        <input type="text" name="name" class="portal-form-input" maxlength="64" required value="{{ group.name }}" />
+      </label>
+      <label class="portal-form-label">
+        <span class="portal-form-label">{{ t("Description") }}</span>
+        <input type="text" name="description" class="portal-form-input" value="{{ group.description }}" placeholder="{{ t('Optional') }}" />
+      </label>
+      <div>
+        <button type="submit" class="portal-btn is-secondary">{{ t("Save") }}</button>
+      </div>
+    </form>
+    {% if not group.is_default %}
+    <form class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
+          hx-post="/app/admin/groups/{{ group.id }}/delete" hx-target="#workspace-detail-content" hx-swap="innerHTML"
+          hx-confirm="{{ t('Delete {group}? Its members move to the group you chose and follow that group\'s Default connectors; their idle assistants restart to pick that up.', group=group.name) }}"
+          data-confirm-title="{{ t('Delete group?') }}" data-confirm-ok="{{ t('Delete group') }}" data-confirm-danger="1">
+      <label class="portal-form-label">
+        <span class="portal-form-label">{{ t("Move its members to") }}</span>
+        <select name="move_to" class="portal-form-select" required>
+          <option value="">{{ t("Choose a group") }}</option>
+          {% for other in groups if other.id != group.id %}
+          <option value="{{ other.id }}">{{ other.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div>
+        <button type="submit" class="portal-btn is-danger">{{ t("Delete group") }}</button>
+      </div>
+    </form>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>

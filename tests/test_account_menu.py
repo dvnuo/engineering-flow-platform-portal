@@ -120,7 +120,7 @@ def test_app_page_shows_the_directory_photo_when_the_host_is_configured(monkeypa
     assert html.count('class="portal-avatar-initials">JD<') == 2
     assert 'aria-label="Account: Jane Doe"' in html
     assert '<div class="portal-account-name">Jane Doe</div>' in html
-    assert '<div class="portal-account-meta">Member &middot; a1234567</div>' in html
+    assert '<div class="portal-account-meta">Member &middot; Default &middot; a1234567</div>' in html
 
 
 def test_app_page_falls_back_to_initials_without_a_photo_host(monkeypatch):
@@ -128,7 +128,7 @@ def test_app_page_falls_back_to_initials_without_a_photo_host(monkeypatch):
     assert "portal-avatar-photo" not in html
     assert html.count('class="portal-avatar-initials">AD<') == 2
     # Nickname and username coincide, so the username is not repeated.
-    assert '<div class="portal-account-meta">Administrator</div>' in html
+    assert '<div class="portal-account-meta">Administrator &middot; Default</div>' in html
 
 
 # --- the markup and its wiring ----------------------------------------------

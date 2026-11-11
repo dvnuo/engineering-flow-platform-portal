@@ -123,6 +123,9 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
 
 
 def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
+    # A public row reaches the owner's group (work_visibility); these rows live
+    # outside a database session, so say the viewer and the owner share one.
+    monkeypatch.setattr("app.services.work_visibility.in_same_group", lambda *_args: True)
     from app.main import app
     import app.api.proxy as proxy_module
 

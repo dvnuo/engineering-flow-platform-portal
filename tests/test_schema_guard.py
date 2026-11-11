@@ -22,6 +22,7 @@ REQUIRED_PORTAL_TABLES = (
     "session_shares",
     "usage_daily_rollups",
     "error_events",
+    "groups",
 )
 
 
@@ -101,6 +102,7 @@ def test_portal_schema_ready_passes_with_all_required_tables():
                 Column("last_login_at", String(32)),
                 Column("onboarding_completed_at", String(32)),
                 Column("preferences_json", String(32)),
+                Column("group_id", Integer),
             )
         elif table_name == "platform_settings":
             Table(table_name, metadata, Column("key", String(64), primary_key=True))

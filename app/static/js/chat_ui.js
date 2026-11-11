@@ -7915,8 +7915,14 @@ async function refreshBrowserstackEnabled() {
   }
 }
 
+// "public" shares an assistant with its owner's group, "platform" (set by a
+// system administrator) with everyone; app/services/work_visibility.py.
+function agentIsShared(agent) {
+  return agent?.visibility === "public" || agent?.visibility === "platform";
+}
+
 function agentScope(agent) {
-  if (agent?.visibility === "public") return "public";
+  if (agentIsShared(agent)) return "public";
   return Number(agent?.owner_user_id) === state.currentUserId ? "mine" : "shared";
 }
 
@@ -8543,7 +8549,10 @@ function renderAgentActions(agent, status) {
     { label: t("Stop"), icon: "square", variantClass: "is-warning", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
     { label: t("Restart"), icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: t("Edit"), icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: agent.visibility === "public" ? t("Unshare") : t("Share"), icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: agentIsShared(agent) ? t("Unshare") : t("Share with your group"), icon: agentIsShared(agent) ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agentIsShared(agent) ? "unshare" : "share"}`) },
+    ...(state.currentUserRole === "admin" && agent.visibility !== "platform"
+      ? [{ label: t("Share with every group"), icon: "globe", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/share?scope=platform`) }]
+      : []),
     { label: t("Delete"), icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent) },
   ];
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
@@ -13096,6 +13105,10 @@ const ADMIN_PANEL_HEADINGS = {
   "users": {
     title: t("User Management"),
     status: t("Manage members, roles, access, and usage"),
+  },
+  "groups": {
+    title: t("Groups"),
+    status: t("Teams of members, each with its own Default connectors"),
   },
   "assistant-types": {
     title: t("Assistant Types"),
@@ -17663,8 +17676,9 @@ function renderConnectorList(errorMessage = "") {
     row.dataset.connectorType = connector.type;
     const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
     const status = connector.status_label ? tv(connector.status_label) : (connector.enabled ? t("Enabled") : t("Not enabled"));
-    // A settings connector that follows the administrator's Default connectors says so.
-    const modeNote = connector.mode === "system" ? `<span class="portal-connector-row-mode"> \u00b7 ${t("System default")}</span>` : "";
+    // A settings connector that follows the group's (or only the platform's) Default connectors says so.
+    const modeWord = connector.platform_only ? t("Platform") : t("Group default");
+    const modeNote = connector.mode === "system" ? `<span class="portal-connector-row-mode"> \u00b7 ${modeWord}</span>` : "";
     row.innerHTML = `
       <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
       <span class="portal-connector-row-text">
@@ -19303,12 +19317,12 @@ function visibilityLabel(value) {
 
 function visibilityChipHtml(value) {
   if (String(value || "").trim().toLowerCase() !== "public") return "";
-  return `<span class="portal-visibility-chip" title="${t("Every member of the Portal")}">${t("Public")}</span>`;
+  return `<span class="portal-visibility-chip" title="${t("Every member of your group")}">${t("Public")}</span>`;
 }
 
 function visibilityToggleFieldsHtml(value, { label = t("Visibility"), ariaLabel = t("Who can see this delegation") } = {}) {
   const isPublic = String(value || "").trim().toLowerCase() === "public";
-  return `<div class="portal-visibility-field"><span class="portal-form-label">${label}</span><div class="portal-role-toggle portal-visibility-toggle" role="radiogroup" aria-label="${ariaLabel}"><label class="portal-role-option" title="${t("Only you and administrators")}"><input type="radio" name="visibility" value="private" ${isPublic ? "" : "checked"} /><span>${t("Private")}</span></label><label class="portal-role-option" title="${t("Every member of the Portal")}"><input type="radio" name="visibility" value="public" ${isPublic ? "checked" : ""} /><span>${t("Public")}</span></label></div></div>`;
+  return `<div class="portal-visibility-field"><span class="portal-form-label">${label}</span><div class="portal-role-toggle portal-visibility-toggle" role="radiogroup" aria-label="${ariaLabel}"><label class="portal-role-option" title="${t("Only you and administrators")}"><input type="radio" name="visibility" value="private" ${isPublic ? "" : "checked"} /><span>${t("Private")}</span></label><label class="portal-role-option" title="${t("Every member of your group")}"><input type="radio" name="visibility" value="public" ${isPublic ? "checked" : ""} /><span>${t("Public")}</span></label></div></div>`;
 }
 
 // The task detail's Private / Public pills: saved at once, put back on failure
@@ -19327,7 +19341,7 @@ async function handleTaskVisibilityChange(option) {
       body: JSON.stringify({ visibility: next }),
     });
     group.dataset.originalVisibility = updated.visibility || next;
-    showToast(updated.visibility === "public" ? t("Every member can now see this task.") : t("Only you and administrators can see this task now."), { variant: "success" });
+    showToast(updated.visibility === "public" ? t("Every member of your group can now see this task.") : t("Only you and administrators can see this task now."), { variant: "success" });
     await refreshMyTasks();
   } catch (error) {
     group.querySelectorAll("[data-task-visibility-option]").forEach((input) => { input.checked = input.value === previous; });

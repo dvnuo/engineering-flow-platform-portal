@@ -158,9 +158,16 @@ def test_admin_create_user_creates_default_runtime_profile(monkeypatch):
     app.dependency_overrides[deps_module.require_admin] = _override_admin
     client = TestClient(app)
     try:
-        resp = client.post("/api/users", json={"username": " New-API-User ", "password": "pass123", "role": "user"})
+        from app.models import Group
+
+        group = Group(name="Team", is_default=False, config_json="{}", connector_modes_json="{}")
+        db.add(group); db.commit(); db.refresh(group)
+        resp = client.post(
+            "/api/users", json={"username": " New-API-User ", "password": "pass123", "role": "user", "group_id": group.id}
+        )
         assert resp.status_code == 200
         created = db.query(User).filter(User.username == "new-api-user").one()
+        assert created.group_id == group.id
         profiles = db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == created.id).all()
         assert len(profiles) >= 1
         assert len([p for p in profiles if p.is_default]) == 1

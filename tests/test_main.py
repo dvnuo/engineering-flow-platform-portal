@@ -31,6 +31,7 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
             return None
 
     monkeypatch.setattr(app_main, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(app_main, "GroupService", lambda _db: SimpleNamespace(default_group=lambda: None))
     monkeypatch.setattr(
         app_main,
         "AccessControlService",
@@ -44,6 +45,7 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
             ensure_defaults_for_all_users=lambda _db2: None,
             sanitize_all_persisted_runtime_profiles=lambda: None,
             backfill_connector_modes=lambda: 0,
+            release_platform_only_connectors=lambda: [],
         ),
     )
 
@@ -63,6 +65,7 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
     monkeypatch.setattr(app_main, "assert_runtime_profile_schema_compatibility", lambda _engine: None)
     monkeypatch.setattr(app_main, "setup_logging", lambda _level: None)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(app_main, "GroupService", lambda _db: SimpleNamespace(default_group=lambda: None))
     monkeypatch.setattr(
         app_main,
         "AccessControlService",
@@ -76,6 +79,7 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
             ensure_defaults_for_all_users=lambda _db2: None,
             sanitize_all_persisted_runtime_profiles=lambda: None,
             backfill_connector_modes=lambda: 0,
+            release_platform_only_connectors=lambda: [],
         ),
     )
     monkeypatch.setattr(
@@ -109,6 +113,9 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
         def backfill_connector_modes(self):
             return 0
 
+        def release_platform_only_connectors(self):
+            return []
+
         def __init__(self, _db):
             pass
 
@@ -124,6 +131,7 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
 
     monkeypatch.setattr(app_main, "RuntimeProfileService", DummyRuntimeProfileService)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: call_order.append("db_close")))
+    monkeypatch.setattr(app_main, "GroupService", lambda _db: SimpleNamespace(default_group=lambda: None))
 
     app_main.on_startup()
 
@@ -151,6 +159,9 @@ def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatc
         def backfill_connector_modes(self):
             return 0
 
+        def release_platform_only_connectors(self):
+            return []
+
         def __init__(self, _db):
             pass
 
@@ -162,6 +173,7 @@ def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatc
 
     monkeypatch.setattr(app_main, "RuntimeProfileService", DummyRuntimeProfileService)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(app_main, "GroupService", lambda _db: SimpleNamespace(default_group=lambda: None))
 
     with pytest.raises(RuntimeError, match="default setup boom"):
         app_main.on_startup()

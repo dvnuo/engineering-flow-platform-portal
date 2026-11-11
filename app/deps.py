@@ -29,6 +29,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
 
 def require_admin(user=Depends(get_current_user)):
+    """A system administrator (app/services/authorization.py)."""
     if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Admin only"))
+    return user
+
+
+def require_administrator(user=Depends(get_current_user)):
+    """A system or a group administrator; the route narrows a group administrator to their group."""
+    from app.services.authorization import is_administrator
+
+    if not is_administrator(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Admin only"))
     return user

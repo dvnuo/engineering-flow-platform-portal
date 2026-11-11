@@ -43,6 +43,9 @@ freely, but these terms always render as below.
 | local bridge / the bridge | 本地桥接程序 / 桥接程序 | 本機橋接程式 / 橋接程式 | also the connector's name, so menu paths read 连接器 → 本地桥接程序 |
 | model provider / proxy (connector names) | 模型提供方 / 代理 | 模型提供者 / 代理 | product-named connectors (Jira, GitHub, AWS, ...) keep their names |
 | customize / system default (connector mode) | 自定义 / 系统默认 | 自訂 / 系統預設 | |
+| group / group default (connector mode) | 组 / 组默认 | 組 / 組預設 | a team of members with its own Default connectors |
+| group administrator / system administrator | 组管理员 / 系统管理员 | 組管理員 / 系統管理員 | |
+| platform | 平台 | 平台 | the layer every group follows |
 | build (an uploaded .apk/.aab/.ipa) | 安装包 | 安裝檔 | not 构建: it is the app binary |
 | recording / replay | 录制 / 回放 | 錄製 / 重播 | |
 | scenario / script / segment | 场景 / 脚本 / 片段 | 情境 / 腳本 / 片段 | |

@@ -16,6 +16,7 @@ from starlette.background import BackgroundTask
 import websockets
 
 from app.i18n import N_
+from app.services.work_visibility import can_see
 from app.config import get_settings
 from app.contracts.provider_projection import normalize_model_for_runtime
 from app.db import get_db
@@ -59,7 +60,7 @@ settings = get_settings()
 
 
 def _can_access(agent, user) -> bool:
-    return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
+    return can_see(agent, user)
 
 
 def _can_write(agent, user) -> bool:

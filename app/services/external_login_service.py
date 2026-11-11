@@ -24,6 +24,7 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.access_control_service import ALLOWED_USER_ROLES
 from app.services.auth_service import hash_password
+from app.services.group_service import GroupService
 from app.services.outbound_http import github_client_kwargs
 from app.services.runtime_profile_service import RuntimeProfileService
 
@@ -57,6 +58,13 @@ def provision_external_user(db: Session, *, username: str, display_name: str = "
             # Nobody signs in with a password on this account; the hash only
             # satisfies the NOT NULL column and is unguessable.
             user = users.create(normalized, hash_password(secrets.token_urlsafe(32)), role, (display_name or "").strip() or None)
+            # The group the admin allowlisted them into; an account nobody has
+            # allowlisted yet waits in the default group, and allowlisting it
+            # later moves it (app/api/users.py).
+            user.group_id = entry.group_id if entry is not None and entry.group_id is not None else GroupService(db).default_group().id
+            db.add(user)
+            db.commit()
+            db.refresh(user)
             created = True
         except IntegrityError:
             db.rollback()

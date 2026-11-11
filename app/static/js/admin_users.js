@@ -12,16 +12,23 @@
     node.classList.toggle("is-error", !!isError);
   }
 
-  function openAllowlistModal() {
+  function openAllowlistModal(prefillUsername) {
     var root = document.getElementById("admin-users-panel");
     var modal = root && root.querySelector("[data-admin-allowlist-modal]");
     if (!modal) return;
     feedback(root, "", false);
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
+    var textarea = modal.querySelector('textarea[name="usernames"]');
+    if (textarea && prefillUsername) {
+      textarea.value = prefillUsername;
+      var count = modal.querySelector("[data-admin-allowlist-count]");
+      if (count) count.textContent = String(parseUsernames(textarea.value).length);
+    }
     window.setTimeout(function () {
-      var textarea = modal.querySelector('textarea[name="usernames"]');
-      if (textarea) textarea.focus();
+      // With the username filled in, what is left to choose is the group.
+      var focus = prefillUsername ? modal.querySelector("[data-admin-allowlist-group]") || textarea : textarea;
+      if (focus) focus.focus();
     }, 0);
   }
 
@@ -44,6 +51,48 @@
   function selectedRole(scope) {
     var checked = scope && scope.querySelector("[data-admin-role-option]:checked");
     return checked ? checked.value : "user";
+  }
+
+  function groupIdOf(value) {
+    var id = Number(value);
+    return Number.isInteger(id) && id > 0 ? id : undefined;
+  }
+
+  // A system administrator moves a member to another group from the row's
+  // select: the member follows that group's Default connectors from then on,
+  // and a group administrator becomes a member of the new group.
+  async function moveMember(select) {
+    var root = panelRoot(select);
+    var previous = select.dataset.originalGroup || "";
+    var username = select.dataset.memberUsername || t("this member");
+    var label = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "";
+    var confirmed = window.showConfirm
+      ? await window.showConfirm({
+          title: t("Move {username} to {group}?", { username: username, group: label }),
+          message: t("They follow {group}'s Default connectors from now on; their idle assistants restart to pick that up. A group administrator becomes a member of the new group.", { group: label }),
+          confirmText: t("Move member"),
+        })
+      : window.confirm(t("Move {username} to {group}?", { username: username, group: label }));
+    if (!confirmed) {
+      select.value = previous;
+      return;
+    }
+    select.disabled = true;
+    try {
+      await request("/api/users/" + encodeURIComponent(select.dataset.userId), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: groupIdOf(select.value) }),
+      });
+      await reloadPanel(t("{username} is now in {group}.", { username: username, group: label }), false);
+    } catch (error) {
+      select.value = previous;
+      select.disabled = false;
+      feedback(root, error.message, true);
+      if (window.showAlert) {
+        await window.showAlert({ title: t("Unable to move member"), message: error.message });
+      }
+    }
   }
 
   function parseUsernames(value) {
@@ -211,8 +260,10 @@
     if (!root) return;
     var search = root.querySelector("[data-admin-member-search]");
     var accessFilter = root.querySelector("[data-admin-member-access-filter]");
+    var groupFilter = root.querySelector("[data-admin-member-group-filter]");
     var query = String(search && search.value || "").trim().toLowerCase();
     var access = String(accessFilter && accessFilter.value || "all");
+    var groupId = String(groupFilter && groupFilter.value || "all");
     var cards = Array.prototype.slice.call(root.querySelectorAll("[data-member-id]"));
     var visible = 0;
 
@@ -222,7 +273,8 @@
       // "inactive" = no run in the selected period, whatever the access.
       var matchesAccess = access === "all"
         || (access === "inactive" ? Number(card.dataset.memberExecutionsPeriod || 0) === 0 : card.dataset.memberAccess === access);
-      card.hidden = !(matchesQuery && matchesAccess);
+      var matchesGroup = groupId === "all" || String(card.dataset.memberGroup || "") === groupId;
+      card.hidden = !(matchesQuery && matchesAccess && matchesGroup);
       if (!card.hidden) visible += 1;
     });
 
@@ -265,11 +317,14 @@
       var result = await request("/api/users/allowlist/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usernames: usernames, role: data.get("role") }),
+        body: JSON.stringify({ usernames: usernames, role: data.get("role"), group_id: groupIdOf(data.get("group_id")) }),
       });
       var messages = [];
       if (result.added.length) messages.push(t("Allowed {n}.", { n: result.added.length }));
       if (result.already_allowlisted.length) messages.push(t("Skipped {n} already allowed.", { n: result.already_allowlisted.length }));
+      if (result.refused && result.refused.length) {
+        messages.push(t("Not added, they belong to another group: {usernames}.", { usernames: result.refused.join(", ") }));
+      }
       var successMessage = messages.join(" ") || t("No changes were needed.");
       closeAllowlistModal();
       await reloadPanel(successMessage, false);
@@ -284,8 +339,13 @@
   });
 
   document.addEventListener("change", async function (event) {
-    if (event.target.closest("[data-admin-member-access-filter]")) {
+    if (event.target.closest("[data-admin-member-access-filter]") || event.target.closest("[data-admin-member-group-filter]")) {
       applyMemberFilters(panelRoot(event.target));
+      return;
+    }
+    var groupSelect = event.target.closest("[data-admin-group-select]");
+    if (groupSelect) {
+      await moveMember(groupSelect);
       return;
     }
     if (event.target.closest("[data-admin-member-period]")) {
@@ -318,10 +378,11 @@
       group.dataset.originalRole = updated.role;
       checkRoleOption(group, updated.role);
       var adminSummary = panelRoot(group).querySelector("[data-admin-summary-admins]");
+      var isAdminRole = function (role) { return role === "admin" || role === "group_admin"; };
       var isAllowedMember = card && card.dataset.memberAccess === "allowed";
-      if (adminSummary && isAllowedMember && (previousRole === "admin") !== (updated.role === "admin")) {
+      if (adminSummary && isAllowedMember && isAdminRole(previousRole) !== isAdminRole(updated.role)) {
         var adminCount = Number(adminSummary.textContent) || 0;
-        adminSummary.textContent = String(adminCount + (updated.role === "admin" ? 1 : -1));
+        adminSummary.textContent = String(adminCount + (isAdminRole(updated.role) ? 1 : -1));
       }
       if (statusNode) {
         statusNode.textContent = t("Saved");
@@ -391,6 +452,12 @@
       var allowRoot = panelRoot(allowButton);
       var allowCard = allowButton.closest("[data-member-id]");
       var username = allowButton.dataset.username;
+      // A system administrator chooses the group in the allowlist dialog;
+      // a group administrator's own group needs no choice.
+      if (allowRoot && allowRoot.querySelector("[data-admin-allowlist-group]")) {
+        openAllowlistModal(username);
+        return;
+      }
       allowButton.disabled = true;
       try {
         await request("/api/users/allowlist", {

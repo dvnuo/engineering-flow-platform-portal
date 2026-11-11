@@ -28,6 +28,8 @@ from app.services.connector_defaults_service import (
     effective_config,
     managed_slice,
     managed_specs,
+    member_customizable_specs,
+    parse_connector_modes,
     sanitized_seed,
     stored_connector_modes,
 )
@@ -160,7 +162,7 @@ class RuntimeProfileService:
         return RuntimeProfileService._deep_merge_dicts(RuntimeProfileService.default_profile_config(), overlay)
 
     def read_seed(self) -> dict:
-        """The admin-maintained Default connectors, or ``{}`` when they cannot be read.
+        """The platform's Default connectors (the system administrator's), or ``{}`` when they cannot be read.
 
         Read on the registration path and on every settings render, where an
         exception would lock a member out, so it never raises.
@@ -173,16 +175,30 @@ class RuntimeProfileService:
             logger.warning("Falling back to empty Default connectors; seed could not be read", exc_info=True)
             return {}
 
-    def _seeded_default_config_json(self) -> str:
-        """Build a member's first settings from the admin-maintained defaults.
+    def read_seed_for(self, owner_user_id: int | None) -> dict:
+        """The Default connectors the member follows: their group's (``group_service``).
+
+        Never raises, like ``read_seed``: a group that cannot be read falls
+        back to the platform's.
+        """
+        try:
+            from app.services.group_service import GroupService
+
+            return GroupService(self.db).seed_for_user_id(owner_user_id)
+        except Exception:  # pragma: no cover - a group must never lock a member out
+            logger.warning("Falling back to the platform's Default connectors; group could not be read", exc_info=True)
+            return self.read_seed()
+
+    def _seeded_default_config_json(self, user: User | None = None) -> str:
+        """Build a member's first settings from their group's Default connectors.
 
         Only what no connector mode governs is copied: the model provider's
         defaults and shared key. Everything else a new member gets by
         following the Default connectors (``effective_config_for``), so a
-        later change by the administrator reaches them without a copy going
+        later change by an administrator reaches them without a copy going
         stale.
         """
-        seed = self.read_seed()
+        seed = self.read_seed_for(user.id) if user is not None else self.read_seed()
         if not seed:
             return self.normalize_persisted_config_json(None)
         managed = {section for spec in SETTINGS_CONNECTORS for section in spec.managed_sections}
@@ -204,12 +220,12 @@ class RuntimeProfileService:
 
     def effective_config_for(self, profile: RuntimeProfile) -> dict:
         """The settings the member's assistants get: the row, with every connector
-        in system mode read from the current Default connectors."""
+        in system mode read from their group's current Default connectors."""
 
         return effective_config(
             parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
             self.connector_modes(profile),
-            self.read_seed(),
+            self.read_seed_for(profile.owner_user_id),
         )
 
     def customize_connector(self, profile: RuntimeProfile, spec) -> tuple[RuntimeProfile, bool]:
@@ -222,12 +238,12 @@ class RuntimeProfileService:
         """
 
         modes = self.connector_modes(profile)
-        if connector_mode(spec, modes) == MODE_CUSTOM:
+        if spec.platform_only or connector_mode(spec, modes) == MODE_CUSTOM:
             return profile, False
         config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         restored = bool(managed_slice(spec, config))
         if not restored:
-            for section, value in managed_slice(spec, sanitized_seed(self.read_seed())).items():
+            for section, value in managed_slice(spec, sanitized_seed(self.read_seed_for(profile.owner_user_id))).items():
                 config[section] = value
             profile.config_json = self.normalize_persisted_config_json(dump_runtime_profile_config_json(config))
         modes[spec.type] = MODE_CUSTOM
@@ -253,7 +269,7 @@ class RuntimeProfileService:
         # parking: customizing again then starts from the defaults as they
         # are at that time, not from a stale copy.
         config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-        if managed_slice(spec, config) == managed_slice(spec, sanitized_seed(self.read_seed())):
+        if managed_slice(spec, config) == managed_slice(spec, sanitized_seed(self.read_seed_for(profile.owner_user_id))):
             for section in spec.managed_sections:
                 config.pop(section, None)
             profile.config_json = self.normalize_persisted_config_json(dump_runtime_profile_config_json(config))
@@ -268,7 +284,7 @@ class RuntimeProfileService:
         if not overrides:
             return profile
         modes = self.connector_modes(profile)
-        known = {spec.type for spec in managed_specs()}
+        known = {spec.type for spec in member_customizable_specs()}
         for key, value in dict(overrides).items():
             if str(key) not in known:
                 continue
@@ -288,13 +304,12 @@ class RuntimeProfileService:
         changes, so no revision moves. Returns the number of rows classified.
         """
 
-        seed = self.read_seed()
         count = 0
         for profile in self.repo.list_all():
             if profile.connector_modes_json is not None:
                 continue
             config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-            modes = backfill_connector_modes(config, seed)
+            modes = backfill_connector_modes(config, self.read_seed_for(profile.owner_user_id))
             for spec in SETTINGS_CONNECTORS:
                 if spec.managed_sections and connector_mode(spec, modes) == MODE_SYSTEM:
                     for section in spec.managed_sections:
@@ -307,6 +322,45 @@ class RuntimeProfileService:
             self.db.commit()
             logger.info("Classified %d settings rows into connector modes", count)
         return count
+
+    def release_platform_only_connectors(self) -> list[RuntimeProfile]:
+        """Make every row follow the platform for the connectors only it sets (the proxy).
+
+        Rows from before the proxy became the platform's own may still say
+        ``custom`` for it. Their own values stay in the row, unused; a row
+        whose assistants now get different settings has its revision bumped
+        and is returned, for the caller to roll out (Secret and restarts).
+        """
+
+        locked = [spec for spec in managed_specs() if spec.platform_only]
+        released: list[RuntimeProfile] = []
+        if not locked:
+            return released
+        for profile in self.repo.list_all():
+            try:
+                stored = json.loads(profile.connector_modes_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(stored, dict) or not any(str(stored.get(spec.type) or "").lower() == MODE_CUSTOM for spec in locked):
+                continue
+            config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+            # What the assistants got before: the row's own values for these.
+            before = {
+                section: config.get(section) for spec in locked for section in spec.managed_sections if config.get(section)
+            }
+            seed_config = sanitized_seed(self.read_seed_for(profile.owner_user_id))
+            after = {
+                section: seed_config.get(section) for spec in locked for section in spec.managed_sections if seed_config.get(section)
+            }
+            profile.connector_modes_json = dump_connector_modes(parse_connector_modes(profile.connector_modes_json))
+            if before != after:
+                profile.revision = (profile.revision or 0) + 1
+                released.append(profile)
+            self.db.add(profile)
+        self.db.commit()
+        if released:
+            logger.info("Released %d settings rows to the platform's proxy", len(released))
+        return released
 
     def get_for_owner(self, owner_user_id: int) -> RuntimeProfile | None:
         return self.repo.get_for_owner(owner_user_id)
@@ -322,7 +376,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name=DEFAULT_PROFILE_NAME,
                 description=DEFAULT_PROFILE_DESCRIPTION,
-                config_json=self._seeded_default_config_json(),
+                config_json=self._seeded_default_config_json(user),
                 # Every connector follows the Default connectors to begin with.
                 connector_modes_json=dump_connector_modes({}),
                 is_default=True,
@@ -416,13 +470,22 @@ class RuntimeProfileService:
         old = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
         new = parse_runtime_profile_config_json(new_config_json, fallback_to_empty=True)
         modes = self.connector_modes(profile)
-        seed_config = sanitized_seed(self.read_seed())
+        seed_config = sanitized_seed(self.read_seed_for(profile.owner_user_id))
         modes_changed = config_changed = False
         for spec in managed_specs():
             if connector_mode(spec, modes) != MODE_SYSTEM:
                 continue
             written = managed_slice(spec, new)
             if not written or written == managed_slice(spec, old):
+                continue
+            if spec.platform_only:
+                # Only the platform sets it: what was written does not apply,
+                # so the row keeps what it had.
+                for section in spec.managed_sections:
+                    new.pop(section, None)
+                    if section in old:
+                        new[section] = old[section]
+                config_changed = True
                 continue
             if written == managed_slice(spec, seed_config):
                 for section in spec.managed_sections:

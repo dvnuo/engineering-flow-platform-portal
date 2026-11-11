@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentExecution, AgentTask, DelegationRule, User, UserAllowlistEntry
+from app.models import Agent, AgentExecution, AgentTask, DelegationRule, Group, User, UserAllowlistEntry
 
 
 def _database():
@@ -509,9 +509,15 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
     monkeypatch.setattr(users_api.settings, "bootstrap_admin_username", "admin")
     client = TestClient(app)
     try:
+        # Every allowlist entry names its group (app/api/users.py _target_group).
+        group = Group(name="Team", is_default=False, config_json="{}", connector_modes_json="{}")
+        db.add(group)
+        db.commit()
+        no_group = client.post("/api/users/allowlist", json={"username": "someone", "role": "user"})
+        assert no_group.status_code == 422
         allow = client.post(
             "/api/users/allowlist",
-            json={"username": " MEMBER ", "role": "user"},
+            json={"username": " MEMBER ", "role": "user", "group_id": group.id},
         )
         assert allow.status_code == 200
         assert allow.json()["username"] == "member"
@@ -523,12 +529,14 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
             json={
                 "usernames": [" Alice ", "bob", "ALICE", "admin"],
                 "role": "user",
+                "group_id": group.id,
             },
         )
         assert bulk_allow.status_code == 200
         assert bulk_allow.json() == {
             "added": ["alice", "bob"],
             "already_allowlisted": ["admin"],
+            "refused": [],
         }
         assert {
             row.username

@@ -19,8 +19,16 @@ type: mode}``; a type that is absent is ``system``. A connector's
 governs: the model provider manages none, so it is always the member's own,
 and GitHub manages ``github`` but not the commit identity.
 
-Pure functions over config dicts; ``RuntimeProfileService`` owns the row and
-``connector_defaults_sync`` the rollout after the administrator saves.
+Where the Default connectors come from: the platform's (the system
+administrator's seed) with the connectors the member's group sets itself
+replaced by the group's values (``group_seed``). ``system`` mode follows
+that, so a member follows their group and their group follows the platform.
+A ``platform_only`` connector (the proxy) is always in system mode and no
+group can set it: everyone gets the platform's.
+
+Pure functions over config dicts; ``RuntimeProfileService`` owns the row,
+``group_service`` the group's, and ``connector_defaults_sync`` the rollout
+after an administrator saves.
 """
 from __future__ import annotations
 
@@ -40,11 +48,44 @@ MODE_SYSTEM = "system"
 MODE_CUSTOM = "custom"
 CONNECTOR_MODES = (MODE_SYSTEM, MODE_CUSTOM)
 
+# What a group does with one connector, as its Default connectors panel
+# offers it. Only ``custom`` is stored (``groups.connector_modes_json``); a
+# custom connector with no values is ``none``.
+GROUP_CHOICE_PLATFORM = "platform"
+GROUP_CHOICE_CUSTOM = "custom"
+GROUP_CHOICE_NONE = "none"
+GROUP_CHOICES = (GROUP_CHOICE_PLATFORM, GROUP_CHOICE_CUSTOM, GROUP_CHOICE_NONE)
+
 
 def managed_specs() -> tuple[ConnectorSpec, ...]:
     """The settings connectors that can follow the Default connectors."""
 
     return tuple(spec for spec in SETTINGS_CONNECTORS if spec.managed_sections)
+
+
+def member_customizable_specs() -> tuple[ConnectorSpec, ...]:
+    """The managed connectors a member may switch to their own values."""
+
+    return tuple(spec for spec in managed_specs() if not spec.platform_only)
+
+
+def group_specs() -> tuple[ConnectorSpec, ...]:
+    """The connectors a group may set for its members.
+
+    Every managed connector but the platform's own, and the model provider:
+    a member's first row copies the model defaults of their group, and the
+    step limit follows the group's.
+    """
+
+    return tuple(
+        spec for spec in SETTINGS_CONNECTORS if not spec.platform_only and (spec.managed_sections or spec.type == "llm")
+    )
+
+
+def group_sections(spec: ConnectorSpec) -> tuple[str, ...]:
+    """The sections of the Default connectors that a group's choice for ``spec`` covers."""
+
+    return spec.managed_sections or spec.config_sections
 
 
 def sanitized_seed(seed: Mapping[str, Any] | None) -> dict:
@@ -121,7 +162,7 @@ def parse_connector_modes(raw: str | None) -> dict[str, str]:
         return {}
     if not isinstance(decoded, dict):
         return {}
-    known = {spec.type for spec in managed_specs()}
+    known = {spec.type for spec in member_customizable_specs()}
     return {
         str(key): str(value).strip().lower()
         for key, value in decoded.items()
@@ -138,7 +179,7 @@ def stored_connector_modes(raw: str | None) -> dict[str, str]:
     """
 
     if raw is None:
-        return {spec.type: MODE_CUSTOM for spec in managed_specs()}
+        return {spec.type: MODE_CUSTOM for spec in member_customizable_specs()}
     return parse_connector_modes(raw)
 
 
@@ -150,10 +191,13 @@ def dump_connector_modes(modes: Mapping[str, str] | None) -> str:
 
 
 def connector_mode(spec: ConnectorSpec, modes: Mapping[str, str] | None) -> str:
-    """``spec``'s mode: custom when it manages nothing, else as stored, else system."""
+    """``spec``'s mode: custom when it manages nothing, system when only the
+    platform sets it, else as stored, else system."""
 
     if not spec.managed_sections:
         return MODE_CUSTOM
+    if spec.platform_only:
+        return MODE_SYSTEM
     mode = str((modes or {}).get(spec.type) or "").strip().lower()
     return mode if mode in CONNECTOR_MODES else MODE_SYSTEM
 
@@ -199,7 +243,7 @@ def backfill_connector_modes(member_config: Mapping[str, Any] | None, seed: Mapp
     except ValueError:
         member = {}
     modes: dict[str, str] = {}
-    for spec in managed_specs():
+    for spec in member_customizable_specs():
         mine = managed_slice(spec, member)
         if mine and mine != managed_slice(spec, seed_config):
             modes[spec.type] = MODE_CUSTOM
@@ -244,8 +288,82 @@ def follows_changed_defaults(
     return "llm" in changed_types and not has_own_step_limit(member_config)
 
 
+# ------------------------------------------------------------------ groups
+
+
+def parse_group_modes(raw: str | None) -> dict[str, str]:
+    """``{connector type: "custom"}`` from ``groups.connector_modes_json``; anything else is dropped."""
+
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+    known = {spec.type for spec in group_specs()}
+    return {
+        str(key): MODE_CUSTOM
+        for key, value in decoded.items()
+        if str(key) in known and str(value).strip().lower() == MODE_CUSTOM
+    }
+
+
+def group_sets(spec: ConnectorSpec, group_modes: Mapping[str, str] | None) -> bool:
+    """Whether the group sets ``spec`` itself rather than following the platform."""
+
+    return not spec.platform_only and (group_modes or {}).get(spec.type) == MODE_CUSTOM
+
+
+def group_choice(spec: ConnectorSpec, group_config: Mapping[str, Any] | None, group_modes: Mapping[str, str] | None) -> str:
+    """What the group's panel shows for ``spec``: platform, custom, or none (custom with no values)."""
+
+    if not group_sets(spec, group_modes):
+        return GROUP_CHOICE_PLATFORM
+    source = group_config if isinstance(group_config, Mapping) else {}
+    has_values = any(isinstance(source.get(section), dict) and source.get(section) for section in group_sections(spec))
+    return GROUP_CHOICE_CUSTOM if has_values else GROUP_CHOICE_NONE
+
+
+def group_seed(
+    platform_seed: Mapping[str, Any] | None,
+    group_config: Mapping[str, Any] | None = None,
+    group_modes: Mapping[str, str] | None = None,
+) -> dict:
+    """The Default connectors a group's members follow.
+
+    The platform's, with every connector the group sets itself replaced by
+    the group's values, or left out when the group gives it none. A group
+    that sets the model provider without a step limit keeps following the
+    platform's, the way a member's row does (``with_default_step_limit``).
+    """
+
+    seed = {key: copy.deepcopy(value) for key, value in dict(platform_seed or {}).items()}
+    source = group_config if isinstance(group_config, Mapping) else {}
+    platform_limit = default_step_limit(seed)
+    for spec in group_specs():
+        if not group_sets(spec, group_modes):
+            continue
+        for section in group_sections(spec):
+            value = source.get(section)
+            if isinstance(value, dict) and value:
+                seed[section] = copy.deepcopy(value)
+            else:
+                seed.pop(section, None)
+        if spec.type == "llm" and platform_limit is not None and default_step_limit(seed) is None:
+            llm = dict(seed.get("llm") or {})
+            llm["max_steps"] = platform_limit
+            seed["llm"] = llm
+    return seed
+
+
 __all__ = [
     "CONNECTOR_MODES",
+    "GROUP_CHOICES",
+    "GROUP_CHOICE_CUSTOM",
+    "GROUP_CHOICE_NONE",
+    "GROUP_CHOICE_PLATFORM",
     "MODE_CUSTOM",
     "MODE_SYSTEM",
     "backfill_connector_modes",
@@ -256,10 +374,17 @@ __all__ = [
     "effective_config",
     "follows_changed_defaults",
     "following_types",
+    "group_choice",
+    "group_sections",
+    "group_seed",
+    "group_sets",
+    "group_specs",
     "has_own_step_limit",
     "managed_slice",
     "managed_specs",
+    "member_customizable_specs",
     "parse_connector_modes",
+    "parse_group_modes",
     "sanitized_seed",
     "stored_connector_modes",
     "with_default_step_limit",

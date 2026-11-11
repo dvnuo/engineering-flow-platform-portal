@@ -6,14 +6,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # "viewer" was removed: no permission check ever distinguished it from "user"
 # (every check is `role == "admin" or owner`), so assigning it promised a
-# read-only account that did not exist.
-UserRole = Literal["admin", "user"]
+# read-only account that did not exist. "admin" is a system administrator,
+# "group_admin" administers their own group (app/services/authorization.py).
+UserRole = Literal["admin", "group_admin", "user"]
 
 
 class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=6)
     role: UserRole = "user"
+    # Required from a system administrator: every member joins a group.
+    group_id: Optional[int] = None
 
     @field_validator("username", mode="before")
     @classmethod
@@ -25,11 +28,16 @@ class UserAdminUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Optional[UserRole] = None
+    # Moves the member to another group (system administrators only).
+    group_id: Optional[int] = None
 
 
 class AllowlistCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     role: UserRole = "user"
+    # The group the member joins: required from a system administrator, a
+    # group administrator's own group otherwise.
+    group_id: Optional[int] = None
 
     @field_validator("username", mode="before")
     @classmethod
@@ -40,6 +48,7 @@ class AllowlistCreateRequest(BaseModel):
 class AllowlistBulkCreateRequest(BaseModel):
     usernames: list[str] = Field(..., min_length=1, max_length=200)
     role: UserRole = "user"
+    group_id: Optional[int] = None
 
     @field_validator("usernames", mode="before")
     @classmethod
@@ -66,12 +75,15 @@ class AllowlistBulkCreateRequest(BaseModel):
 class AllowlistBulkResponse(BaseModel):
     added: list[str]
     already_allowlisted: list[str]
+    # Usernames a group administrator may not add: someone in another group.
+    refused: list[str] = []
 
 
 class UserResponse(BaseModel):
     id: int
     username: str
     role: str
+    group_id: Optional[int] = None
     nickname: Optional[str] = None
     last_login_at: Optional[datetime] = None
     created_at: datetime
@@ -84,6 +96,7 @@ class AllowlistResponse(BaseModel):
     id: int
     username: str
     role: str
+    group_id: Optional[int] = None
     is_active: bool
     added_by_user_id: Optional[int] = None
     created_at: datetime
@@ -97,6 +110,8 @@ class MemberUsageResponse(BaseModel):
     username: str
     nickname: Optional[str] = None
     role: str
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
     is_allowlisted: bool
     allowlist_entry_id: Optional[int] = None
     created_at: datetime
@@ -122,5 +137,8 @@ class MemberOverviewResponse(BaseModel):
     users: list[MemberUsageResponse]
     allowlist_entries: list[AllowlistResponse]
     pending_allowlist_entries: list[AllowlistResponse]
+    # The overview of one group (a group administrator's), or None for all.
+    group_id: Optional[int] = None
+    groups: list[dict] = []
     period_days: int = 30
     summary: dict[str, int | float]

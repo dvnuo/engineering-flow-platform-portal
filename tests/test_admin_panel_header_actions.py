@@ -101,9 +101,9 @@ def test_each_panel_has_its_own_title_and_status():
     block = js[js.index("const ADMIN_PANEL_HEADINGS = {") :]
     block = block[: block.index("\n};")]
 
-    for panel in ("users", "assistant-types", "default-connections", "usage", "errors"):
+    for panel in ("users", "groups", "assistant-types", "default-connections", "usage", "errors"):
         assert f'"{panel}"' in block, panel
-    assert block.count("title:") == block.count("status:") == 5
+    assert block.count("title:") == block.count("status:") == 6
 
 
 def test_the_title_is_keyed_on_the_panel_not_the_section():
