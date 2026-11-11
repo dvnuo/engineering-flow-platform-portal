@@ -199,12 +199,12 @@ body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased;
    rebuilding the transcript (which would lose scroll position and diagrams). */
 .share-transcript.is-tools-hidden .share-tool-row { display: none; }
 
-/* A member's answers to the assistant's question card. */
-.share-bubble--answer { padding: 12px 16px 14px; }
-.share-answer-note { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; color: var(--share-muted); }
-.share-answer-pairs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
-.share-answer-pairs dt { color: var(--share-muted); font-size: 13px; }
-.share-answer-pairs dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+/* A question card the member answered: what the assistant asked stays on its
+   side with the card's accent edge, and the member's bubble holds the answers
+   alone, one line each, in the order of the questions. */
+.share-asked-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 2px 14px; border-left: 2px solid var(--share-accent); font-size: 15.5px; line-height: 1.7; color: var(--share-text); overflow-wrap: anywhere; }
+.share-answer-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.share-answer-line + .share-answer-line { margin-top: 4px; }
 
 .share-tool-result > summary { cursor: pointer; list-style: revert; }
 .share-diagram { margin: 14px 0; padding: 12px; overflow-x: auto; border: 1px solid var(--share-line); border-radius: 12px; background: var(--share-bg); }
@@ -255,7 +255,7 @@ body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased;
   .share-topbar, .share-toolbar, .share-aside, .share-footer { display: none !important; }
   .share-shell { display: block; padding: 0; }
   .share-column { max-width: none; }
-  .share-msg-body.message-markdown, .share-title { color: #111111; }
+  .share-msg-body.message-markdown, .share-title, .share-asked-body { color: #111111; }
   .share-bubble { background: #f3f4f6; border-color: #d1d5db; color: #111111; break-inside: avoid; }
   .share-tool-result[open] > summary { font-weight: 600; }
   details.share-tool-result { display: block; }
