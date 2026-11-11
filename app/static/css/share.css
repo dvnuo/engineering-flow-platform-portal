@@ -90,7 +90,7 @@ body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased;
 /* ----- layout: one centred column, the contents in the left margin -------- */
 
 .share-shell {
-  --share-column: 760px;
+  --share-column: 1140px;
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, var(--share-column)) minmax(0, 1fr);
