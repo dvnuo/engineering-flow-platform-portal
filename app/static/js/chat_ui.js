@@ -279,7 +279,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   dom.workspaceDetailView?.classList.remove("hidden");
   if (dom.workspaceDetailContent) {
     dom.workspaceDetailContent.dataset.workspaceState = `${normalized}-initial-loading`;
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading {section}...", { section: title.toLowerCase() })}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading {section}...", { section: title.toLowerCase() })}</div>`;
   }
   if (dom.embedTitle) dom.embedTitle.textContent = title;
   if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
@@ -12363,7 +12363,7 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   dom.userManagementNavItem?.setAttribute("aria-current", "page");
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "users-loading";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading users…")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading users…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -12384,7 +12384,7 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
 }
 
 function showPinnedPanelRestorePlaceholder(message = t("Select a utility from top toolbar.")) {
-  setToolPanel(t("Panel"), `<div class="portal-inline-state">${safe(message)}</div>`, null, {
+  setToolPanel(t("Panel"), `<div class="portal-inline-state is-visible">${safe(message)}</div>`, null, {
     persistPreference: false,
   });
   state.toolPanelOpen = true;
@@ -12439,7 +12439,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       if (getSelectedAgentStatus() === "running") {
         await openSessionsPanel();
       } else {
-        setToolPanel(t("Sessions"), `<div class='portal-inline-state'>${t("Start the assistant first to browse sessions.")}</div>`, "sessions", {
+        setToolPanel(t("Sessions"), `<div class='portal-inline-state is-visible'>${t("Start the assistant first to browse sessions.")}</div>`, "sessions", {
           persistPreference: false,
         });
       }
@@ -12502,7 +12502,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
 
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "help-loading";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading…")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -12595,6 +12595,8 @@ function currentHelpTopicTitle() {
 
 function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
+  // Text typed into a file and not saved is kept, and the member is told.
+  if (typeof noteServerFileEditorLeft === "function") noteServerFileEditorLeft();
   state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = normalizeUtilityPanelKey(panelKey);
   dom.toolPanelTitle.textContent = title;
@@ -12608,6 +12610,7 @@ function setToolPanel(title, contentHtml, panelKey = null, { persistPreference =
 function closeToolPanel() {
   // A Server Files menu is drawn above the page and would outlive the panel.
   if (typeof closeServerFilesMenu === "function") closeServerFilesMenu(false);
+  if (typeof noteServerFileEditorLeft === "function") noteServerFileEditorLeft();
   state.detailOpen = false;
   state.activeUtilityPanel = null;
   state.toolPanelOpen = false;
@@ -12623,7 +12626,7 @@ function closeToolPanel() {
 async function openSessionsPanel() {
   if (!ensureRunningSelectedAssistant("browse sessions")) return;
 
-  setToolPanel(t("Sessions"), `<div class="portal-inline-state">${t("Loading sessions…")}</div>`, "sessions");
+  setToolPanel(t("Sessions"), `<div class="portal-inline-state is-visible">${t("Loading sessions…")}</div>`, "sessions");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
@@ -12922,7 +12925,7 @@ function renderWorkspaceDetailPlaceholder(message = t("Select a task or delegati
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = workspaceState;
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${safe(message)}</div>`;
 }
 
 async function loadTaskOverviewPanel({ scope = state.taskFilters?.owner || "all" } = {}) {
@@ -12930,7 +12933,7 @@ async function loadTaskOverviewPanel({ scope = state.taskFilters?.owner || "all"
   const normalizedScope = scope === "mine" ? "mine" : "all";
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview-loading";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task overview...")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading task overview...")}</div>`;
   try {
     await htmx.ajax("GET", `/app/tasks/panel?scope=${encodeURIComponent(normalizedScope)}`, {
       target: "#workspace-detail-content",
@@ -12950,7 +12953,7 @@ async function loadDelegationOverviewPanel({ scope = state.delegationFilters?.ow
   const normalizedScope = scope === "mine" ? "mine" : "all";
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview-loading";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading delegation overview...")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading delegation overview...")}</div>`;
   try {
     await htmx.ajax("GET", `/app/delegations/panel?scope=${encodeURIComponent(normalizedScope)}`, {
       target: "#workspace-detail-content",
@@ -13594,7 +13597,7 @@ async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
   renderTaskNavList();
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task detail…")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading task detail…")}</div>`;
   try {
     await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
     dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
@@ -15377,7 +15380,8 @@ function renderServerFilesListing(data, requestedPath, keep) {
 
 // Keys on the list. F2 renames and Delete deletes, as in a desktop file
 // manager; the arrows walk the rows; Enter opens and Space ticks the row in
-// focus; Ctrl/Cmd+A ticks everything and Escape clears the ticks.
+// focus; Ctrl/Cmd+A ticks everything and Escape clears the ticks; Ctrl/Cmd+Z
+// takes back a move or a rename while its toast is still on screen.
 function handleServerFilesKeydown(event, panel, currentPath, rootPath) {
   const target = event.target;
   if (!target || typeof target.closest !== 'function') return;
@@ -15391,6 +15395,11 @@ function handleServerFilesKeydown(event, panel, currentPath, rootPath) {
     event.preventDefault();
     panel.querySelectorAll('.file-checkbox:not([disabled])').forEach((cb) => { cb.checked = true; });
     updateServerFilesSelection(panel);
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && (key === 'z' || key === 'Z')) {
+    // Takes back the move or the rename the toast on screen reports.
+    if (runServerFilesUndo()) event.preventDefault();
     return;
   }
   if (key === 'Escape') {
@@ -15547,6 +15556,12 @@ function bindServerFilesPanelOnce() {
     if (document.visibilityState === "visible") scheduleServerFilesRefresh(300);
   });
   window.addEventListener("focus", () => scheduleServerFilesRefresh(300));
+  // Text typed into a file and not saved does not outlive the page.
+  window.addEventListener("beforeunload", (event) => {
+    if (serverFileDrafts.size === 0) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   bindServerFilesDropZone();
 }
 
@@ -15743,8 +15758,10 @@ function serverFilesPanelShows(agentId) {
   return state.selectedAgentId === agentId && state.toolPanelOpen && state.activeUtilityPanel === "server-files";
 }
 
-// One file-management call (mkdir, new-file, move) on an assistant's
+// One file-management call (mkdir, new-file, move, delete) on an assistant's
 // workspace. Resolves to { ok, data } or { ok: false, error }; never throws.
+// Text typed into a file and not saved follows the file when it moves and
+// goes when it is deleted.
 async function serverFilesPost(agentId, operation, body) {
   try {
     const resp = await fetch(`/a/${agentId}/api/server-files/${operation}`, {
@@ -15759,6 +15776,8 @@ async function serverFilesPost(agentId, operation, body) {
     if (data && data.success === false) {
       return { ok: false, error: describeServerFileError(data.error) };
     }
+    if (operation === "move") carryServerFileDrafts(agentId, body.source, body.destination);
+    else if (operation === "delete") (body.paths || []).forEach((path) => carryServerFileDrafts(agentId, path, ""));
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
@@ -15766,18 +15785,91 @@ async function serverFilesPost(agentId, operation, body) {
 }
 
 // Moves each path into destinationDir, one request at a time, keeping its
-// name. A failed item does not stop the rest.
+// name. A failed item does not stop the rest. `done` lists what did move, as
+// { from, to }, which is what taking the move back needs.
 async function moveServerFilesTo(agentId, paths, destinationDir) {
   const failures = [];
+  const done = [];
   for (const path of paths) {
     const name = serverFileBaseName(path);
-    const result = await serverFilesPost(agentId, "move", {
-      source: path,
-      destination: joinServerFilePath(destinationDir, name),
-    });
-    if (!result.ok) failures.push({ name, error: result.error });
+    const destination = joinServerFilePath(destinationDir, name);
+    const result = await serverFilesPost(agentId, "move", { source: path, destination });
+    if (result.ok) done.push({ from: path, to: destination });
+    else failures.push({ name, error: result.error });
   }
-  return { moved: paths.length - failures.length, failures };
+  return { moved: done.length, failures, done };
+}
+
+// ----- undo -------------------------------------------------------------------
+// A move or a rename can be taken back while the toast that reports it is on
+// screen: by its Undo button, or by Ctrl/Cmd+Z on the list. Each item goes
+// back through the same call that moved it. Nothing is kept once the toast
+// has gone, so a Ctrl+Z long afterwards moves nothing.
+let serverFilesUndo = null; // { toast, run, agentId }
+
+function serverFileParentPath(path) {
+  const text = trimServerFilePath(path);
+  const cut = text.lastIndexOf("/");
+  if (cut < 0) return "";
+  return cut === 0 ? "/" : text.slice(0, cut);
+}
+
+// Puts back what `done` ({ from, to } pairs) moved. `doneMessage` is the
+// toast when everything went back.
+async function undoServerFilesMoves(agentId, done, doneMessage) {
+  const failures = [];
+  const back = [];
+  for (const step of done) {
+    const result = await serverFilesPost(agentId, "move", { source: step.to, destination: step.from });
+    if (result.ok) back.push(step.from);
+    else failures.push(`${serverFileBaseName(step.to)}: ${result.error}`);
+  }
+  if (failures.length === 0) {
+    showToast(doneMessage);
+  } else {
+    const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN);
+    if (failures.length > shown.length) shown.push(t("and {n} more", { n: failures.length - shown.length }));
+    showToast(t("Could not undo: {details}", { details: shown.join('; ') }), { variant: 'error' });
+  }
+  if (!serverFilesPanelShows(agentId)) return;
+  const current = state.serverFilesCurrentPath || '';
+  // What came back into the folder on screen is pointed out.
+  state.serverFilesRevealNames = back
+    .filter((path) => serverFileParentPath(path) === trimServerFilePath(current))
+    .map(serverFileBaseName);
+  reloadServerFilesInPlace(current);
+}
+
+// The toast for a move or a rename. With something to take back it carries
+// an Undo button, and Ctrl/Cmd+Z on the list presses it.
+function showServerFilesChangeToast(message, agentId, done, doneMessage, variant) {
+  const options = variant ? { variant } : {};
+  if (!Array.isArray(done) || done.length === 0) {
+    showToast(message, options);
+    return;
+  }
+  let used = false;
+  const run = () => {
+    if (used) return;
+    used = true;
+    if (serverFilesUndo && serverFilesUndo.run === run) serverFilesUndo = null;
+    undoServerFilesMoves(agentId, done, doneMessage);
+  };
+  const toast = showToast(message, { ...options, action: { label: t("Undo"), run } });
+  serverFilesUndo = toast ? { toast, run, agentId } : null;
+}
+
+// Ctrl/Cmd+Z: true when there was something to take back.
+function runServerFilesUndo() {
+  const undo = serverFilesUndo;
+  if (!undo || undo.agentId !== state.selectedAgentId) return false;
+  if (!undo.toast.isConnected || undo.toast.dataset.leaving === '1') {
+    serverFilesUndo = null;
+    return false;
+  }
+  dismissToast(undo.toast);
+  undo.run();
+  return true;
 }
 
 // Plain text for the toast after a move.
@@ -15949,8 +16041,9 @@ async function copyServerFilePath(path) {
 // ----- naming in place --------------------------------------------------------
 // A name box inside the list, for a new file or folder and for a rename.
 // Enter saves and Escape cancels; clicking elsewhere saves a usable new name
-// and drops anything else. `save(name)` resolves to "" or to the reason it
-// failed, which is shown under the box while it stays open.
+// and drops anything else. `save(name, fromBlur)` resolves to "" or to the
+// reason it failed, which is shown under the box while it stays open;
+// `fromBlur` says the name was saved by a click elsewhere, not by Enter.
 function bindServerFileNameEditor(input, errorEl, { initial, siblings, save, cancel }) {
   let settled = false;
   let busy = false;
@@ -15976,7 +16069,7 @@ function bindServerFileNameEditor(input, errorEl, { initial, siblings, save, can
     }
     busy = true;
     input.disabled = true;
-    const failure = await save(name);
+    const failure = await save(name, Boolean(fromBlur));
     busy = false;
     if (!failure) {
       settled = true;
@@ -16037,13 +16130,20 @@ function startServerFileCreate(panel, kind, currentPath) {
       row.remove();
       emptyState?.classList.remove("hidden");
     },
-    save: async (name) => {
-      const result = await serverFilesPost(agentId, isFolder ? "mkdir" : "new-file", { path: joinServerFilePath(currentPath, name) });
+    save: async (name, fromBlur) => {
+      const path = joinServerFilePath(currentPath, name);
+      const result = await serverFilesPost(agentId, isFolder ? "mkdir" : "new-file", { path });
       if (!result.ok) return result.error;
-      if (serverFilesPanelShows(agentId)) {
-        state.serverFilesRevealNames = [name];
-        reloadServerFilesInPlace(currentPath);
+      if (!serverFilesPanelShows(agentId)) return "";
+      if (!isFolder && !fromBlur) {
+        // A file named with Enter is opened for its text straight away. One
+        // named by a click elsewhere stays in the list: that click was for
+        // something else.
+        previewServerFile(path, currentPath, state.serverFilesRootPath, { edit: true });
+        return "";
       }
+      state.serverFilesRevealNames = [name];
+      reloadServerFilesInPlace(currentPath);
       return "";
     },
   });
@@ -16083,8 +16183,15 @@ function startServerFileRename(panel, row, currentPath) {
       row.setAttribute("draggable", "true");
     },
     save: async (name) => {
-      const result = await serverFilesPost(agentId, "move", { source: path, destination: joinServerFilePath(currentPath, name) });
+      const destination = joinServerFilePath(currentPath, name);
+      const result = await serverFilesPost(agentId, "move", { source: path, destination });
       if (!result.ok) return result.error;
+      showServerFilesChangeToast(
+        t("Renamed {from} to {to}", { from: original, to: name }),
+        agentId,
+        [{ from: path, to: destination }],
+        t("Renamed back to {name}", { name: original })
+      );
       if (serverFilesPanelShows(agentId)) {
         state.serverFilesRevealNames = [name];
         reloadServerFilesInPlace(currentPath);
@@ -16239,9 +16346,20 @@ async function uploadDroppedServerFiles(targetDir, reading) {
   await startServerFilesUpload(targetDir, dropped.entries);
 }
 
+// The toast after a move: what happened, and Undo for what did move.
+function showServerFilesMoveToast(agentId, outcome, total, destinationDir) {
+  showServerFilesChangeToast(
+    describeServerFilesMove(outcome, total, destinationDir),
+    agentId,
+    outcome.done,
+    tn(outcome.done.length, "Moved {n} item back", "Moved {n} items back"),
+    outcome.failures.length === 0 ? '' : 'error'
+  );
+}
+
 async function runServerFilesMove(agentId, paths, destinationDir) {
   const outcome = await moveServerFilesTo(agentId, paths, destinationDir);
-  showToast(describeServerFilesMove(outcome, paths.length, destinationDir), outcome.failures.length === 0 ? {} : { variant: 'error' });
+  showServerFilesMoveToast(agentId, outcome, paths.length, destinationDir);
   if (serverFilesPanelShows(agentId)) reloadServerFilesInPlace(state.serverFilesCurrentPath || '');
 }
 
@@ -16486,7 +16604,7 @@ async function openServerFilesMoveDialog(paths, currentPath) {
     const target = destination;
     const outcome = await moveServerFilesTo(agentId, moving, target);
     close();
-    showToast(describeServerFilesMove(outcome, moving.length, target), outcome.failures.length === 0 ? {} : { variant: 'error' });
+    showServerFilesMoveToast(agentId, outcome, moving.length, target);
     if (serverFilesPanelShows(agentId)) reloadServerFilesInPlace(sourceDir);
   });
   window.requestAnimationFrame(() => cancelBtn.focus());
@@ -16960,26 +17078,31 @@ async function deleteSelectedServerFiles(paths, currentPath) {
   const confirmed = await showConfirm({ title: t("Delete files"), message, confirmText: t("Delete"), danger: true });
   if (!confirmed) return;
 
-  setToolPanel(t("Server Files"), `<div class="portal-inline-state is-visible">${tn(paths.length, "Deleting {n} item…", "Deleting {n} items…")}</div>`, "server-files");
+  // The list stays on screen: the rows on their way out are dimmed, and the
+  // folder is redrawn where it stands once the runtime has answered.
+  const agentId = state.selectedAgentId;
+  const before = document.getElementById('server-files-panel');
+  const rowsBefore = before ? Array.from(before.querySelectorAll('.file-item')) : [];
+  const leaving = rowsBefore.filter((row) => paths.includes(row.dataset.path));
+  leaving.forEach((row) => row.classList.add('is-deleting'));
+  const firstGone = leaving.length > 0 ? rowsBefore.indexOf(leaving[0]) : -1;
 
-  try {
-    const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ paths }),
-    });
-
-    if (!resp.ok) {
-      const errMsg = await parseRuntimeErrorResponse(resp);
-      setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Delete failed: {error}", { error: escapeHtml(errMsg) })}</div>`, "server-files");
-      return;
-    }
-
-    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-success">${tn(paths.length, "Deleted {n} item.", "Deleted {n} items.")}</div>`, "server-files");
-    loadServerFiles(currentPath);
-  } catch (err) {
-    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Delete failed: {error}", { error: escapeHtml(err.message) })}</div>`, "server-files");
+  const result = await serverFilesPost(agentId, "delete", { paths });
+  if (result.ok) {
+    showToast(tn(paths.length, "Deleted {n} item", "Deleted {n} items"));
+  } else {
+    showToast(t("Delete failed: {error}", { error: result.error }), { variant: 'error' });
   }
+  if (!serverFilesPanelShows(agentId)) return;
+  // Also after a failure: some of the items may be gone.
+  await reloadServerFilesInPlace(currentPath);
+
+  // The keyboard's row went with the delete: the row now in its place takes
+  // over, so the arrow keys go on working. Focus that moved elsewhere stays.
+  const panel = document.getElementById('server-files-panel');
+  if (!panel || firstGone < 0 || document.activeElement !== document.body) return;
+  const rows = panel.querySelectorAll('.file-item');
+  if (rows.length > 0) rows[Math.min(firstGone, rows.length - 1)].focus({ preventScroll: true });
 }
 
 function downloadSelectedFiles(paths) {
@@ -16998,7 +17121,307 @@ function downloadSelectedFiles(paths) {
   link.remove();
 }
 
-async function previewServerFile(filePath, currentDir, rootPath) {
+// ===== Server Files: editing a text file =====================================
+// A text file is edited where it is shown: Edit turns the text into a box and
+// Save writes it back through the upload call, which replaces a file of the
+// same name. The runtime's copy is read again first, so that what the
+// assistant wrote in the meantime is not replaced without a word.
+const SERVER_FILE_BOM = String.fromCharCode(0xFEFF);
+const SERVER_FILE_REPLACEMENT_CHAR = String.fromCharCode(0xFFFD);
+
+// Text typed and not saved, by assistant and file: { text, base }, `base`
+// being the runtime's text when the editing began. It outlives the panel
+// showing something else, so opening the file again brings it back; it does
+// not outlive the page, which asks before it goes (bindServerFilesPanelOnce).
+const serverFileDrafts = new Map();
+
+function serverFileDraftKey(agentId, filePath) {
+  return `${agentId}\n${trimServerFilePath(filePath)}`;
+}
+
+// A draft follows its file when the file, or a folder above it, is moved or
+// renamed; with no `to` (a delete) it goes.
+function carryServerFileDrafts(agentId, from, to) {
+  const prefix = `${agentId}\n`;
+  const source = trimServerFilePath(from);
+  Array.from(serverFileDrafts.keys()).forEach((key) => {
+    if (!key.startsWith(prefix)) return;
+    const path = key.slice(prefix.length);
+    if (path !== source && !path.startsWith(`${source}/`)) return;
+    const draft = serverFileDrafts.get(key);
+    serverFileDrafts.delete(key);
+    if (to) serverFileDrafts.set(prefix + trimServerFilePath(to) + path.slice(source.length), draft);
+  });
+}
+
+// Why the text of a file cannot be edited in the panel, or "" when it can.
+// `read` is the runtime's answer to server-files/read: it stops at a size
+// cap, gives no text for a file with a NUL byte, and puts U+FFFD where the
+// bytes were not UTF-8. Saving any of those back would damage the file.
+function serverFileEditBlocker(name, read) {
+  const info = read || {};
+  if (info.is_binary) return t("This file is not text, so it cannot be shown here.");
+  if (info.truncated) return t("Only the first part of this file is shown. It is too large to edit here.");
+  if (String(info.content || "").includes(SERVER_FILE_REPLACEMENT_CHAR)) {
+    return t("This file is not UTF-8 text, so it cannot be edited here.");
+  }
+  // The runtime stores an upload under its trimmed name, and unpacks a .zip.
+  const fileName = String(name || "");
+  if (fileName !== fileName.trim() || fileName.toLowerCase().endsWith(".zip")) return t("This file cannot be edited here.");
+  return "";
+}
+
+// A file's text as a text box holds it (no byte order mark, "\n" between
+// lines), with what to put back on save: the mark, and the line ending most
+// of its lines had.
+function splitServerFileText(content) {
+  let text = String(content || "");
+  const bom = text.startsWith(SERVER_FILE_BOM);
+  if (bom) text = text.slice(1);
+  const crlf = (text.match(/\r\n/g) || []).length;
+  const lf = (text.match(/\n/g) || []).length - crlf;
+  return { text: text.replace(/\r\n?/g, "\n"), bom, eol: crlf > lf ? "\r\n" : "\n" };
+}
+
+function joinServerFileText(text, shape) {
+  const body = String(text || "").replace(/\r\n?/g, "\n");
+  return (shape.bom ? SERVER_FILE_BOM : "") + (shape.eol === "\r\n" ? body.replace(/\n/g, "\r\n") : body);
+}
+
+// The runtime's answer to server-files/read for one file: { ok, read } or
+// { ok: false, gone, error }; never throws.
+async function readServerFileText(agentId, filePath) {
+  try {
+    const resp = await fetch(`/a/${agentId}/api/server-files/read?path=${encodeURIComponent(filePath)}`);
+    if (!resp.ok) {
+      return { ok: false, gone: resp.status === 404, error: describeServerFileError(await parseRuntimeErrorResponse(resp)) };
+    }
+    const read = await resp.json();
+    if (read && read.success === false) return { ok: false, gone: false, error: describeServerFileError(read.error) };
+    return { ok: true, read: read || {} };
+  } catch (error) {
+    return { ok: false, gone: false, error: String(error?.message || error) };
+  }
+}
+
+// Writes a file's text. Resolves to "" or to the reason it failed.
+async function saveServerFileText(agentId, filePath, content) {
+  const blob = new Blob([content], { type: "text/plain" });
+  const tooLarge = serverFileTooLargeReason(blob);
+  if (tooLarge) return tooLarge;
+  const result = await uploadOneServerFile(agentId, serverFileParentPath(filePath), blob, { name: serverFileBaseName(filePath) });
+  return result.ok ? "" : String(result.error || t("Upload failed"));
+}
+
+// The panel is about to show something else, or to close, while the editor
+// holds text that is not saved: the text is kept (serverFileDrafts) and the
+// member is told once where to find it.
+function noteServerFileEditorLeft() {
+  const editor = document.getElementById("server-file-editor");
+  if (!editor || editor.dataset.noticed === "1" || editor.dataset.saving === "1") return;
+  if (!serverFileDrafts.has(editor.dataset.draftKey || "")) return;
+  editor.dataset.noticed = "1";
+  showToast(
+    t("Your unsaved changes to {name} are kept. Open the file again to continue.", { name: editor.dataset.fileName || "" }),
+    { variant: "info", duration: TOAST_ERROR_DURATION_MS }
+  );
+}
+
+function serverFilePreviewHeader(view, actionsHtml) {
+  return (
+    `<div class="portal-file-preview-header portal-file-preview-bar">` +
+      `<div class="portal-file-preview-crumbs">${buildServerFilesBreadcrumb(view.dir, view.rootPath)}</div>` +
+      (actionsHtml ? `<div class="portal-file-preview-actions">${actionsHtml}</div>` : "") +
+    `</div>`
+  );
+}
+
+// A text file on screen. `view`: { agentId, filePath, dir, rootPath, read },
+// `read` being the runtime's answer. The one action is Edit, or Download
+// when the text cannot be edited here, with a line saying why.
+function renderServerFileText(view) {
+  const fileName = serverFileBaseName(view.filePath);
+  const read = view.read || {};
+  const blocker = serverFileEditBlocker(fileName, read);
+  const action = blocker
+    ? `<button type="button" class="portal-btn is-secondary sf-preview-download-btn">${t("Download")}</button>`
+    : `<button type="button" class="portal-btn is-secondary sf-edit-btn">${t("Edit")}</button>`;
+  const body = read.is_binary
+    ? ""
+    : `<pre class="portal-panel-pre">${escapeHtml(String(read.content || "") || t("(empty file)"))}</pre>`;
+  setToolPanel(t("File: {name}", { name: fileName }),
+    serverFilePreviewHeader(view, action) +
+    (blocker ? `<p class="portal-file-preview-note">${escapeHtml(blocker)}</p>` : "") +
+    body,
+    "server-files"
+  );
+  const root = dom.toolPanelBody;
+  root.querySelector(".sf-edit-btn")?.addEventListener("click", () => openServerFileEditor(view, null));
+  root.querySelector(".sf-preview-download-btn")?.addEventListener("click", () => downloadSelectedFiles([view.filePath]));
+}
+
+// The file's text in a box, with Save and Close. `draft` is text typed
+// earlier and not saved ({ text, base }); `notice` is shown in the status
+// line to begin with. Ctrl/Cmd+S saves and Escape closes. A save leaves the
+// editor open, and the box stays writable while it runs: what is typed
+// meanwhile is simply not part of that save.
+function openServerFileEditor(view, draft, notice) {
+  const agentId = view.agentId;
+  const fileName = serverFileBaseName(view.filePath);
+  const key = serverFileDraftKey(agentId, view.filePath);
+  // What the runtime held when the editing began, or after the last save
+  // from here: the next save compares the runtime's copy against it.
+  let base = draft ? draft.base : String((view.read && view.read.content) || "");
+  const shape = splitServerFileText(base);
+
+  setToolPanel(t("File: {name}", { name: fileName }),
+    serverFilePreviewHeader(view, "") +
+    `<div id="server-file-editor" class="portal-file-editor">` +
+      `<div class="portal-file-editor-bar">` +
+        `<button type="button" class="portal-btn is-primary sf-edit-save">${t("Save")}</button>` +
+        `<button type="button" class="portal-btn is-secondary sf-edit-close">${t("Close")}</button>` +
+        `<span class="portal-file-editor-status" role="status" aria-live="polite"></span>` +
+      `</div>` +
+      `<textarea class="portal-file-editor-text" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${escapeHtmlAttr(t("Text of {name}", { name: fileName }))}"></textarea>` +
+    `</div>`,
+    "server-files"
+  );
+  const editor = document.getElementById("server-file-editor");
+  if (!editor) return;
+  editor.dataset.draftKey = key;
+  editor.dataset.fileName = fileName;
+  const area = editor.querySelector("textarea");
+  const statusEl = editor.querySelector(".portal-file-editor-status");
+  const saveBtn = editor.querySelector(".sf-edit-save");
+  const closeBtn = editor.querySelector(".sf-edit-close");
+
+  // The saved text as the box gives it back, which is what "changed" is
+  // measured against: a text box has its own idea of a line break.
+  area.value = shape.text;
+  let pristine = area.value;
+  if (draft) area.value = draft.text;
+
+  let busy = false;
+  const onScreen = () => document.getElementById("server-file-editor") === editor;
+  const isDirty = () => area.value !== pristine;
+  const setStatus = (text, isError) => {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-error", Boolean(isError));
+  };
+  // Keeps the draft and the Save button in step with the box.
+  const sync = () => {
+    if (isDirty()) serverFileDrafts.set(key, { text: area.value, base });
+    else serverFileDrafts.delete(key);
+    saveBtn.disabled = busy || !isDirty();
+    closeBtn.disabled = busy;
+  };
+  const setBusy = (on) => {
+    busy = on;
+    editor.dataset.saving = on ? "1" : "";
+    sync();
+  };
+  // A save that did not happen. With the editor no longer on screen (the
+  // member went elsewhere meanwhile) a failure is reported in a toast; the
+  // text is kept either way.
+  const notSaved = (message, failed) => {
+    setBusy(false);
+    if (onScreen()) {
+      setStatus(message, true);
+    } else if (failed) {
+      showToast(
+        t("{name} was not saved ({error}). Your text is kept: open the file again to continue.", { name: fileName, error: message }),
+        { variant: "error" }
+      );
+    }
+  };
+
+  const save = async () => {
+    if (busy || !isDirty()) return;
+    setBusy(true);
+    setStatus(t("Saving…"));
+    const now = await readServerFileText(agentId, view.filePath);
+    if (!now.ok && !now.gone) {
+      notSaved(t("Could not check the file: {error}", { error: now.error }), true);
+      return;
+    }
+    const changed = now.ok && (Boolean(now.read.is_binary) || String(now.read.content || "") !== base);
+    if (!now.ok || changed) {
+      const overwrite = await showConfirm({
+        title: now.ok ? t("The file changed") : t("The file is gone"),
+        message: now.ok
+          ? t("{name} was changed after you opened it, perhaps by the assistant. Save your text over it?", { name: fileName })
+          : t("{name} is no longer there. Save your text as a new file?", { name: fileName }),
+        confirmText: t("Save my text"),
+      });
+      if (!overwrite) {
+        notSaved(t("Not saved"), false);
+        return;
+      }
+    }
+    // What is in the box now is what gets written; anything typed while the
+    // upload runs stays in the box as a change not saved yet.
+    const typed = area.value;
+    const content = joinServerFileText(typed, shape);
+    const failure = await saveServerFileText(agentId, view.filePath, content);
+    if (failure) {
+      notSaved(t("Could not save: {error}", { error: failure }), true);
+      return;
+    }
+    base = content;
+    pristine = typed;
+    setBusy(false);
+    if (!onScreen()) showToast(t("Saved {name}", { name: fileName }));
+    else setStatus(isDirty() ? t("Unsaved changes") : t("Saved"));
+  };
+
+  const close = async () => {
+    if (busy) return;
+    if (isDirty()) {
+      const discard = await showConfirm({
+        title: t("Discard changes?"),
+        message: t("Your changes to {name} will be lost.", { name: fileName }),
+        confirmText: t("Discard"),
+        danger: true,
+      });
+      if (!discard) {
+        if (onScreen()) area.focus();
+        return;
+      }
+    }
+    serverFileDrafts.delete(key);
+    // Back to the file as the runtime holds it now.
+    if (onScreen() && serverFilesPanelShows(agentId)) previewServerFile(view.filePath, view.dir, view.rootPath);
+  };
+
+  area.addEventListener("input", () => {
+    sync();
+    // While a save runs the line says so; it is set again when that ends.
+    if (!busy) setStatus(isDirty() ? t("Unsaved changes") : "");
+  });
+  // On the editor, not the box alone, so the keys also work from its buttons.
+  editor.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if ((event.ctrlKey || event.metaKey) && (event.key === "s" || event.key === "S")) {
+      event.preventDefault();
+      save();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }
+  });
+  saveBtn.addEventListener("click", save);
+  closeBtn.addEventListener("click", close);
+
+  sync();
+  if (notice) setStatus(notice, true);
+  else if (draft) setStatus(t("Your unsaved changes were restored"));
+  area.focus();
+  area.setSelectionRange(0, 0);
+  area.scrollTop = 0;
+}
+
+async function previewServerFile(filePath, currentDir, rootPath, options) {
   try {
     const encodedPath = encodeURIComponent(filePath);
     const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
@@ -17047,14 +17470,32 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
 
-    const resp = await agentApi(`/api/server-files/read?path=${encodedPath}`);
-    if (resp.error) throw new Error(resp.error);
-    const content = resp.content || t("(empty file)");
-    setToolPanel(t("File: {name}", { name: fileName }),
-      `<div class="portal-file-preview-header">${breadcrumb}</div>` +
-      `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`,
-      "server-files"
-    );
+    // Text: shown, and edited in place when it can be. Text typed earlier
+    // and not saved comes back in the editor, even if the file can no longer
+    // be read; `options.edit` opens the editor straight away (a new file).
+    const agentId = state.selectedAgentId;
+    const view = { agentId, filePath, dir, rootPath: activeRootPath, read: null };
+    const loaded = await readServerFileText(agentId, filePath);
+    // The member may have gone elsewhere while the runtime answered.
+    if (!serverFilesPanelShows(agentId)) return;
+    const draft = serverFileDrafts.get(serverFileDraftKey(agentId, filePath)) || null;
+    if (!loaded.ok && draft) {
+      openServerFileEditor(view, draft, t("The file could not be read: {error}", { error: loaded.error }));
+      return;
+    }
+    if (!loaded.ok) {
+      // With the path above it, so there is a way back to the folder.
+      setToolPanel(t("File: {name}", { name: fileName }),
+        serverFilePreviewHeader(view, "") +
+        `<div class="portal-inline-state is-error">${t("Unable to preview this file: {error}", { error: safe(loaded.error) })}</div>`,
+        "server-files"
+      );
+      return;
+    }
+    view.read = loaded.read;
+    if (draft) openServerFileEditor(view, draft);
+    else if (options && options.edit && !serverFileEditBlocker(fileName, loaded.read)) openServerFileEditor(view, null);
+    else renderServerFileText(view);
   } catch (error) {
     setToolPanel(t("File Preview"),
       `<div class="portal-inline-state is-error">${t("Unable to preview this file: {error}", { error: safe(error.message) })}</div>`,
@@ -17067,7 +17508,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel(t("Skills"), `<div class="portal-inline-state">${t("Loading skills…")}</div>`, "skills");
+  setToolPanel(t("Skills"), `<div class="portal-inline-state is-visible">${t("Loading skills…")}</div>`, "skills");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -17091,7 +17532,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel(t("Usage"), `<div class="portal-inline-state">${t("Loading usage…")}</div>`, "usage");
+  setToolPanel(t("Usage"), `<div class="portal-inline-state is-visible">${t("Loading usage…")}</div>`, "usage");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -20705,7 +21146,7 @@ async function openTaskCreatePanelInMain() {
   await setActiveNavSection("tasks", { toggleIfSame: false });
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "task-create";
-  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task create form…")}</div>`;
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading task create form…")}</div>`;
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
   const formEl = dom.workspaceDetailContent.querySelector("#create-agent-async-task-form");
   if (formEl) {
@@ -21746,6 +22187,8 @@ function simpleHash(str) {
 // wipe out was the app's only report channel for ~26 failure paths.
 const TOAST_DEFAULT_DURATION_MS = 2600;
 const TOAST_ERROR_DURATION_MS = 8000;
+// A toast that offers an action (Undo) stays as long as an error does.
+const TOAST_ACTION_DURATION_MS = 8000;
 const TOAST_MAX_VISIBLE = 4;
 
 function dismissToast(node) {
@@ -21767,7 +22210,11 @@ function showToast(message, opts = {}) {
   if (!stack) return null;
   const o = typeof opts === 'number' ? { duration: opts } : (opts || {});
   const isError = o.variant === 'error';
-  const duration = o.duration || (isError ? TOAST_ERROR_DURATION_MS : TOAST_DEFAULT_DURATION_MS);
+  // `action`: { label, run } adds a button for something the member can still
+  // do about what the toast reports. It can be pressed once.
+  const action = o.action && typeof o.action.run === 'function' ? o.action : null;
+  const duration = o.duration
+    || (isError ? TOAST_ERROR_DURATION_MS : (action ? TOAST_ACTION_DURATION_MS : TOAST_DEFAULT_DURATION_MS));
   const text = String(message ?? '');
 
   // Errors are announced immediately; routine confirmations wait their turn.
@@ -21797,6 +22244,19 @@ function showToast(message, opts = {}) {
       }
     });
     node.append(copy);
+  }
+
+  if (action) {
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'portal-toast-action';
+    act.textContent = String(action.label || '');
+    act.addEventListener('click', () => {
+      if (node.dataset.leaving === '1') return;
+      dismissToast(node);
+      action.run();
+    });
+    node.append(act);
   }
 
   const close = document.createElement('button');
@@ -23538,12 +23998,12 @@ function renderSystemPromptSection(agent) {
   if (existing) existing.remove();
 
   var ui = getSystemPromptUiModel(agent, {});
-  var descriptionHtml = ui.description ? '<div class="portal-inline-state">' + ui.description + '</div>' : '';
+  var descriptionHtml = ui.description ? '<div class="portal-inline-state is-visible">' + ui.description + '</div>' : '';
 
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
   section.className = 'portal-panel-section';
-  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">' + ui.title + '</div></div>' + descriptionHtml + '<div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">' + t("Loading...") + '</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
+  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">' + ui.title + '</div></div>' + descriptionHtml + '<div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state is-visible">' + t("Loading...") + '</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
   container.appendChild(section);
   loadSystemPromptConfig(agent.id);
 }

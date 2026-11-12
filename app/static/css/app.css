@@ -2471,6 +2471,12 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   opacity: 0.5;
 }
 
+/* Rows on their way out while the runtime deletes them. */
+.portal-file-row.is-deleting {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .portal-file-row.is-drop-into {
   border-color: var(--portal-accent);
   background: var(--portal-accent-soft);
@@ -2623,6 +2629,83 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   padding-bottom: 10px;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--portal-border);
+}
+
+/* A text file: the path with one action beside it (Edit, or Download when
+   the text cannot be edited here), a line saying why when it cannot, and the
+   text. Editing turns the text into a box under Save and Close. */
+.portal-file-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-file-preview-crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.portal-file-preview-actions {
+  flex: 0 0 auto;
+}
+
+.portal-file-preview-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--portal-text-muted);
+}
+
+.portal-file-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-file-editor-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portal-file-editor-status {
+  flex: 1 1 120px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--portal-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.portal-file-editor-status.is-error {
+  color: var(--portal-danger);
+}
+
+.portal-file-editor-text {
+  display: block;
+  width: 100%;
+  min-height: min(60vh, 520px);
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--portal-border-strong);
+  border-radius: 14px;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 4;
+  /* Long lines wrap, as they do while the file is only shown. */
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+.portal-file-editor-text:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 1px;
+}
+
+.portal-file-editor-text[readonly] {
+  opacity: 0.7;
 }
 
 .portal-preview-image-wrap {

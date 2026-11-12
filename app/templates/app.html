@@ -412,7 +412,7 @@
 
       <section id="workspace-detail-view" class="portal-workspace-detail hidden" aria-label="{{ t('Workspace detail view') }}">
         <div id="workspace-detail-content" class="portal-workspace-detail-content">
-          <div class="portal-inline-state">{{ t("Select a task or delegation from the left sidebar.") }}</div>
+          <div class="portal-inline-state is-visible">{{ t("Select a task or delegation from the left sidebar.") }}</div>
         </div>
       </section>
 
@@ -862,7 +862,7 @@
           <input type="text" name="name" class="portal-form-input" placeholder="{{ t('My Assistant') }}" required />
         </label>
         <div class="portal-assistant-type-grid" data-assistant-type-choices data-onboarding-type-choices>
-          <div class="portal-inline-state">{{ t("Loading assistant types…") }}</div>
+          <div class="portal-inline-state is-visible">{{ t("Loading assistant types…") }}</div>
         </div>
         <p class="portal-modal-feedback" data-onboarding-msg></p>
       </form>
@@ -896,7 +896,7 @@
         <input type="text" name="name" class="portal-form-input" placeholder="{{ t('My Assistant') }}" required />
       </label>
       <div class="portal-assistant-type-grid" data-assistant-type-choices data-simple-type-choices>
-        <div class="portal-inline-state">{{ t("Loading assistant types…") }}</div>
+        <div class="portal-inline-state is-visible">{{ t("Loading assistant types…") }}</div>
       </div>
       <div class="portal-modal-actions">
         <button type="button" class="portal-btn is-secondary" data-open-advanced-create>{{ t("Advanced setup") }}</button>
