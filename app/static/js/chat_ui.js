@@ -500,6 +500,12 @@ const state = {
   selectedTaskId: null,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
+  // The rows of the folder on screen, and the names to scroll to once after
+  // the next load (what was just created, renamed or uploaded).
+  serverFilesItems: [],
+  serverFilesRevealNames: [],
+  // The listing as the runtime sent it, to redraw in another order.
+  serverFilesListing: null,
   connectors: [],
   selectedConnectorType: null,
   delegations: [],
@@ -12600,6 +12606,8 @@ function setToolPanel(title, contentHtml, panelKey = null, { persistPreference =
 }
 
 function closeToolPanel() {
+  // A Server Files menu is drawn above the page and would outlive the panel.
+  if (typeof closeServerFilesMenu === "function") closeServerFilesMenu(false);
   state.detailOpen = false;
   state.activeUtilityPanel = null;
   state.toolPanelOpen = false;
@@ -15050,7 +15058,10 @@ function normalizeServerFileItem(item) {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel(t("Server Files"), `<div class="portal-inline-state">${t("Loading files…")}</div>`, "server-files");
+  // A menu belongs to the rows it was opened on.
+  closeServerFilesMenu(false);
+  bindServerFilesPanelOnce();
+  setToolPanel(t("Server Files"), `<div class="portal-inline-state is-visible">${t("Loading files…")}</div>`, "server-files");
 
   try {
     const hasPath = typeof path === 'string' && path.length > 0;
@@ -15058,143 +15069,485 @@ async function loadServerFiles(path) {
       ? `/api/server-files?path=${encodeURIComponent(path)}`
       : '/api/server-files';
     const data = await agentApi(endpoint);
-    const items = (Array.isArray(data.items) ? data.items : []).map(normalizeServerFileItem);
-    const runtimePath = (typeof data.path === 'string' && data.path.length > 0) ? data.path : '';
-    const currentPath = runtimePath || (hasPath ? path : (state.serverFilesRootPath || ''));
-    const runtimeRoot = (typeof data.root_path === 'string' && data.root_path.length > 0) ? data.root_path : '';
-    const rootPath = runtimeRoot || state.serverFilesRootPath || currentPath || '';
-    state.serverFilesRootPath = rootPath;
-    state.serverFilesCurrentPath = currentPath || rootPath || '';
-
-    const breadcrumb = buildServerFilesBreadcrumb(currentPath, rootPath);
-
-    // Build file rows with checkboxes in separate cell
-    const rows = items.map((item) => {
-      const icon = item.is_dir ? '📁' : '📄';
-      const itemPath = String(item.path || '');
-      const safePath = escapeHtmlAttr(itemPath);
-      const safeName = escapeHtml(item.name || t("(unknown)"));
-      const disabledAttr = itemPath ? '' : ' disabled';
-      return (
-        `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-          `<input type="checkbox" class="file-checkbox portal-file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${safeName}"${disabledAttr}>` +
-          `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
-            `<span class="portal-file-icon">${icon}</span>` +
-            `<span class="portal-file-name">${safeName}</span>` +
-          `</div>` +
-        `</div>`
-      );
-    }).join("");
-
-    // Set panel content with toolbar
-    setToolPanel(t("Server Files"),
-      `<div id="server-files-panel" class="portal-file-browser">` +
-        `<div class="portal-file-toolbar">` +
-          `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
-          `<div class="portal-file-toolbar-actions">` +
-            `<button class="portal-btn is-secondary sf-upload-btn">${t("Upload")}</button>` +
-            `<button class="portal-btn is-secondary sf-download-btn" disabled>${t("Download")}</button>` +
-            `<button class="portal-btn is-secondary sf-delete-btn" disabled>${t("Delete")}</button>` +
-          `</div>` +
-        `</div>` +
-        `<div class="portal-file-select-row">` +
-          `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">${t("Select all")}</label>` +
-        `</div>` +
-        `<div class="portal-panel-stack portal-file-list">${rows || `<div class="portal-inline-state">${t("Empty directory")}</div>`}</div>` +
-      `</div>`,
-      "server-files"
-    );
-
-    // Add event delegation and handlers
-    const panel = document.getElementById('server-files-panel');
-    if (panel) {
-      // Select all handler
-      const selectAll = document.getElementById('sf-select-all');
-      if (selectAll) {
-        selectAll.addEventListener('change', (e) => {
-          const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
-          checkboxes.forEach(cb => cb.checked = e.target.checked);
-          updateDownloadButton(panel);
-        });
-      }
-
-      // File row click handler (navigate on click)
-      panel.querySelectorAll('.file-item').forEach(row => {
-        row.addEventListener('click', (e) => {
-          // Skip if clicking checkbox or name cell (name cell has dedicated handler)
-          if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
-            if (e.target.type === 'checkbox') {
-              updateDownloadButton(panel);
-            }
-            return;
-          }
-
-          const filePath = row.dataset.path;
-          const isDir = row.dataset.isDir === 'true';
-
-          if (!filePath) return;
-          if (isDir) {
-            loadServerFiles(filePath);
-          }
-        });
-      });
-
-      // Name cell click handler - navigate for dirs, preview for files
-      panel.querySelectorAll('.name-cell').forEach(cell => {
-        cell.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-
-          // Skip if clicking checkbox
-          if (e.target.type === 'checkbox') {
-            updateDownloadButton(panel);
-            return;
-          }
-
-          const filePath = cell.dataset.path;
-          const isDir = cell.dataset.isDir === 'true';
-          
-          if (!filePath) return;
-          if (isDir) {
-            loadServerFiles(filePath);
-          } else {
-            previewServerFile(filePath, currentPath, rootPath);
-          }
-        });
-      });
-
-      // Checkbox change handler
-      panel.querySelectorAll('.file-checkbox').forEach(cb => {
-        cb.addEventListener('change', () => updateDownloadButton(panel));
-      });
-
-      // Upload button handler
-      panel.querySelector('.sf-upload-btn')?.addEventListener('click', () => {
-        uploadToServerFiles(currentPath);
-      });
-
-      // Download button handler
-      panel.querySelector('.sf-download-btn')?.addEventListener('click', () => {
-        const selected = getSelectedFiles(panel);
-        if (selected.length > 0) {
-          downloadSelectedFiles(selected);
-        }
-      });
-
-      // Delete button handler
-      panel.querySelector('.sf-delete-btn')?.addEventListener('click', () => {
-        const selected = getSelectedFiles(panel);
-        if (selected.length > 0) {
-          deleteSelectedServerFiles(selected, currentPath);
-        }
-      });
-
-      // Initialize button state
-      updateDownloadButton(panel);
-    }
+    renderServerFilesListing(data, hasPath ? path : '');
   } catch (error) {
     setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "server-files");
   }
+}
+
+// How the list is ordered: by name, newest first, or largest first. The
+// choice is the member's and is kept in this browser.
+const SERVER_FILES_SORT_KEY = "portal-files-sort";
+
+function getServerFilesSort() {
+  let stored = "";
+  try {
+    stored = window.localStorage.getItem(SERVER_FILES_SORT_KEY) || "";
+  } catch (_error) {
+    // Storage is off (private window): the default order.
+  }
+  return ["name", "modified", "size"].includes(stored) ? stored : "name";
+}
+
+function setServerFilesSort(by) {
+  try {
+    window.localStorage.setItem(SERVER_FILES_SORT_KEY, by);
+  } catch (_error) {
+    // Not kept, but still applied to the list on screen.
+  }
+}
+
+function serverFilesSortLabel(by) {
+  if (by === "modified") return t("Newest first");
+  if (by === "size") return t("Largest first");
+  return t("Name");
+}
+
+// What a redraw of the folder on screen must not lose: the ticked rows, the
+// scroll position, and the row the keyboard is on.
+function serverFilesViewToKeep(panel) {
+  const list = panel.querySelector('.portal-file-list');
+  const active = document.activeElement;
+  const focused = active && panel.contains(active) && typeof active.closest === 'function'
+    ? active.closest('.file-item')
+    : null;
+  return {
+    selected: getSelectedFiles(panel),
+    scrollTop: list ? list.scrollTop : 0,
+    focusPath: focused ? (focused.dataset.path || '') : '',
+  };
+}
+
+// Draws a listing the runtime answered with. `keep` (serverFilesViewToKeep)
+// carries what a redraw of the same folder must not lose; `keep.quiet` marks
+// a refresh nobody asked for, which leaves the names to point out for the
+// reload that set them.
+function renderServerFilesListing(data, requestedPath, keep) {
+  const listing = (data && typeof data === 'object') ? data : {};
+  const sortBy = getServerFilesSort();
+  const items = sortServerFileItems((Array.isArray(listing.items) ? listing.items : []).map(normalizeServerFileItem), sortBy);
+  const runtimePath = (typeof listing.path === 'string' && listing.path.length > 0) ? listing.path : '';
+  const currentPath = runtimePath || requestedPath || state.serverFilesRootPath || '';
+  const runtimeRoot = (typeof listing.root_path === 'string' && listing.root_path.length > 0) ? listing.root_path : '';
+  const rootPath = runtimeRoot || state.serverFilesRootPath || currentPath || '';
+  state.serverFilesRootPath = rootPath;
+  state.serverFilesCurrentPath = currentPath || rootPath || '';
+  state.serverFilesItems = items;
+  state.serverFilesListing = listing;
+  const quiet = Boolean(keep && keep.quiet);
+  const revealNames = (!quiet && Array.isArray(state.serverFilesRevealNames)) ? state.serverFilesRevealNames : [];
+  if (!quiet) state.serverFilesRevealNames = [];
+
+  const breadcrumb = buildServerFilesBreadcrumb(currentPath, rootPath);
+
+  // A row: checkbox, name, size and time, and the row's own menu button. It
+  // can be dragged onto a folder, and takes the keyboard (one row is in the
+  // tab order; the arrow keys move between rows).
+  const rows = items.map((item, index) => {
+    const icon = item.is_dir ? SERVER_FILE_FOLDER_ICON : SERVER_FILE_FILE_ICON;
+    const itemPath = String(item.path || '');
+    const safePath = escapeHtmlAttr(itemPath);
+    const displayName = item.name || t("(unknown)");
+    const safeName = escapeHtml(displayName);
+    const nameAttr = escapeHtmlAttr(displayName);
+    const disabledAttr = itemPath ? '' : ' disabled';
+    const dragAttr = itemPath ? ' draggable="true"' : '';
+    const size = item.is_dir ? '' : formatServerFileSize(item.size);
+    const modified = formatServerFileModified(item.modified_at);
+    const menuLabel = escapeHtmlAttr(t("Actions for {name}", { name: displayName }));
+    return (
+      `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}" tabindex="${index === 0 ? 0 : -1}"${dragAttr}>` +
+        `<input type="checkbox" class="file-checkbox portal-file-checkbox" data-path="${safePath}" data-is-dir="${item.is_dir}" aria-label="${nameAttr}"${disabledAttr}>` +
+        `<div class="portal-file-name-cell name-cell" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
+          `<span class="portal-file-icon">${icon}</span>` +
+          `<span class="portal-file-name">${safeName}</span>` +
+        `</div>` +
+        `<span class="portal-file-meta">` +
+          (size ? `<span class="portal-file-size">${escapeHtml(size)}</span>` : '') +
+          (modified ? `<span class="portal-file-modified" title="${escapeHtmlAttr(new Date(item.modified_at).toLocaleString())}">${escapeHtml(modified)}</span>` : '') +
+        `</span>` +
+        `<button type="button" class="portal-file-row-menu-button" data-sf-menu-trigger data-sf-row-menu aria-haspopup="menu" aria-expanded="false" aria-label="${menuLabel}"${disabledAttr}>${SERVER_FILES_MORE_ICON}</button>` +
+      `</div>`
+    );
+  }).join("");
+
+  // The toolbar acts on the folder (Upload, New); what acts on the ticked
+  // rows appears in the "Select all" line only while something is ticked,
+  // where the sort choice sits otherwise; what acts on one row is in that
+  // row's menu. One popover serves every menu and is filled when it opens.
+  setToolPanel(t("Server Files"),
+    `<div id="server-files-panel" class="portal-file-browser">` +
+      `<div class="portal-file-toolbar">` +
+        `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
+        `<div class="portal-file-toolbar-actions">` +
+          `<button type="button" class="portal-btn is-secondary sf-upload-btn">${t("Upload")}</button>` +
+          `<button type="button" class="portal-btn is-secondary sf-new-btn" data-sf-menu-trigger aria-haspopup="menu" aria-expanded="false">${t("New")}${SERVER_FILES_CHEVRON_ICON}</button>` +
+        `</div>` +
+      `</div>` +
+      `<div class="portal-file-select-row">` +
+        `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all" class="sf-select-label">${t("Select all")}</label>` +
+        `<button type="button" class="portal-file-sort-btn sf-sort-btn" data-sf-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-label="${escapeHtmlAttr(t("Sort files"))}">${escapeHtml(serverFilesSortLabel(sortBy))}${SERVER_FILES_CHEVRON_ICON}</button>` +
+        `<div class="portal-file-selection-actions hidden">` +
+          `<button type="button" class="portal-file-selection-btn sf-download-btn">${t("Download")}</button>` +
+          `<button type="button" class="portal-file-selection-btn sf-move-btn">${t("Move")}</button>` +
+          `<button type="button" class="portal-file-selection-btn is-danger sf-delete-btn">${t("Delete")}</button>` +
+        `</div>` +
+      `</div>` +
+      `<div class="portal-panel-stack portal-file-list">${rows || `<div class="portal-inline-state is-visible">${t("Empty directory")}</div>`}</div>` +
+      `<div class="portal-file-menu" popover="manual" role="menu" data-sf-menu></div>` +
+    `</div>`,
+    "server-files"
+  );
+
+  // Add event delegation and handlers
+  const panel = document.getElementById('server-files-panel');
+  if (!panel) return;
+
+  // Select all handler
+  const selectAll = document.getElementById('sf-select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', (e) => {
+      const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
+      checkboxes.forEach(cb => cb.checked = e.target.checked);
+      updateServerFilesSelection(panel);
+    });
+  }
+
+  // File row click handler (navigate on click)
+  panel.querySelectorAll('.file-item').forEach(row => {
+    // The row's menu button: its own click, so the row does not navigate.
+    row.querySelector('[data-sf-row-menu]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleServerFilesMenu(panel, e.currentTarget, serverFileRowMenuEntries(panel, row, currentPath));
+    });
+
+    row.addEventListener('click', (e) => {
+      // A row being renamed is a form, not a link.
+      if (row.classList.contains('is-editing')) return;
+      // Skip if clicking checkbox or name cell (name cell has dedicated handler)
+      if (e.target.type === 'checkbox' || e.target.closest('.name-cell')) {
+        if (e.target.type === 'checkbox') {
+          updateServerFilesSelection(panel);
+        }
+        return;
+      }
+
+      const filePath = row.dataset.path;
+      const isDir = row.dataset.isDir === 'true';
+
+      if (!filePath) return;
+      if (isDir) {
+        loadServerFiles(filePath);
+      }
+    });
+  });
+
+  // Name cell click handler - navigate for dirs, preview for files
+  panel.querySelectorAll('.name-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      // The name box of a rename takes its own clicks.
+      if (cell.closest('.is-editing')) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Skip if clicking checkbox
+      if (e.target.type === 'checkbox') {
+        updateServerFilesSelection(panel);
+        return;
+      }
+
+      const filePath = cell.dataset.path;
+      const isDir = cell.dataset.isDir === 'true';
+
+      if (!filePath) return;
+      if (isDir) {
+        loadServerFiles(filePath);
+      } else {
+        previewServerFile(filePath, currentPath, rootPath);
+      }
+    });
+  });
+
+  // Checkbox handlers. Shift with a click ticks (or clears) every row from
+  // the last one clicked to this one.
+  const boxes = Array.from(panel.querySelectorAll('.file-checkbox:not([disabled])'));
+  let rangeAnchor = -1;
+  boxes.forEach((cb, index) => {
+    cb.addEventListener('click', (e) => {
+      if (e.shiftKey && rangeAnchor >= 0 && rangeAnchor !== index) {
+        const from = Math.min(rangeAnchor, index);
+        const to = Math.max(rangeAnchor, index);
+        for (let i = from; i <= to; i += 1) boxes[i].checked = cb.checked;
+      }
+      rangeAnchor = index;
+    });
+    cb.addEventListener('change', () => updateServerFilesSelection(panel));
+  });
+
+  // Upload button handler
+  panel.querySelector('.sf-upload-btn')?.addEventListener('click', () => {
+    uploadToServerFiles(currentPath);
+  });
+
+  // New: a file or a folder, named in a box at the top of the list.
+  panel.querySelector('.sf-new-btn')?.addEventListener('click', (e) => {
+    toggleServerFilesMenu(panel, e.currentTarget, [
+      { label: t("New file"), run: () => startServerFileCreate(panel, "file", currentPath) },
+      { label: t("New folder"), run: () => startServerFileCreate(panel, "folder", currentPath) },
+    ]);
+  });
+
+  // Sort: redraws the listing already in hand, in the order picked.
+  panel.querySelector('.sf-sort-btn')?.addEventListener('click', (e) => {
+    const pick = (by) => () => {
+      setServerFilesSort(by);
+      renderServerFilesListing(state.serverFilesListing, currentPath, { selected: getSelectedFiles(panel) });
+      document.querySelector('#server-files-panel .sf-sort-btn')?.focus();
+    };
+    toggleServerFilesMenu(panel, e.currentTarget, ["name", "modified", "size"].map((by) => (
+      { label: serverFilesSortLabel(by), checked: by === sortBy, run: pick(by) }
+    )));
+  });
+
+  // Download button handler
+  panel.querySelector('.sf-download-btn')?.addEventListener('click', () => {
+    const selected = getSelectedFiles(panel);
+    if (selected.length > 0) {
+      downloadSelectedFiles(selected);
+    }
+  });
+
+  // Move button handler
+  panel.querySelector('.sf-move-btn')?.addEventListener('click', () => {
+    const selected = getSelectedFiles(panel);
+    if (selected.length > 0) {
+      openServerFilesMoveDialog(selected, currentPath);
+    }
+  });
+
+  // Delete button handler
+  panel.querySelector('.sf-delete-btn')?.addEventListener('click', () => {
+    const selected = getSelectedFiles(panel);
+    if (selected.length > 0) {
+      deleteSelectedServerFiles(selected, currentPath);
+    }
+  });
+
+  // A right-click on a row opens that row's menu where the pointer is.
+  panel.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.file-item');
+    if (!row || !row.dataset.path || row.classList.contains('is-editing')) return;
+    e.preventDefault();
+    openServerFilesMenu(
+      panel,
+      { x: e.clientX, y: e.clientY },
+      serverFileRowMenuEntries(panel, row, currentPath),
+      row.querySelector('[data-sf-row-menu]')
+    );
+  });
+
+  panel.addEventListener('keydown', (e) => handleServerFilesKeydown(e, panel, currentPath, rootPath));
+  // The row the keyboard last touched is the one Tab comes back to.
+  panel.addEventListener('focusin', (e) => {
+    const row = e.target.closest ? e.target.closest('.file-item') : null;
+    if (!row) return;
+    panel.querySelectorAll('.file-item[tabindex="0"]').forEach((other) => {
+      if (other !== row) other.setAttribute('tabindex', '-1');
+    });
+    row.setAttribute('tabindex', '0');
+  });
+
+  // What a redraw of the same folder keeps.
+  if (keep && Array.isArray(keep.selected) && keep.selected.length > 0) {
+    boxes.forEach((cb) => {
+      if (keep.selected.includes(cb.dataset.path)) cb.checked = true;
+    });
+  }
+  updateServerFilesSelection(panel);
+  const list = panel.querySelector('.portal-file-list');
+  if (list && keep && Number.isFinite(keep.scrollTop)) list.scrollTop = keep.scrollTop;
+  if (keep && keep.focusPath) {
+    const again = Array.from(panel.querySelectorAll('.file-item')).find((row) => row.dataset.path === keep.focusPath);
+    if (again) again.focus({ preventScroll: true });
+  }
+  if (revealNames.length > 0) revealServerFileRows(panel, revealNames);
+  renderServerFilesUploadStrip();
+}
+
+// Keys on the list. F2 renames and Delete deletes, as in a desktop file
+// manager; the arrows walk the rows; Enter opens and Space ticks the row in
+// focus; Ctrl/Cmd+A ticks everything and Escape clears the ticks.
+function handleServerFilesKeydown(event, panel, currentPath, rootPath) {
+  const target = event.target;
+  if (!target || typeof target.closest !== 'function') return;
+  // A name being typed, or an open menu, has its own keys.
+  if (target.closest('.portal-file-name-edit') || target.closest('[data-sf-menu]')) return;
+  const rows = Array.from(panel.querySelectorAll('.file-item'));
+  const row = target.closest('.file-item');
+  const key = event.key;
+
+  if ((event.ctrlKey || event.metaKey) && (key === 'a' || key === 'A')) {
+    event.preventDefault();
+    panel.querySelectorAll('.file-checkbox:not([disabled])').forEach((cb) => { cb.checked = true; });
+    updateServerFilesSelection(panel);
+    return;
+  }
+  if (key === 'Escape') {
+    if (getSelectedFiles(panel).length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    panel.querySelectorAll('.file-checkbox:checked').forEach((cb) => { cb.checked = false; });
+    updateServerFilesSelection(panel);
+    return;
+  }
+  if (key === 'Delete') {
+    const selected = getSelectedFiles(panel);
+    const paths = selected.length > 0 ? selected : (row && row.dataset.path ? [row.dataset.path] : []);
+    if (paths.length === 0) return;
+    event.preventDefault();
+    deleteSelectedServerFiles(paths, currentPath);
+    return;
+  }
+  if (!row || row.classList.contains('is-editing')) return;
+
+  if (key === 'F2') {
+    if (!row.dataset.path) return;
+    event.preventDefault();
+    startServerFileRename(panel, row, currentPath);
+    return;
+  }
+  const index = rows.indexOf(row);
+  let next = -1;
+  if (key === 'ArrowDown') next = Math.min(rows.length - 1, index + 1);
+  else if (key === 'ArrowUp') next = Math.max(0, index - 1);
+  else if (key === 'Home') next = 0;
+  else if (key === 'End') next = rows.length - 1;
+  if (next >= 0) {
+    event.preventDefault();
+    rows[next].focus();
+    return;
+  }
+  // Enter and Space act on the row itself, not on a control inside it.
+  if (target !== row || !row.dataset.path) return;
+  if (key === 'Enter') {
+    event.preventDefault();
+    if (row.dataset.isDir === 'true') loadServerFiles(row.dataset.path);
+    else previewServerFile(row.dataset.path, currentPath, rootPath);
+  } else if (key === ' ') {
+    const cb = row.querySelector('.file-checkbox:not([disabled])');
+    if (!cb) return;
+    event.preventDefault();
+    cb.checked = !cb.checked;
+    updateServerFilesSelection(panel);
+  }
+}
+
+// ----- keeping the list current ----------------------------------------------
+// The assistant writes files while the panel is open. The folder on screen
+// is read again when a run ends and when the member comes back to the
+// window, and redrawn only if it changed; nothing the member is in the
+// middle of (a name being typed, a menu, a dialog, a drag) is interrupted.
+const SERVER_FILES_RUN_END_EVENTS = [
+  "execution.completed", "execution.failed", "execution.cancelled",
+  "chat.completed", "chat.failed", "chat.cancelled", "complete",
+];
+let serverFilesRefreshTimer = null;
+let serverFilesPanelBound = false;
+
+function serverFilesListingSignature(listing) {
+  const items = Array.isArray(listing && listing.items) ? listing.items : [];
+  return items
+    .map((item) => [item && (item.path || item.name), item && item.is_dir ? "d" : "f", item && item.size, item && item.modified_at].join("|"))
+    .sort()
+    .join("\n");
+}
+
+function serverFilesMemberIsBusy(panel) {
+  return Boolean(
+    serverFilesOpenMenu
+    || serverFilesDrag
+    || panel.querySelector('.is-editing')
+    || panel.querySelector('.is-drop-into')
+    || panel.classList.contains('is-drop-target')
+    || document.querySelector('.portal-file-move-dialog-root, .portal-file-choice-dialog-root')
+  );
+}
+
+async function refreshServerFilesQuietly() {
+  const agentId = state.selectedAgentId;
+  const path = state.serverFilesCurrentPath;
+  const panel = document.getElementById('server-files-panel');
+  if (!agentId || !path || !panel || !serverFilesPanelShows(agentId) || serverFilesMemberIsBusy(panel)) return;
+  let data;
+  try {
+    data = await agentApiFor(agentId, `/api/server-files?path=${encodeURIComponent(path)}`);
+  } catch (_error) {
+    // Quiet means quiet: what is on screen stays.
+    return;
+  }
+  // The member may have moved on while the runtime answered.
+  if (document.getElementById('server-files-panel') !== panel) return;
+  if (!serverFilesPanelShows(agentId) || state.serverFilesCurrentPath !== path || serverFilesMemberIsBusy(panel)) return;
+  if (serverFilesListingSignature(data) === serverFilesListingSignature(state.serverFilesListing)) return;
+  renderServerFilesListing(data, path, { ...serverFilesViewToKeep(panel), quiet: true });
+}
+
+// After something the member did changed the folder: it is read again and
+// redrawn where it stands, with no "Loading" line in between and the ticked
+// rows, the scroll position and the keyboard's row kept. With no list on
+// screen there is nothing to redraw: a file being previewed, or a folder
+// still loading, is not replaced because an upload happened to finish.
+async function reloadServerFilesInPlace(path) {
+  const agentId = state.selectedAgentId;
+  if (!document.getElementById('server-files-panel')) {
+    state.serverFilesRevealNames = [];
+    return;
+  }
+  if (!path) {
+    await loadServerFiles(path);
+    return;
+  }
+  closeServerFilesMenu(false);
+  let data;
+  try {
+    data = await agentApiFor(agentId, `/api/server-files?path=${encodeURIComponent(path)}`);
+  } catch (_error) {
+    // The list on screen is out of date and cannot be read again: say why.
+    if (serverFilesPanelShows(agentId) && document.getElementById('server-files-panel')) await loadServerFiles(path);
+    return;
+  }
+  // The member may have gone to another folder, or away, while it answered.
+  const panel = document.getElementById('server-files-panel');
+  if (!panel || !serverFilesPanelShows(agentId) || state.serverFilesCurrentPath !== path) return;
+  renderServerFilesListing(data, path, serverFilesViewToKeep(panel));
+}
+
+function scheduleServerFilesRefresh(delayMs) {
+  if (serverFilesRefreshTimer) window.clearTimeout(serverFilesRefreshTimer);
+  serverFilesRefreshTimer = window.setTimeout(() => {
+    serverFilesRefreshTimer = null;
+    refreshServerFilesQuietly();
+  }, delayMs);
+}
+
+// Listeners that outlive a redraw of the panel: bound the first time the
+// panel is opened.
+function bindServerFilesPanelOnce() {
+  if (serverFilesPanelBound) return;
+  serverFilesPanelBound = true;
+  document.addEventListener("portal:runtime-event", (browserEvent) => {
+    const detail = browserEvent.detail || {};
+    const runtimeEvent = detail.event || {};
+    if (runtimeEvent.replayed || !SERVER_FILES_RUN_END_EVENTS.includes(String(runtimeEvent.type || ""))) return;
+    if (detail.agentId && detail.agentId !== state.selectedAgentId) return;
+    scheduleServerFilesRefresh(600);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") scheduleServerFilesRefresh(300);
+  });
+  window.addEventListener("focus", () => scheduleServerFilesRefresh(300));
+  bindServerFilesDropZone();
 }
 
 function getSelectedFiles(panel) {
@@ -15241,22 +15594,22 @@ async function parseRuntimeErrorResponse(resp) {
   return text || `HTTP ${resp.status}`;
 }
 
-function updateDownloadButton(panel) {
-  const downloadBtn = panel.querySelector('.sf-download-btn');
-  const deleteBtn = panel.querySelector('.sf-delete-btn');
+// The "Select all" line doubles as the selection bar: with rows ticked it
+// reads "3 selected" and shows what can be done with them.
+function updateServerFilesSelection(panel) {
   const selectAll = document.getElementById('sf-select-all');
+  const label = panel.querySelector('.sf-select-label');
+  const actions = panel.querySelector('.portal-file-selection-actions');
   const checkboxes = panel.querySelectorAll('.file-checkbox:not([disabled])');
   const checkedBoxes = panel.querySelectorAll('.file-checkbox:not([disabled]):checked');
 
   const selected = getSelectedFiles(panel);
-  if (downloadBtn) {
-    downloadBtn.disabled = selected.length === 0;
-    downloadBtn.textContent = selected.length > 0 ? t("Download ({count})", { count: selected.length }) : t("Download");
-  }
-  if (deleteBtn) {
-    deleteBtn.disabled = selected.length === 0;
-    deleteBtn.textContent = selected.length > 0 ? t("Delete ({count})", { count: selected.length }) : t("Delete");
-  }
+  if (label) label.textContent = selected.length > 0 ? t("{count} selected", { count: selected.length }) : t("Select all");
+  if (actions) actions.classList.toggle('hidden', selected.length === 0);
+  panel.querySelector('.sf-sort-btn')?.classList.toggle('hidden', selected.length > 0);
+  panel.querySelectorAll('.file-item').forEach((row) => {
+    row.classList.toggle('is-selected', Boolean(row.querySelector('.file-checkbox:checked')));
+  });
 
   // Update select all checkbox state
   if (selectAll) {
@@ -15275,6 +15628,869 @@ function updateDownloadButton(panel) {
       selectAll.indeterminate = true;
     }
   }
+}
+
+// ===== Server Files: new, rename, move =======================================
+// The runtimes already serve mkdir, new-file and move (a rename is a move
+// inside the same folder); this is the panel's side of them.
+
+const SERVER_FILE_FOLDER_ICON = '📁';
+const SERVER_FILE_FILE_ICON = '📄';
+const SERVER_FILES_MORE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
+const SERVER_FILES_CHEVRON_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg>';
+
+function trimServerFilePath(path) {
+  let text = String(path || "");
+  while (text.length > 1 && text.endsWith("/")) text = text.slice(0, -1);
+  return text;
+}
+
+function serverFileBaseName(path) {
+  const parts = String(path || "").split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "";
+}
+
+function joinServerFilePath(dir, name) {
+  const base = String(dir || "");
+  if (!base) return String(name);
+  return base.endsWith("/") ? base + name : base + "/" + name;
+}
+
+// The folders from the root down to `path`, for the Move dialog's path line.
+function serverFilesCrumbs(path, rootPath) {
+  const root = trimServerFilePath(rootPath || "/");
+  const full = trimServerFilePath(path || root);
+  const crumbs = [{ label: root, path: root }];
+  const prefix = root.endsWith("/") ? root : root + "/";
+  if (full === root || !full.startsWith(prefix)) return crumbs;
+  let current = root;
+  full.slice(prefix.length).split("/").filter(Boolean).forEach((part) => {
+    current = joinServerFilePath(current, part);
+    crumbs.push({ label: part, path: current });
+  });
+  return crumbs;
+}
+
+// Folders first. Within each: by name the way people count ("file2" before
+// "file10"), or newest first, or largest first; ties fall back to the name.
+function sortServerFileItems(items, by) {
+  const time = (item) => {
+    const value = Date.parse(item.modified_at || "");
+    return Number.isNaN(value) ? 0 : value;
+  };
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: "base" });
+  return items.slice().sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    let order = 0;
+    if (by === "modified") order = time(b) - time(a);
+    else if (by === "size" && !a.is_dir) order = (Number(b.size) || 0) - (Number(a.size) || 0);
+    return order || byName(a, b);
+  });
+}
+
+function formatServerFileSize(bytes) {
+  const n = Number(bytes);
+  if (bytes === null || bytes === undefined || bytes === "" || !Number.isFinite(n) || n < 0) return "";
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  if (n < 1024 * 1024 * 1024) {
+    const mb = n / (1024 * 1024);
+    return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  }
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// A short "when" for a narrow row: the time for today, the day for this
+// year, the full date before that.
+function formatServerFileModified(iso, now) {
+  if (!iso) return "";
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "";
+  const today = now || new Date();
+  if (when.toDateString() === today.toDateString()) {
+    return when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (when.getFullYear() === today.getFullYear()) {
+    return when.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+  return when.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+// Why a name cannot be used, or "" when it can. `siblings` are the names
+// already in the folder; `current` is the item's own name during a rename.
+function serverFileNameProblem(name, siblings, current) {
+  const value = String(name || "").trim();
+  if (!value) return t("Enter a name");
+  if (value === "." || value === "..") return t("This name is not allowed");
+  if (value.includes("/") || value.includes("\\")) return t("A name cannot contain a slash");
+  if (value.length > 255) return t("This name is too long");
+  if (value !== current && (siblings || []).includes(value)) return t("{name} already exists", { name: value });
+  return "";
+}
+
+// The runtimes answer in terse English; the ones a member can act on get a
+// sentence, the rest are shown as they came.
+function describeServerFileError(error) {
+  const text = String(error || "").trim();
+  const known = text.toLowerCase();
+  if (known === "already exists" || known === "destination already exists") return t("Something with that name already exists");
+  if (known === "not_found") return t("It is no longer there. Reload the folder.");
+  if (known === "invalid destination") return t("It cannot be moved there");
+  return text || t("Request failed");
+}
+
+function serverFilesPanelShows(agentId) {
+  return state.selectedAgentId === agentId && state.toolPanelOpen && state.activeUtilityPanel === "server-files";
+}
+
+// One file-management call (mkdir, new-file, move) on an assistant's
+// workspace. Resolves to { ok, data } or { ok: false, error }; never throws.
+async function serverFilesPost(agentId, operation, body) {
+  try {
+    const resp = await fetch(`/a/${agentId}/api/server-files/${operation}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      return { ok: false, error: describeServerFileError(await parseRuntimeErrorResponse(resp)) };
+    }
+    const data = await resp.json();
+    if (data && data.success === false) {
+      return { ok: false, error: describeServerFileError(data.error) };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
+// Moves each path into destinationDir, one request at a time, keeping its
+// name. A failed item does not stop the rest.
+async function moveServerFilesTo(agentId, paths, destinationDir) {
+  const failures = [];
+  for (const path of paths) {
+    const name = serverFileBaseName(path);
+    const result = await serverFilesPost(agentId, "move", {
+      source: path,
+      destination: joinServerFilePath(destinationDir, name),
+    });
+    if (!result.ok) failures.push({ name, error: result.error });
+  }
+  return { moved: paths.length - failures.length, failures };
+}
+
+// Plain text for the toast after a move.
+function describeServerFilesMove(outcome, total, target) {
+  if (outcome.failures.length === 0) {
+    return tn(total, "Moved {n} item to {target}", "Moved {n} items to {target}", { target });
+  }
+  const shown = outcome.failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
+  const hidden = outcome.failures.length - shown.length;
+  if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
+  return t("Moved {done} of {total} items. Failed: {details}", { done: outcome.moved, total, details: shown.join('; ') });
+}
+
+// ----- menus ------------------------------------------------------------------
+// One popover serves the New button and every row; it is filled when it
+// opens. popover="manual" draws it in the top layer, above the scrolling
+// list, and leaves closing to the handlers below (a press elsewhere, Escape,
+// a scroll, a resize), so pressing the button that opened a menu closes it
+// instead of opening it again.
+let serverFilesOpenMenu = null; // { menu, trigger }
+let serverFilesMenuDismissalBound = false;
+
+function closeServerFilesMenu(restoreFocus) {
+  const open = serverFilesOpenMenu;
+  if (!open) return;
+  serverFilesOpenMenu = null;
+  try {
+    if (typeof open.menu.hidePopover === "function") open.menu.hidePopover();
+  } catch (_error) {
+    // Already closed, or gone with the panel.
+  }
+  open.menu.classList.remove("is-open");
+  open.menu.innerHTML = "";
+  if (!open.trigger) return;
+  open.trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus && document.contains(open.trigger)) open.trigger.focus();
+}
+
+function bindServerFilesMenuDismissal() {
+  if (serverFilesMenuDismissalBound) return;
+  serverFilesMenuDismissalBound = true;
+  document.addEventListener("pointerdown", (event) => {
+    const open = serverFilesOpenMenu;
+    if (!open) return;
+    const target = event.target;
+    if (target && open.menu.contains(target)) return;
+    // A press on a menu button is that button's to answer: it closes its
+    // own menu, or moves the menu to another row.
+    if (target && typeof target.closest === "function" && target.closest("[data-sf-menu-trigger]")) return;
+    closeServerFilesMenu(false);
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (!serverFilesOpenMenu || event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeServerFilesMenu(true);
+  }, true);
+  // A menu left open would float away from its row.
+  document.addEventListener("scroll", (event) => {
+    const open = serverFilesOpenMenu;
+    if (open && !(event.target && event.target.nodeType === 1 && open.menu.contains(event.target))) closeServerFilesMenu(false);
+  }, true);
+  window.addEventListener("resize", () => closeServerFilesMenu(false));
+}
+
+// Under its button with the right edges in line, or above it near the bottom
+// of the window; at the pointer for a right-click. Always inside the window.
+function placeServerFilesMenu(menu, at) {
+  const margin = 8;
+  const box = menu.getBoundingClientRect();
+  const viewWidth = document.documentElement.clientWidth;
+  const viewHeight = window.innerHeight;
+  let left;
+  let top;
+  if (at && typeof at.getBoundingClientRect === "function") {
+    const rect = at.getBoundingClientRect();
+    left = rect.right - box.width;
+    top = rect.bottom + 4;
+    if (top + box.height > viewHeight - margin && rect.top - 4 - box.height >= margin) {
+      top = rect.top - 4 - box.height;
+    }
+  } else {
+    left = at.x;
+    top = at.y;
+    if (top + box.height > viewHeight - margin) top = at.y - box.height;
+  }
+  left = Math.min(Math.max(margin, left), Math.max(margin, viewWidth - box.width - margin));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(Math.max(margin, top))}px`;
+}
+
+function handleServerFilesMenuKeydown(event) {
+  const items = Array.from(event.currentTarget.querySelectorAll('button'));
+  if (items.length === 0) return;
+  if (event.key === "Tab") {
+    closeServerFilesMenu(true);
+    return;
+  }
+  const index = items.indexOf(document.activeElement);
+  let next = -1;
+  if (event.key === "ArrowDown") next = (index + 1) % items.length;
+  else if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = items.length - 1;
+  if (next < 0) return;
+  event.preventDefault();
+  items[next].focus();
+}
+
+// entries: [{ label, run, danger, checked }]. `at` is the button the menu hangs from,
+// or the { x, y } of a right-click; `trigger` is the button that owns it.
+function openServerFilesMenu(panel, at, entries, trigger) {
+  const menu = panel.querySelector("[data-sf-menu]");
+  if (!menu) return;
+  closeServerFilesMenu(false);
+  bindServerFilesMenuDismissal();
+  menu.innerHTML = "";
+  entries.forEach((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    if (typeof entry.checked === "boolean") {
+      button.setAttribute("role", "menuitemradio");
+      button.setAttribute("aria-checked", entry.checked ? "true" : "false");
+    } else {
+      button.setAttribute("role", "menuitem");
+    }
+    if (entry.danger) button.className = "is-danger";
+    button.textContent = entry.label;
+    button.addEventListener("click", () => {
+      closeServerFilesMenu(false);
+      entry.run();
+    });
+    menu.appendChild(button);
+  });
+  menu.onkeydown = handleServerFilesMenuKeydown;
+  if (typeof menu.showPopover === "function") menu.showPopover();
+  else menu.classList.add("is-open");
+  placeServerFilesMenu(menu, at);
+  serverFilesOpenMenu = { menu, trigger: trigger || null };
+  if (trigger) trigger.setAttribute("aria-expanded", "true");
+  (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button'))?.focus();
+}
+
+function toggleServerFilesMenu(panel, trigger, entries) {
+  if (serverFilesOpenMenu && serverFilesOpenMenu.trigger === trigger) {
+    closeServerFilesMenu(true);
+    return;
+  }
+  openServerFilesMenu(panel, trigger, entries, trigger);
+}
+
+function serverFileRowMenuEntries(panel, row, currentPath) {
+  const path = row.dataset.path;
+  return [
+    { label: t("Rename"), run: () => startServerFileRename(panel, row, currentPath) },
+    { label: t("Move"), run: () => openServerFilesMoveDialog([path], currentPath) },
+    { label: t("Download"), run: () => downloadSelectedFiles([path]) },
+    { label: t("Copy path"), run: () => copyServerFilePath(path) },
+    { label: t("Delete"), danger: true, run: () => deleteSelectedServerFiles([path], currentPath) },
+  ];
+}
+
+// The path as the assistant sees it, to paste into a message.
+async function copyServerFilePath(path) {
+  const copied = await copyText(path);
+  showToast(copied ? t("Path copied") : t("Could not copy the path"), copied ? {} : { variant: 'error' });
+}
+
+// ----- naming in place --------------------------------------------------------
+// A name box inside the list, for a new file or folder and for a rename.
+// Enter saves and Escape cancels; clicking elsewhere saves a usable new name
+// and drops anything else. `save(name)` resolves to "" or to the reason it
+// failed, which is shown under the box while it stays open.
+function bindServerFileNameEditor(input, errorEl, { initial, siblings, save, cancel }) {
+  let settled = false;
+  let busy = false;
+  const showProblem = (text) => {
+    errorEl.textContent = text;
+    errorEl.classList.toggle("hidden", !text);
+    input.setAttribute("aria-invalid", text ? "true" : "false");
+  };
+  const drop = () => {
+    if (settled) return;
+    settled = true;
+    cancel();
+  };
+  const commit = async (fromBlur) => {
+    if (settled || busy) return;
+    const name = input.value.trim();
+    const problem = serverFileNameProblem(name, siblings, initial);
+    if (name === initial && (initial || fromBlur)) return drop();
+    if (problem) {
+      if (fromBlur) drop();
+      else showProblem(problem);
+      return;
+    }
+    busy = true;
+    input.disabled = true;
+    const failure = await save(name);
+    busy = false;
+    if (!failure) {
+      settled = true;
+      return;
+    }
+    input.disabled = false;
+    showProblem(failure);
+    input.focus();
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit(false);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!busy) drop();
+    }
+  });
+  input.addEventListener("input", () => showProblem(""));
+  input.addEventListener("blur", () => commit(true));
+  input.addEventListener("click", (event) => event.stopPropagation());
+}
+
+function serverFileNameEditorHtml(label) {
+  const labelAttr = escapeHtmlAttr(label);
+  return (
+    `<input type="text" class="portal-file-name-input" aria-label="${labelAttr}" placeholder="${labelAttr}" autocomplete="off" spellcheck="false" maxlength="255">` +
+    `<p class="portal-file-name-error hidden" role="alert"></p>`
+  );
+}
+
+// New file / New folder: a row with a name box at the top of the list.
+function startServerFileCreate(panel, kind, currentPath) {
+  const list = panel.querySelector(".portal-file-list");
+  if (!list) return;
+  list.querySelector(".portal-file-row.is-new")?.remove();
+  const isFolder = kind === "folder";
+  const emptyState = list.querySelector(":scope > .portal-inline-state");
+  const row = document.createElement("div");
+  row.className = "portal-file-row is-editing is-new";
+  row.innerHTML =
+    `<span class="portal-file-checkbox-spacer" aria-hidden="true"></span>` +
+    `<div class="portal-file-name-cell">` +
+      `<span class="portal-file-icon">${isFolder ? SERVER_FILE_FOLDER_ICON : SERVER_FILE_FILE_ICON}</span>` +
+      `<div class="portal-file-name-edit">${serverFileNameEditorHtml(isFolder ? t("Folder name") : t("File name"))}</div>` +
+    `</div>`;
+  emptyState?.classList.add("hidden");
+  list.prepend(row);
+  list.scrollTop = 0;
+
+  const agentId = state.selectedAgentId;
+  const input = row.querySelector("input");
+  bindServerFileNameEditor(input, row.querySelector(".portal-file-name-error"), {
+    initial: "",
+    siblings: (state.serverFilesItems || []).map((item) => item.name),
+    cancel: () => {
+      row.remove();
+      emptyState?.classList.remove("hidden");
+    },
+    save: async (name) => {
+      const result = await serverFilesPost(agentId, isFolder ? "mkdir" : "new-file", { path: joinServerFilePath(currentPath, name) });
+      if (!result.ok) return result.error;
+      if (serverFilesPanelShows(agentId)) {
+        state.serverFilesRevealNames = [name];
+        reloadServerFilesInPlace(currentPath);
+      }
+      return "";
+    },
+  });
+  input.focus();
+}
+
+// Rename: the row's name becomes a box holding it, the part before the
+// extension selected.
+function startServerFileRename(panel, row, currentPath) {
+  const cell = row.querySelector(".portal-file-name-cell");
+  const nameEl = row.querySelector(".portal-file-name");
+  if (!cell || !nameEl || row.classList.contains("is-editing")) return;
+  const path = row.dataset.path;
+  const known = (state.serverFilesItems || []).find((item) => item.path === path);
+  const original = (known && known.name) || serverFileBaseName(path);
+  const isDir = row.dataset.isDir === "true";
+
+  const edit = document.createElement("div");
+  edit.className = "portal-file-name-edit";
+  edit.innerHTML = serverFileNameEditorHtml(t("New name"));
+  nameEl.classList.add("hidden");
+  cell.appendChild(edit);
+  row.classList.add("is-editing");
+  // Otherwise dragging across the name would drag the row, not select text.
+  row.setAttribute("draggable", "false");
+
+  const agentId = state.selectedAgentId;
+  const input = edit.querySelector("input");
+  input.value = original;
+  bindServerFileNameEditor(input, edit.querySelector(".portal-file-name-error"), {
+    initial: original,
+    siblings: (state.serverFilesItems || []).map((item) => item.name),
+    cancel: () => {
+      edit.remove();
+      nameEl.classList.remove("hidden");
+      row.classList.remove("is-editing");
+      row.setAttribute("draggable", "true");
+    },
+    save: async (name) => {
+      const result = await serverFilesPost(agentId, "move", { source: path, destination: joinServerFilePath(currentPath, name) });
+      if (!result.ok) return result.error;
+      if (serverFilesPanelShows(agentId)) {
+        state.serverFilesRevealNames = [name];
+        reloadServerFilesInPlace(currentPath);
+      }
+      return "";
+    },
+  });
+  input.focus();
+  const dot = isDir ? -1 : original.lastIndexOf(".");
+  input.setSelectionRange(0, dot > 0 ? dot : original.length);
+}
+
+// Scrolls to the rows just created, renamed or uploaded and marks them for a
+// moment; the first one takes the keyboard.
+function revealServerFileRows(panel, names) {
+  const wanted = Array.isArray(names) ? names : [names];
+  const rows = Array.from(panel.querySelectorAll(".file-item"))
+    .filter((el) => wanted.includes(el.querySelector(".portal-file-name")?.textContent));
+  if (rows.length === 0) return;
+  rows.forEach((row) => row.classList.add("is-revealed"));
+  if (typeof rows[0].scrollIntoView === "function") rows[0].scrollIntoView({ block: "nearest" });
+}
+
+// ----- dragging ---------------------------------------------------------------
+// Two kinds of drag end on the panel. Files from the computer are uploaded:
+// onto a folder row or a crumb of the path they go into that folder, anywhere
+// else on the panel into the folder on screen. Rows of the list are moved:
+// onto a folder row or a crumb. A label at the foot of the panel says where
+// the drop would land before it is made.
+const SERVER_FILES_DRAG_TYPE = "application/x-efp-server-files";
+const SERVER_FILES_DROP_LIMIT = 2000;
+const SERVER_FILES_IGNORED_NAMES = [".DS_Store", "Thumbs.db"];
+let serverFilesDrag = null; // { paths, sourceDir } while rows are being dragged
+let serverFilesDropShown = ""; // what the label last said, to repaint only on change
+
+function serverFilesDragKind(dataTransfer) {
+  const types = Array.from((dataTransfer && dataTransfer.types) || []);
+  if (types.includes(SERVER_FILES_DRAG_TYPE)) return "move";
+  if (types.includes("Files")) return "upload";
+  return "";
+}
+
+// A move into the folder the items are already in changes nothing, and a
+// folder cannot go into itself or anything inside it.
+function serverFilesMoveAllowed(paths, sourceDir, destinationDir) {
+  const destination = trimServerFilePath(destinationDir);
+  if (!destination || destination === trimServerFilePath(sourceDir)) return false;
+  return !(paths || []).some((path) => {
+    const moving = trimServerFilePath(path);
+    return destination === moving || destination.startsWith(moving + "/");
+  });
+}
+
+// Where a drag over `element` would land: the folder row or path crumb under
+// the pointer; for an upload, failing those, the folder on screen.
+function serverFilesDropTarget(element, kind) {
+  const el = element && typeof element.closest === "function" ? element : null;
+  const row = el ? el.closest('.file-item[data-is-dir="true"]') : null;
+  if (row && row.dataset.path) return { path: row.dataset.path, el: row };
+  const crumb = el ? el.closest(".portal-file-breadcrumb [data-server-path]") : null;
+  if (crumb && crumb.dataset.serverPath) return { path: crumb.dataset.serverPath, el: crumb };
+  if (kind === "upload" && state.serverFilesCurrentPath) return { path: state.serverFilesCurrentPath, el: null };
+  return null;
+}
+
+function clearServerFilesDrop() {
+  serverFilesDropShown = "";
+  const panel = document.getElementById("server-files-panel");
+  if (panel) {
+    panel.classList.remove("is-drop-target");
+    panel.querySelectorAll(".is-drop-into").forEach((el) => el.classList.remove("is-drop-into"));
+  }
+  document.querySelector(".portal-file-drop-label")?.remove();
+}
+
+function paintServerFilesDrop(zone, panel, kind, target) {
+  const shown = target ? `${kind}:${target.path}` : "";
+  if (shown === serverFilesDropShown) return;
+  clearServerFilesDrop();
+  if (!target) return;
+  serverFilesDropShown = shown;
+  if (target.el) target.el.classList.add("is-drop-into");
+  else panel.classList.add("is-drop-target");
+  const label = document.createElement("div");
+  label.className = "portal-file-drop-label";
+  label.textContent = kind === "move"
+    ? t("Move to {path}", { path: target.path })
+    : t("Drop to upload to {path}", { path: target.path });
+  zone.appendChild(label);
+}
+
+// Every file under what was dropped, each with the folder it sits in
+// relative to the drop ("" for a file dropped on its own). A dropped folder
+// keeps its structure. Call it inside the drop handler: the browser hands out
+// the dropped entries only while that event is being dispatched.
+function collectDroppedServerFiles(dataTransfer) {
+  const items = Array.from((dataTransfer && dataTransfer.items) || []);
+  const roots = [];
+  const loose = [];
+  items.forEach((item) => {
+    if (item.kind !== "file") return;
+    const entry = typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null;
+    if (entry) {
+      roots.push(entry);
+      return;
+    }
+    const file = item.getAsFile();
+    if (file) loose.push(file);
+  });
+  if (items.length === 0) loose.push(...Array.from((dataTransfer && dataTransfer.files) || []));
+  return readServerFileEntries(roots, loose);
+}
+
+async function readServerFileEntries(roots, loose) {
+  const entries = loose.map((file) => ({ file, relativeDir: "" }));
+  let tooMany = false;
+  const walk = async (entry, dir) => {
+    if (tooMany) return;
+    if (entry.isFile) {
+      if (SERVER_FILES_IGNORED_NAMES.includes(entry.name)) return;
+      const file = await new Promise((resolve) => entry.file(resolve, () => resolve(null)));
+      if (!file) return;
+      if (entries.length >= SERVER_FILES_DROP_LIMIT) {
+        tooMany = true;
+        return;
+      }
+      entries.push({ file, relativeDir: dir });
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const childDir = dir ? dir + "/" + entry.name : entry.name;
+    const reader = entry.createReader();
+    // A reader hands a large folder over in batches; an empty batch ends it.
+    for (;;) {
+      const batch = await new Promise((resolve) => reader.readEntries(resolve, () => resolve([])));
+      if (batch.length === 0) break;
+      for (const child of batch) await walk(child, childDir);
+      if (tooMany) return;
+    }
+  };
+  for (const root of roots) await walk(root, "");
+  return { entries, tooMany };
+}
+
+async function uploadDroppedServerFiles(targetDir, reading) {
+  const dropped = await reading;
+  if (dropped.tooMany) {
+    showToast(t("That is more than {limit} files. Upload the folder as a zip instead: the zip is unpacked where it lands.", { limit: SERVER_FILES_DROP_LIMIT }), { variant: 'error' });
+    return;
+  }
+  if (dropped.entries.length === 0) return;
+  await startServerFilesUpload(targetDir, dropped.entries);
+}
+
+async function runServerFilesMove(agentId, paths, destinationDir) {
+  const outcome = await moveServerFilesTo(agentId, paths, destinationDir);
+  showToast(describeServerFilesMove(outcome, paths.length, destinationDir), outcome.failures.length === 0 ? {} : { variant: 'error' });
+  if (serverFilesPanelShows(agentId)) reloadServerFilesInPlace(state.serverFilesCurrentPath || '');
+}
+
+// The whole tool panel takes drops while it shows Server Files, its title
+// bar included; bound once, since the panel's content is redrawn under it.
+function bindServerFilesDropZone() {
+  const zone = dom.toolPanel;
+  if (!zone) return;
+  const livePanel = () => (
+    state.activeUtilityPanel === "server-files" ? document.getElementById("server-files-panel") : null
+  );
+  // What the drag in `event` would do here: { kind, target } or null.
+  const read = (event) => {
+    const panel = livePanel();
+    const kind = panel ? serverFilesDragKind(event.dataTransfer) : "";
+    if (!kind) return null;
+    let target = serverFilesDropTarget(event.target, kind);
+    if (kind === "move" && !(serverFilesDrag && target && serverFilesMoveAllowed(serverFilesDrag.paths, serverFilesDrag.sourceDir, target.path))) {
+      target = null;
+    }
+    return { panel, kind, target };
+  };
+  // Between two listings there is nowhere to put a file, but it must not
+  // open in the tab either.
+  const strayFiles = (event) => (
+    state.activeUtilityPanel === "server-files" && serverFilesDragKind(event.dataTransfer) === "upload"
+  );
+  const over = (event) => {
+    const drag = read(event);
+    if (!drag) {
+      if (strayFiles(event)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "none";
+      }
+      return;
+    }
+    // Files are always taken here, so a miss never opens them in the tab.
+    if (drag.kind === "upload" || drag.target) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = drag.kind === "move" ? "move" : "copy";
+    }
+    paintServerFilesDrop(zone, drag.panel, drag.kind, drag.target);
+  };
+
+  zone.addEventListener("dragstart", (event) => {
+    const panel = livePanel();
+    const row = panel && event.target && typeof event.target.closest === "function" ? event.target.closest(".file-item") : null;
+    if (!row || !row.dataset.path || row.classList.contains("is-editing")) return;
+    // Dragging a ticked row takes every ticked row with it.
+    const ticked = getSelectedFiles(panel);
+    const paths = ticked.includes(row.dataset.path) ? ticked : [row.dataset.path];
+    serverFilesDrag = { paths, sourceDir: state.serverFilesCurrentPath };
+    event.dataTransfer.setData(SERVER_FILES_DRAG_TYPE, JSON.stringify(paths));
+    event.dataTransfer.effectAllowed = "move";
+    closeServerFilesMenu(false);
+    // The rows being moved fade; after this event, so the picture that
+    // follows the pointer is taken of the row as it was.
+    window.setTimeout(() => {
+      if (!serverFilesDrag) return;
+      panel.querySelectorAll(".file-item").forEach((item) => {
+        item.classList.toggle("is-moving", paths.includes(item.dataset.path));
+      });
+    }, 0);
+  });
+  zone.addEventListener("dragend", () => {
+    serverFilesDrag = null;
+    document.querySelectorAll("#server-files-panel .is-moving").forEach((item) => item.classList.remove("is-moving"));
+    clearServerFilesDrop();
+  });
+  zone.addEventListener("dragenter", over);
+  zone.addEventListener("dragover", over);
+  // A drag can end without a leave or a drop reaching the panel (another
+  // window took it). The browser sends no pointer moves while something is
+  // dragged, so one arriving means the marks are stale.
+  zone.addEventListener("pointermove", () => {
+    if (serverFilesDropShown && !serverFilesDrag) clearServerFilesDrop();
+  });
+  zone.addEventListener("dragleave", (event) => {
+    // Leaving one row for the next is not leaving the panel. Not every
+    // browser names the element entered, so the pointer's position decides.
+    const into = event.relatedTarget || document.elementFromPoint(event.clientX, event.clientY);
+    if (!into || !zone.contains(into)) clearServerFilesDrop();
+  });
+  zone.addEventListener("drop", (event) => {
+    const drag = read(event);
+    clearServerFilesDrop();
+    if (!drag) {
+      if (strayFiles(event)) event.preventDefault();
+      return;
+    }
+    if (drag.kind === "upload") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (drag.target) uploadDroppedServerFiles(drag.target.path, collectDroppedServerFiles(event.dataTransfer));
+      return;
+    }
+    const moving = serverFilesDrag;
+    serverFilesDrag = null;
+    drag.panel.querySelectorAll(".is-moving").forEach((item) => item.classList.remove("is-moving"));
+    if (!drag.target || !moving) return;
+    event.preventDefault();
+    runServerFilesMove(state.selectedAgentId, moving.paths, drag.target.path);
+  });
+}
+
+// ----- move -------------------------------------------------------------------
+// The folder picker for Move: it browses with the listing call the panel
+// uses and moves on "Move here". The items being moved are not offered as
+// places to go, and the folder they are already in cannot be picked.
+async function openServerFilesMoveDialog(paths, currentPath) {
+  const agentId = state.selectedAgentId;
+  const moving = (Array.isArray(paths) ? paths : []).filter(Boolean);
+  if (!agentId || moving.length === 0) return;
+  const rootPath = state.serverFilesRootPath || currentPath || "";
+  const sourceDir = currentPath || rootPath;
+  const title = moving.length === 1
+    ? t("Move {name}", { name: serverFileBaseName(moving[0]) })
+    : tn(moving.length, "Move {n} item", "Move {n} items");
+
+  const previouslyFocused = document.activeElement;
+  const root = document.createElement("div");
+  root.className = "modal portal-dialog portal-file-move-dialog-root";
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-labelledby", "server-files-move-title");
+  root.innerHTML =
+    `<div class="modal-card panel portal-dialog-card portal-file-move-dialog" data-dialog-card>` +
+      `<div class="portal-modal-titlebar"><h3 id="server-files-move-title">${escapeHtml(title)}</h3></div>` +
+      `<p class="portal-modal-copy">${t("Choose the folder to move to.")}</p>` +
+      `<div class="portal-file-breadcrumb portal-file-move-path" data-move-crumbs></div>` +
+      `<div class="portal-file-move-list" data-move-list></div>` +
+      `<div class="portal-modal-actions">` +
+        `<button type="button" class="portal-btn" data-dialog-cancel>${t("Cancel")}</button>` +
+        `<button type="button" class="portal-btn is-primary" data-move-submit disabled>${t("Move here")}</button>` +
+      `</div>` +
+    `</div>`;
+  document.body.appendChild(root);
+  // Force reflow so the enter transition runs, like dialogs.js.
+  root.offsetWidth; // eslint-disable-line no-unused-expressions
+  root.classList.add("portal-dialog--in");
+
+  const crumbsEl = root.querySelector("[data-move-crumbs]");
+  const listEl = root.querySelector("[data-move-list]");
+  const submitBtn = root.querySelector("[data-move-submit]");
+  const cancelBtn = root.querySelector("[data-dialog-cancel]");
+  let destination = sourceDir;
+  let loadToken = 0;
+  let busy = false;
+  let closed = false;
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKeydown, true);
+    root.classList.remove("portal-dialog--in");
+    window.setTimeout(() => {
+      root.remove();
+      if (previouslyFocused && typeof previouslyFocused.focus === "function" && document.contains(previouslyFocused)) {
+        try { previouslyFocused.focus(); } catch (_error) { /* noop */ }
+      }
+    }, 200);
+  };
+  const onKeydown = (event) => {
+    if (event.key !== "Escape" || busy) return;
+    event.preventDefault();
+    close();
+  };
+
+  const paintCrumbs = () => {
+    crumbsEl.innerHTML = "";
+    serverFilesCrumbs(destination, rootPath).forEach((crumb, index) => {
+      if (index > 0) {
+        const sep = document.createElement("span");
+        sep.className = "portal-breadcrumb-sep";
+        sep.textContent = "/";
+        crumbsEl.appendChild(sep);
+      }
+      const link = document.createElement("a");
+      link.href = "#";
+      link.className = "portal-link-inline portal-breadcrumb-link";
+      link.textContent = crumb.label;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (!busy) show(crumb.path);
+      });
+      crumbsEl.appendChild(link);
+    });
+  };
+
+  const show = async (dir) => {
+    loadToken += 1;
+    const token = loadToken;
+    destination = dir;
+    paintCrumbs();
+    submitBtn.disabled = true;
+    listEl.innerHTML = `<div class="portal-inline-state is-visible">${t("Loading files…")}</div>`;
+    try {
+      const data = await agentApiFor(agentId, `/api/server-files?path=${encodeURIComponent(dir)}`);
+      if (token !== loadToken || closed) return;
+      if (data && typeof data.path === "string" && data.path) destination = data.path;
+      const folders = sortServerFileItems((Array.isArray(data && data.items) ? data.items : []).map(normalizeServerFileItem))
+        .filter((item) => item.is_dir && item.path && !moving.includes(item.path));
+      paintCrumbs();
+      listEl.innerHTML = "";
+      folders.forEach((folder) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "portal-file-move-row";
+        const icon = document.createElement("span");
+        icon.className = "portal-file-icon";
+        icon.textContent = SERVER_FILE_FOLDER_ICON;
+        const name = document.createElement("span");
+        name.className = "portal-file-name";
+        name.textContent = folder.name;
+        button.append(icon, name);
+        button.addEventListener("click", () => {
+          if (!busy) show(folder.path);
+        });
+        listEl.appendChild(button);
+      });
+      if (folders.length === 0) {
+        listEl.innerHTML = `<div class="portal-inline-state is-visible">${t("No folders here")}</div>`;
+      }
+      // Moving something into the folder it is already in changes nothing.
+      submitBtn.disabled = busy || trimServerFilePath(destination) === trimServerFilePath(sourceDir);
+    } catch (error) {
+      if (token !== loadToken || closed) return;
+      listEl.innerHTML = `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`;
+    }
+  };
+
+  document.addEventListener("keydown", onKeydown, true);
+  cancelBtn.addEventListener("click", () => {
+    if (!busy) close();
+  });
+  submitBtn.addEventListener("click", async () => {
+    if (busy) return;
+    busy = true;
+    submitBtn.disabled = true;
+    cancelBtn.disabled = true;
+    submitBtn.textContent = t("Moving…");
+    const target = destination;
+    const outcome = await moveServerFilesTo(agentId, moving, target);
+    close();
+    showToast(describeServerFilesMove(outcome, moving.length, target), outcome.failures.length === 0 ? {} : { variant: 'error' });
+    if (serverFilesPanelShows(agentId)) reloadServerFilesInPlace(sourceDir);
+  });
+  window.requestAnimationFrame(() => cancelBtn.focus());
+  await show(sourceDir);
 }
 
 // Plain text for a toast: a saved file, or the count a zip was extracted into.
@@ -15304,69 +16520,347 @@ function describeServerFileUpload(data, file) {
 }
 
 // One request per file: the Portal and both runtimes read a single `file`
-// field, and the upload size cap applies to each file on its own.
-async function uploadOneServerFile(agentId, targetPath, file) {
-  try {
+// field, and the upload size cap applies to each file on its own. An XHR
+// rather than fetch: it reports how much has been sent and can be stopped.
+// `hooks`: { name } to store the file under another name, onStart(xhr),
+// onProgress(loadedBytes). Resolves to { ok, message, extracted } or
+// { ok: false, error, cancelled }; never rejects.
+function uploadOneServerFile(agentId, targetPath, file, hooks) {
+  const options = hooks || {};
+  const storedName = options.name || file.name;
+  return new Promise((resolve) => {
     const formData = new FormData();
     formData.append('path', targetPath);
-    formData.append('file', file);
+    if (storedName !== file.name) formData.append('file', file, storedName);
+    else formData.append('file', file);
 
-    const resp = await fetch(`/a/${agentId}/api/server-files/upload`, {
-      method: 'POST',
-      body: formData
+    const xhr = new XMLHttpRequest();
+    if (typeof options.onStart === 'function') options.onStart(xhr);
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && typeof options.onProgress === 'function') options.onProgress(event.loaded);
     });
-    if (!resp.ok) {
-      return { ok: false, error: await parseRuntimeErrorResponse(resp) };
-    }
-    const data = await resp.json();
-    if (!data.success) {
-      return { ok: false, error: String(data.error || t("Upload failed")) };
-    }
-    return { ok: true, message: describeServerFileUpload(data, file), extracted: data.mode === 'zip_extract' };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
+    xhr.addEventListener('load', async () => {
+      const body = String(xhr.responseText || '');
+      if (xhr.status < 200 || xhr.status >= 300) {
+        resolve({ ok: false, error: await parseRuntimeErrorResponse({ status: xhr.status, text: async () => body }) });
+        return;
+      }
+      let data = null;
+      try {
+        data = JSON.parse(body);
+      } catch (_error) {
+        resolve({ ok: false, error: t("Invalid response") });
+        return;
+      }
+      if (!data || !data.success) {
+        resolve({ ok: false, error: String((data && data.error) || t("Upload failed")) });
+        return;
+      }
+      resolve({ ok: true, message: describeServerFileUpload(data, { name: storedName }), extracted: data.mode === 'zip_extract' });
+    });
+    xhr.addEventListener('error', () => resolve({ ok: false, error: t("Network error") }));
+    xhr.addEventListener('abort', () => resolve({ ok: false, cancelled: true, error: t("Upload cancelled") }));
+    xhr.open('POST', `/a/${agentId}/api/server-files/upload`);
+    xhr.send(formData);
+  });
 }
 
 const SERVER_FILES_UPLOAD_FAILURES_SHOWN = 5;
+const SERVER_FILES_UPLOAD_PARALLEL = 3;
+// The uploads in flight, one batch per assistant: a second drop on the same
+// assistant joins the batch already running.
+const serverFilesUploads = new Map();
 
-// Uploads the picked files one after another into targetPath, then reloads
-// the folder and reports the outcome in a toast. A failed file does not stop
-// the rest; the toast names the first few with their reasons. Progress and
-// the reload only touch the panel while it still shows Server Files of the
-// same assistant, so a member who moves on mid-batch is not pulled back.
-async function uploadFilesToServerFiles(targetPath, files) {
-  const agentId = state.selectedAgentId;
-  const panelStillOurs = () => state.selectedAgentId === agentId
-    && state.toolPanelOpen
-    && state.activeUtilityPanel === "server-files";
-  const failures = [];
-  const extracted = [];
-  let lastMessage = '';
+// The size cap is the Portal's and is known to the page, so a file over it
+// is refused here instead of after it has been sent.
+function serverFileTooLargeReason(file) {
+  const policy = typeof getChatUploadPolicy === 'function' ? getChatUploadPolicy() : null;
+  const maxMb = policy ? policy.maxUploadMb : null;
+  if (!maxMb || !file || typeof file.size !== 'number' || file.size <= maxMb * 1024 * 1024) return '';
+  return t("Larger than the {max} MB limit", { max: maxMb });
+}
 
-  for (const [index, file] of files.entries()) {
-    if (index === 0 || panelStillOurs()) {
-      const progress = files.length === 1
-        ? t("Uploading {name}…", { name: escapeHtml(file.name) })
-        : t("Uploading {current} of {total}: {name}…", { current: index + 1, total: files.length, name: escapeHtml(file.name) });
-      setToolPanel(t("Server Files"), `<div class="portal-inline-state">${progress}</div>`, "server-files");
-    }
-    const result = await uploadOneServerFile(agentId, targetPath, file);
-    if (result.ok) {
-      lastMessage = result.message;
-      if (result.extracted) extracted.push(result.message);
-    } else {
-      failures.push({ name: file.name, error: result.error });
+// ----- names that are already there --------------------------------------------
+// An upload replaces a file of the same name without a word, so the names
+// are compared first and the member decides. Only what lands directly in the
+// folder is compared: a dropped folder counts as one name.
+function serverFileUploadTopName(entry) {
+  const dir = String(entry.relativeDir || '');
+  return dir ? dir.split('/')[0] : String(entry.name || entry.file.name);
+}
+
+// A zip on its own is unpacked, never stored, so its name cannot clash.
+function serverFilesUploadConflicts(entries, existingNames) {
+  const clashes = [];
+  entries.forEach((entry) => {
+    const top = serverFileUploadTopName(entry);
+    if (!entry.relativeDir && top.toLowerCase().endsWith('.zip')) return;
+    if (existingNames.includes(top) && !clashes.includes(top)) clashes.push(top);
+  });
+  return clashes;
+}
+
+// "plan.md" -> "plan (1).md", "reports" -> "reports (1)": the first free name.
+function uniqueServerFileName(name, taken, isFolder) {
+  const text = String(name);
+  const dot = isFolder ? -1 : text.lastIndexOf('.');
+  const stem = dot > 0 ? text.slice(0, dot) : text;
+  const ext = dot > 0 ? text.slice(dot) : '';
+  for (let n = 1; ; n += 1) {
+    const candidate = `${stem} (${n})${ext}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
+}
+
+// What is uploaded once the member has answered: everything as it is
+// ("replace"), without the clashing names ("skip"), or with the clashing
+// names changed to free ones ("keep").
+function applyServerFilesConflictChoice(entries, existingNames, choice) {
+  const clashes = serverFilesUploadConflicts(entries, existingNames);
+  if (choice === 'replace' || clashes.length === 0) return entries;
+  if (choice === 'skip') return entries.filter((entry) => !clashes.includes(serverFileUploadTopName(entry)));
+  const taken = existingNames.concat(entries.map(serverFileUploadTopName));
+  const renamed = {};
+  clashes.forEach((name) => {
+    const isFolder = entries.some((entry) => entry.relativeDir && serverFileUploadTopName(entry) === name);
+    renamed[name] = uniqueServerFileName(name, taken, isFolder);
+    taken.push(renamed[name]);
+  });
+  return entries.map((entry) => {
+    const top = serverFileUploadTopName(entry);
+    if (!clashes.includes(top)) return entry;
+    if (!entry.relativeDir) return { ...entry, name: renamed[top] };
+    return { ...entry, relativeDir: [renamed[top]].concat(entry.relativeDir.split('/').slice(1)).join('/') };
+  });
+}
+
+// A dialog with a few answers; resolves to the id of the one picked, or null
+// when it is dismissed. choices: [{ id, label, primary }].
+function askServerFilesChoice({ title, message, choices }) {
+  return new Promise((resolve) => {
+    const previouslyFocused = document.activeElement;
+    const root = document.createElement("div");
+    root.className = "modal portal-dialog portal-file-choice-dialog-root";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "server-files-choice-title");
+    const buttons = choices.map((choice) => (
+      `<button type="button" class="portal-btn${choice.primary ? ' is-primary' : ''}" data-choice="${escapeHtmlAttr(choice.id)}">${escapeHtml(choice.label)}</button>`
+    )).join("");
+    root.innerHTML =
+      `<div class="modal-card panel portal-dialog-card portal-file-choice-dialog" data-dialog-card>` +
+        `<div class="portal-modal-titlebar"><h3 id="server-files-choice-title">${escapeHtml(title)}</h3></div>` +
+        `<p class="portal-modal-copy portal-dialog-msg">${escapeHtml(message)}</p>` +
+        `<div class="portal-modal-actions">` +
+          `<button type="button" class="portal-btn" data-dialog-cancel>${t("Cancel")}</button>` +
+          buttons +
+        `</div>` +
+      `</div>`;
+    document.body.appendChild(root);
+    // Force reflow so the enter transition runs, like dialogs.js.
+    root.offsetWidth; // eslint-disable-line no-unused-expressions
+    root.classList.add("portal-dialog--in");
+
+    let settled = false;
+    const finish = (answer) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKeydown, true);
+      root.classList.remove("portal-dialog--in");
+      window.setTimeout(() => {
+        root.remove();
+        if (previouslyFocused && typeof previouslyFocused.focus === "function" && document.contains(previouslyFocused)) {
+          try { previouslyFocused.focus(); } catch (_error) { /* noop */ }
+        }
+      }, 200);
+      resolve(answer);
+    };
+    const onKeydown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      finish(null);
+    };
+    document.addEventListener("keydown", onKeydown, true);
+    root.querySelector("[data-dialog-cancel]").addEventListener("click", () => finish(null));
+    root.querySelectorAll("[data-choice]").forEach((button) => {
+      button.addEventListener("click", () => finish(button.dataset.choice));
+    });
+    window.requestAnimationFrame(() => (root.querySelector(".is-primary") || root.querySelector("[data-dialog-cancel]")).focus());
+  });
+}
+
+// Resolves to the entries to upload, renamed or thinned out as the member
+// chose, or to null when they called the upload off.
+async function resolveServerFilesUploadConflicts(agentId, targetDir, entries) {
+  let existingNames = [];
+  if (trimServerFilePath(targetDir) === trimServerFilePath(state.serverFilesCurrentPath)) {
+    existingNames = (state.serverFilesItems || []).map((item) => item.name);
+  } else {
+    // A drop onto another folder: its names are not on screen.
+    try {
+      const data = await agentApiFor(agentId, `/api/server-files?path=${encodeURIComponent(targetDir)}`);
+      existingNames = (Array.isArray(data && data.items) ? data.items : []).map(normalizeServerFileItem).map((item) => item.name);
+    } catch (_error) {
+      existingNames = [];
     }
   }
+  // What a batch already under way is putting into this folder is as good
+  // as there: a second drop of the same name must not replace the first.
+  const running = serverFilesUploads.get(agentId);
+  if (running && !running.cancelled) {
+    const here = trimServerFilePath(targetDir);
+    const pending = running.queue.concat(Array.from(running.active.keys()));
+    pending.forEach((job) => {
+      if (trimServerFilePath(job.baseDir) === here && !existingNames.includes(job.top)) existingNames.push(job.top);
+    });
+  }
+  const clashes = serverFilesUploadConflicts(entries, existingNames);
+  if (clashes.length === 0) return entries;
 
-  if (panelStillOurs()) loadServerFiles(targetPath);
+  const shown = clashes.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN);
+  if (clashes.length > shown.length) shown.push(t("and {n} more", { n: clashes.length - shown.length }));
+  const choices = [
+    { id: "replace", label: t("Replace") },
+    { id: "keep", label: t("Keep both"), primary: true },
+  ];
+  // Skipping only means something when part of the upload does not clash.
+  const tops = entries.map(serverFileUploadTopName);
+  if (tops.some((name) => !clashes.includes(name))) choices.unshift({ id: "skip", label: t("Skip") });
+  const choice = await askServerFilesChoice({
+    title: tn(clashes.length, "{n} name is already taken", "{n} names are already taken"),
+    message: t("Already in {path}: {names}", { path: targetDir, names: shown.join(", ") }),
+    choices,
+  });
+  return choice ? applyServerFilesConflictChoice(entries, existingNames, choice) : null;
+}
 
-  const uploaded = files.length - failures.length;
-  if (files.length === 1) {
-    if (failures.length === 0) showToast(lastMessage);
-    else showToast(t("Upload failed: {error}", { error: failures[0].error }), { variant: 'error' });
+// ----- the upload itself --------------------------------------------------------
+// The list stays on screen while files go up; a strip at the foot of the
+// panel shows how far the batch is and can stop it.
+let serverFilesUploadStripQueued = false;
+
+function serverFilesUploadProgress(batch) {
+  let sent = batch.sentBytes;
+  batch.active.forEach((loaded) => { sent += loaded; });
+  const current = batch.active.keys().next().value || null;
+  const position = Math.min(batch.total, batch.finished + 1);
+  const name = current ? current.label : "";
+  return {
+    percent: batch.totalBytes > 0 ? Math.min(100, Math.round((sent / batch.totalBytes) * 100)) : 0,
+    text: batch.total === 1
+      ? t("Uploading {name}…", { name })
+      : t("Uploading {current} of {total}: {name}…", { current: position, total: batch.total, name }),
+  };
+}
+
+function renderServerFilesUploadStrip() {
+  serverFilesUploadStripQueued = false;
+  const panel = document.getElementById('server-files-panel');
+  if (!panel) return;
+  const batch = serverFilesUploads.get(state.selectedAgentId);
+  let strip = panel.querySelector('.portal-file-upload-strip');
+  if (!batch) {
+    if (strip) strip.remove();
     return;
+  }
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.className = 'portal-file-upload-strip';
+    strip.setAttribute('role', 'status');
+    strip.innerHTML =
+      `<div class="portal-file-upload-text"></div>` +
+      `<div class="portal-file-upload-track"><div class="portal-file-upload-fill"></div></div>` +
+      `<button type="button" class="portal-file-selection-btn sf-upload-cancel">${t("Cancel")}</button>`;
+    strip.querySelector('.sf-upload-cancel').addEventListener('click', () => cancelServerFilesUpload(state.selectedAgentId));
+    panel.appendChild(strip);
+  }
+  const progress = serverFilesUploadProgress(batch);
+  strip.querySelector('.portal-file-upload-text').textContent = progress.text;
+  strip.querySelector('.portal-file-upload-fill').style.width = `${progress.percent}%`;
+}
+
+// Progress events come many times a second; the strip is redrawn once a frame.
+function queueServerFilesUploadStrip() {
+  if (serverFilesUploadStripQueued) return;
+  serverFilesUploadStripQueued = true;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(renderServerFilesUploadStrip);
+  else renderServerFilesUploadStrip();
+}
+
+// Stops the batch: what is being sent is aborted, what waits is dropped,
+// what already arrived stays. An aborted request may have reached the
+// runtime all the same, so the toast does not promise it did not.
+function cancelServerFilesUpload(agentId) {
+  const batch = serverFilesUploads.get(agentId);
+  if (!batch || batch.cancelled) return;
+  batch.cancelled = true;
+  batch.queue.length = 0;
+  batch.xhrs.forEach((xhr) => {
+    try { xhr.abort(); } catch (_error) { /* already done */ }
+  });
+}
+
+async function runServerFilesUploadBatch(batch) {
+  const worker = async () => {
+    while (!batch.cancelled && batch.queue.length > 0) {
+      const job = batch.queue.shift();
+      batch.active.set(job, 0);
+      renderServerFilesUploadStrip();
+      const tooLarge = serverFileTooLargeReason(job.file);
+      let xhrInUse = null;
+      const result = tooLarge
+        ? { ok: false, error: tooLarge }
+        : await uploadOneServerFile(batch.agentId, job.dir, job.file, {
+          name: job.name,
+          onStart: (xhr) => { xhrInUse = xhr; batch.xhrs.add(xhr); },
+          onProgress: (loaded) => { batch.active.set(job, loaded); queueServerFilesUploadStrip(); },
+        });
+      if (xhrInUse) batch.xhrs.delete(xhrInUse);
+      batch.active.delete(job);
+      batch.sentBytes += job.size;
+      if (result.cancelled) continue;
+      batch.finished += 1;
+      if (result.ok) {
+        batch.lastMessage = result.message;
+        if (result.extracted) batch.extracted.push(result.message);
+        else batch.arrived.push({ dir: job.baseDir, name: job.top });
+      } else {
+        batch.failures.push({ index: job.index, name: job.label, error: result.error });
+      }
+      renderServerFilesUploadStrip();
+    }
+  };
+  // Files dropped while the batch runs join its queue; the loop catches the
+  // ones that arrive just as the last worker steps out.
+  do {
+    await Promise.all(Array.from({ length: SERVER_FILES_UPLOAD_PARALLEL }, worker));
+  } while (batch.queue.length > 0 && !batch.cancelled);
+
+  // Unless a new batch took this one's place while it wound down.
+  if (serverFilesUploads.get(batch.agentId) === batch) serverFilesUploads.delete(batch.agentId);
+  renderServerFilesUploadStrip();
+  // The folder on screen is read again, wherever the member is by now, and
+  // what arrived in it is pointed out. A panel that moved on is left alone.
+  if (serverFilesPanelShows(batch.agentId)) {
+    const shownDir = trimServerFilePath(state.serverFilesCurrentPath || batch.baseDir);
+    state.serverFilesRevealNames = batch.arrived
+      .filter((item) => trimServerFilePath(item.dir) === shownDir)
+      .map((item) => item.name);
+    reloadServerFilesInPlace(state.serverFilesCurrentPath || batch.baseDir);
+  }
+  showToast(describeServerFilesUploadOutcome(batch), (batch.failures.length === 0 && !batch.cancelled) ? {} : { variant: 'error' });
+}
+
+// Plain text for the toast when a batch ends.
+function describeServerFilesUploadOutcome(batch) {
+  const failures = batch.failures.slice().sort((a, b) => a.index - b.index);
+  const uploaded = batch.finished - failures.length;
+  if (batch.cancelled) {
+    return t("Upload cancelled: {done} of {total} files had finished. A file that was being sent may still have arrived.", { done: uploaded, total: batch.total });
+  }
+  if (batch.total === 1) {
+    return failures.length === 0 ? batch.lastMessage : t("Upload failed: {error}", { error: failures[0].error });
   }
   const summary = [];
   if (failures.length === 0) {
@@ -15375,11 +16869,70 @@ async function uploadFilesToServerFiles(targetPath, files) {
     const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
     const hidden = failures.length - shown.length;
     if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
-    summary.push(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: files.length, details: shown.join('; ') }));
+    summary.push(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: batch.total, details: shown.join('; ') }));
   }
   // A zip is unpacked rather than saved, which "Uploaded n files" alone would hide.
-  summary.push(...extracted);
-  showToast(summary.join('. '), failures.length === 0 ? {} : { variant: 'error' });
+  summary.push(...batch.extracted);
+  return summary.join('. ');
+}
+
+// Uploads entries ({ file, relativeDir, name }) into targetDir, a few at a
+// time, after asking about names that are already there. A failed file does
+// not stop the rest; the toast names the first few with their reasons. The
+// uploads go to the assistant that was selected when they started, and carry
+// on if the member closes the panel or switches assistant meanwhile.
+async function startServerFilesUpload(targetDir, entries) {
+  const agentId = state.selectedAgentId;
+  if (!agentId || !Array.isArray(entries) || entries.length === 0) return;
+  const accepted = await resolveServerFilesUploadConflicts(agentId, targetDir, entries);
+  if (!accepted || accepted.length === 0) return;
+
+  let batch = serverFilesUploads.get(agentId);
+  // A batch that was cancelled is only winding down: it takes nothing more.
+  if (batch && batch.cancelled) batch = null;
+  const joining = Boolean(batch);
+  if (!batch) {
+    batch = {
+      agentId,
+      baseDir: targetDir,
+      queue: [],
+      active: new Map(),
+      xhrs: new Set(),
+      total: 0,
+      finished: 0,
+      totalBytes: 0,
+      sentBytes: 0,
+      failures: [],
+      extracted: [],
+      arrived: [],
+      lastMessage: '',
+      cancelled: false,
+    };
+    serverFilesUploads.set(agentId, batch);
+  }
+  accepted.forEach((entry) => {
+    const name = entry.name || entry.file.name;
+    const size = Number(entry.file.size) || 0;
+    batch.queue.push({
+      file: entry.file,
+      name,
+      size,
+      dir: entry.relativeDir ? joinServerFilePath(targetDir, entry.relativeDir) : targetDir,
+      baseDir: targetDir,
+      top: serverFileUploadTopName(entry),
+      label: entry.relativeDir ? `${entry.relativeDir}/${name}` : name,
+      index: batch.total,
+    });
+    batch.total += 1;
+    batch.totalBytes += size;
+  });
+  renderServerFilesUploadStrip();
+  // The workers of a running batch pick the new files up.
+  if (!joining) await runServerFilesUploadBatch(batch);
+}
+
+async function uploadFilesToServerFiles(targetPath, files) {
+  await startServerFilesUpload(targetPath, Array.from(files || []).map((file) => ({ file, relativeDir: '' })));
 }
 
 async function uploadToServerFiles(targetPath) {
@@ -15397,10 +16950,17 @@ async function uploadToServerFiles(targetPath) {
 async function deleteSelectedServerFiles(paths, currentPath) {
   if (!Array.isArray(paths) || paths.length === 0) return;
 
-  const confirmed = await showConfirm({ title: t("Delete files"), message: tn(paths.length, "Delete {n} selected item? This can't be undone.", "Delete {n} selected items? This can't be undone."), confirmText: t("Delete"), danger: true });
+  // One item is named, and a folder says what goes with it.
+  const only = paths.length === 1
+    ? (state.serverFilesItems || []).find((item) => item.path === paths[0])
+    : null;
+  let message = tn(paths.length, "Delete {n} selected item? This can't be undone.", "Delete {n} selected items? This can't be undone.");
+  if (only && only.is_dir) message = t("Delete the folder {name} and everything in it? This can't be undone.", { name: only.name });
+  else if (only) message = t("Delete {name}? This can't be undone.", { name: only.name });
+  const confirmed = await showConfirm({ title: t("Delete files"), message, confirmText: t("Delete"), danger: true });
   if (!confirmed) return;
 
-  setToolPanel(t("Server Files"), `<div class="portal-inline-state">${tn(paths.length, "Deleting {n} item…", "Deleting {n} items…")}</div>`, "server-files");
+  setToolPanel(t("Server Files"), `<div class="portal-inline-state is-visible">${tn(paths.length, "Deleting {n} item…", "Deleting {n} items…")}</div>`, "server-files");
 
   try {
     const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
@@ -21592,16 +23152,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   const messageList = dom.messageList;
   let dragCounter = 0;
   if (messageList) {
+    // Files dropped on the conversation are attached to the next message;
+    // files dropped on the Server Files panel go to the workspace. Each side
+    // says which while a file is over it (the label is drawn by app.css).
+    messageList.dataset.dropLabel = t("Drop to attach to your message");
+    const carriesFiles = (e) => Array.from(e.dataTransfer?.types || []).includes("Files");
     messageList.addEventListener("dragenter", (e) => {
       e.preventDefault();
       e.stopPropagation();
       dragCounter++;
-      messageList.classList.add("drag-over");
+      if (carriesFiles(e)) messageList.classList.add("drag-over");
     });
     messageList.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      messageList.classList.add("drag-over");
+      if (carriesFiles(e)) messageList.classList.add("drag-over");
     });
     messageList.addEventListener("dragleave", (e) => {
       e.preventDefault();

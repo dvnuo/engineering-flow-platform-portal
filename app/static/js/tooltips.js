@@ -80,6 +80,9 @@
     ["#btn-sessions", t("Earlier conversations with this assistant")],
     ["#btn-context", t("How much of the model's context window this conversation is using")],
     ["#btn-files", t("Browse the files in this assistant's workspace")],
+    ["#server-files-panel .sf-upload-btn", t("Add files to this folder; a zip is unpacked. Files and folders can also be dropped on the panel.")],
+    ["#server-files-panel .sf-new-btn", t("Create an empty file or a folder here")],
+    ["[data-sf-row-menu]", t("Rename, move, download, copy the path, or delete")],
     ["#detail-toggle", t("Assistant status, configuration, and start/stop actions")],
     ["#header-add-allowlist-btn", t("Let more usernames register and sign in")],
 
