@@ -41,6 +41,11 @@ HELPERS = [
     "readServerFileEntries",
     "collectDroppedServerFiles",
     "serverFilesListingSignature",
+    "getSelectedFiles",
+    "handleServerFilesKeydown",
+    "serverFilesDropTarget",
+    "serverFilesPanelShows",
+    "reloadServerFilesInPlace",
 ]
 
 HARNESS = r"""
@@ -601,3 +606,180 @@ def test_loading_empty_and_progress_states_are_visible():
     assert "display: none" in base[:base.index("}")]
     shown = css[css.index(".portal-inline-state.is-visible {"):]
     assert "display: block" in shown[:shown.index("}")]
+
+
+def test_keys_on_the_list():
+    out = _run_case(
+        """
+        const log = { selection: 0, deleted: [], renamed: [], loaded: [], previewed: [] };
+        globalThis.updateServerFilesSelection = () => { log.selection += 1; };
+        globalThis.deleteSelectedServerFiles = (paths) => { log.deleted.push(paths); };
+        globalThis.startServerFileRename = (panel, row) => { log.renamed.push(row.dataset.path); };
+        globalThis.loadServerFiles = (path) => { log.loaded.push(path); };
+        globalThis.previewServerFile = (path) => { log.previewed.push(path); };
+        const mkRow = (path, isDir) => {
+          const row = {
+            dataset: { path, isDir: String(isDir) }, focused: 0, editing: false,
+            classList: { contains: (name) => name === "is-editing" && row.editing },
+            closest: (sel) => (sel === ".file-item" ? row : null),
+            focus() { row.focused += 1; },
+            querySelector: (sel) => (sel.startsWith(".file-checkbox") ? row.cb : null),
+          };
+          row.cb = { checked: false, dataset: { path }, closest: (sel) => (sel === ".file-item" ? row : null) };
+          return row;
+        };
+        const rows = [mkRow("/w/docs", true), mkRow("/w/a.txt", false), mkRow("/w/b.txt", false)];
+        const boxes = () => rows.map((row) => row.cb);
+        const panel = {
+          querySelectorAll(sel) {
+            if (sel === ".file-item") return rows;
+            if (sel === ".file-checkbox:not([disabled])") return boxes();
+            if (sel === ".file-checkbox:checked") return boxes().filter((cb) => cb.checked);
+            return [];
+          },
+        };
+        const press = (key, target, extra) => {
+          const event = Object.assign({ key, target, prevented: false, preventDefault() { this.prevented = true; }, stopPropagation() {} }, extra || {});
+          handleServerFilesKeydown(event, panel, "/w", "/w");
+          return event.prevented;
+        };
+
+        press("ArrowDown", rows[0]);
+        press("End", rows[0]);
+        press("ArrowUp", rows[0]);
+        out.focus = rows.map((row) => row.focused);
+
+        press("F2", rows[1]);
+        press("Enter", rows[0]);
+        press("Enter", rows[1]);
+        // Enter on a control inside the row is that control's.
+        press("Enter", rows[1].cb);
+        press(" ", rows[2]);
+        out.spaceTicked = rows[2].cb.checked;
+
+        // Delete takes the ticked rows; with none ticked, the row in focus.
+        press("Delete", rows[1]);
+        rows[2].cb.checked = false;
+        press("Delete", rows[1].cb);
+
+        out.escapeWithNothingTicked = press("Escape", rows[0]);
+        press("a", rows[0], { ctrlKey: true });
+        out.allTicked = boxes().every((cb) => cb.checked);
+        out.escapeWithTicks = press("Escape", rows[0]);
+        out.cleared = boxes().every((cb) => !cb.checked);
+
+        // A name being typed keeps its keys: nothing here answers them.
+        const typing = { closest: (sel) => (sel === ".portal-file-name-edit" ? {} : null) };
+        const before = JSON.stringify(log);
+        out.typingPrevented = [press("Delete", typing), press("F2", typing), press("a", typing, { ctrlKey: true })];
+        out.typingChangedNothing = JSON.stringify(log) === before;
+        // A row being renamed is left alone as well.
+        rows[1].editing = true;
+        press("F2", rows[1]);
+        out.log = log;
+        """
+    )
+
+    assert out["focus"] == [1, 1, 1]
+    assert out["spaceTicked"] is True
+    assert out["log"]["renamed"] == ["/w/a.txt"]
+    assert out["log"]["loaded"] == ["/w/docs"]
+    assert out["log"]["previewed"] == ["/w/a.txt"]
+    assert out["log"]["deleted"] == [["/w/b.txt"], ["/w/a.txt"]]
+    assert out["escapeWithNothingTicked"] is False
+    assert out["allTicked"] is True
+    assert out["escapeWithTicks"] is True
+    assert out["cleared"] is True
+    assert out["typingPrevented"] == [False, False, False]
+    assert out["typingChangedNothing"] is True
+
+
+def test_where_a_drop_lands():
+    out = _run_case(
+        """
+        globalThis.state = { serverFilesCurrentPath: "/workspace/docs" };
+        const folderRow = { dataset: { path: "/workspace/docs/reports" } };
+        const crumb = { dataset: { serverPath: "/workspace" } };
+        const over = (hits) => ({ closest: (sel) => hits[sel] || null });
+        const onFolder = over({ '.file-item[data-is-dir="true"]': folderRow });
+        const onCrumb = over({ ".portal-file-breadcrumb [data-server-path]": crumb });
+        const elsewhere = over({});
+        const path = (target) => (target ? target.path : null);
+        out.upload = [path(serverFilesDropTarget(onFolder, "upload")), path(serverFilesDropTarget(onCrumb, "upload")), path(serverFilesDropTarget(elsewhere, "upload")), path(serverFilesDropTarget(null, "upload"))];
+        // Rows are moved onto a folder or a crumb, never onto "the list".
+        out.move = [path(serverFilesDropTarget(onFolder, "move")), path(serverFilesDropTarget(onCrumb, "move")), path(serverFilesDropTarget(elsewhere, "move"))];
+        """
+    )
+
+    assert out["upload"] == ["/workspace/docs/reports", "/workspace", "/workspace/docs", "/workspace/docs"]
+    assert out["move"] == ["/workspace/docs/reports", "/workspace", None]
+
+
+def test_reload_in_place_redraws_only_a_list_that_is_on_screen():
+    out = _run_case(
+        """
+        const log = { loads: [], draws: [], listed: [] };
+        let panel = { id: "list" };
+        let fail = false;
+        let onList = null;
+        globalThis.state = { selectedAgentId: "agent-A", toolPanelOpen: true, activeUtilityPanel: "server-files", serverFilesCurrentPath: "/w/docs", serverFilesRevealNames: ["new.txt"] };
+        globalThis.document = { getElementById: () => panel };
+        globalThis.closeServerFilesMenu = () => {};
+        globalThis.loadServerFiles = async (path) => { log.loads.push(path); };
+        globalThis.serverFilesViewToKeep = () => ({ selected: ["/w/docs/a"], scrollTop: 40, focusPath: "/w/docs/a" });
+        globalThis.renderServerFilesListing = (data, path, keep) => { log.draws.push([path, keep]); };
+        globalThis.agentApiFor = async (agentId, path) => {
+          log.listed.push(path);
+          if (onList) onList();
+          if (fail) throw new Error("down");
+          return { items: [] };
+        };
+
+        // The list is on screen: read again and redrawn, keeping the view.
+        await reloadServerFilesInPlace("/w/docs");
+        out.redrawn = log.draws.slice();
+
+        // A file is being previewed (no list): nothing is loaded over it, and
+        // the names to point out are dropped rather than left for another folder.
+        panel = null;
+        await reloadServerFilesInPlace("/w/docs");
+        out.preview = [log.loads.length, log.listed.length, state.serverFilesRevealNames];
+
+        // The member went to another folder while the runtime answered.
+        panel = { id: "list" };
+        onList = () => { state.serverFilesCurrentPath = "/w/other"; };
+        await reloadServerFilesInPlace("/w/docs");
+        out.movedOn = log.draws.length;
+        onList = null;
+        state.serverFilesCurrentPath = "/w/docs";
+
+        // The runtime did not answer: the ordinary load says why.
+        fail = true;
+        await reloadServerFilesInPlace("/w/docs");
+        out.failed = log.loads.slice();
+        """
+    )
+
+    assert out["redrawn"] == [["/w/docs", {"selected": ["/w/docs/a"], "scrollTop": 40, "focusPath": "/w/docs/a"}]]
+    assert out["preview"] == [0, 1, []]
+    assert out["movedOn"] == 1
+    assert out["failed"] == ["/w/docs"]
+
+
+def test_a_row_being_renamed_cannot_be_dragged_and_a_quiet_refresh_keeps_the_reveal():
+    js = SRC.read_text(encoding="utf-8")
+    rename = _extract_js_function(js, "startServerFileRename")
+    # Dragging across the name selects text instead of dragging the row.
+    assert 'row.setAttribute("draggable", "false");' in rename
+    assert 'row.setAttribute("draggable", "true");' in rename
+
+    draw = _extract_js_function(js, "renderServerFilesListing")
+    # A refresh nobody asked for leaves the names to point out for the reload that set them.
+    assert "if (!quiet) state.serverFilesRevealNames = [];" in draw
+    assert "again.focus({ preventScroll: true });" in draw
+    refresh = _extract_js_function(js, "refreshServerFilesQuietly")
+    assert "{ ...serverFilesViewToKeep(panel), quiet: true }" in refresh
+
+    # A menu drawn above the page goes with the panel however it is closed.
+    assert "closeServerFilesMenu(false);" in _extract_js_function(js, "closeToolPanel")
+

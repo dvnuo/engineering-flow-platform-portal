@@ -474,6 +474,25 @@ def test_a_second_drop_joins_the_batch_that_is_running():
     assert out["toasts"] == [["Uploaded 3 files", ""]]
 
 
+def test_a_name_still_on_its_way_counts_as_taken():
+    out = _run_case(
+        """
+        answers = [ok("report.pdf"), ok("report (1).pdf")];
+        delays = [300, 5];
+        choice = "keep";
+        uploadFilesToServerFiles("/workspace/docs", [{ name: "report.pdf" }]);
+        await new Promise((r) => setTimeout(r, 10));
+        // The folder listing does not have it yet; the batch does.
+        uploadFilesToServerFiles("/workspace/docs", [{ name: "report.pdf" }]);
+        await settle();
+        """
+    )
+
+    assert out["asked"] == [["1 name is already taken", "Already in /workspace/docs: report.pdf", ["replace", "keep"], ["keep"]]]
+    assert [r[2][1][1] for r in out["requests"]] == ["report.pdf", "report (1).pdf"]
+    assert out["toasts"] == [["Uploaded 2 files", ""]]
+
+
 def test_conflict_helpers():
     out = _run_case(
         """

@@ -12606,6 +12606,8 @@ function setToolPanel(title, contentHtml, panelKey = null, { persistPreference =
 }
 
 function closeToolPanel() {
+  // A Server Files menu is drawn above the page and would outlive the panel.
+  if (typeof closeServerFilesMenu === "function") closeServerFilesMenu(false);
   state.detailOpen = false;
   state.activeUtilityPanel = null;
   state.toolPanelOpen = false;
@@ -15101,8 +15103,25 @@ function serverFilesSortLabel(by) {
   return t("Name");
 }
 
-// Draws a listing the runtime answered with. `keep` carries what a redraw of
-// the same folder must not lose: the ticked rows and the scroll position.
+// What a redraw of the folder on screen must not lose: the ticked rows, the
+// scroll position, and the row the keyboard is on.
+function serverFilesViewToKeep(panel) {
+  const list = panel.querySelector('.portal-file-list');
+  const active = document.activeElement;
+  const focused = active && panel.contains(active) && typeof active.closest === 'function'
+    ? active.closest('.file-item')
+    : null;
+  return {
+    selected: getSelectedFiles(panel),
+    scrollTop: list ? list.scrollTop : 0,
+    focusPath: focused ? (focused.dataset.path || '') : '',
+  };
+}
+
+// Draws a listing the runtime answered with. `keep` (serverFilesViewToKeep)
+// carries what a redraw of the same folder must not lose; `keep.quiet` marks
+// a refresh nobody asked for, which leaves the names to point out for the
+// reload that set them.
 function renderServerFilesListing(data, requestedPath, keep) {
   const listing = (data && typeof data === 'object') ? data : {};
   const sortBy = getServerFilesSort();
@@ -15115,8 +15134,9 @@ function renderServerFilesListing(data, requestedPath, keep) {
   state.serverFilesCurrentPath = currentPath || rootPath || '';
   state.serverFilesItems = items;
   state.serverFilesListing = listing;
-  const revealNames = Array.isArray(state.serverFilesRevealNames) ? state.serverFilesRevealNames : [];
-  state.serverFilesRevealNames = [];
+  const quiet = Boolean(keep && keep.quiet);
+  const revealNames = (!quiet && Array.isArray(state.serverFilesRevealNames)) ? state.serverFilesRevealNames : [];
+  if (!quiet) state.serverFilesRevealNames = [];
 
   const breadcrumb = buildServerFilesBreadcrumb(currentPath, rootPath);
 
@@ -15283,6 +15303,7 @@ function renderServerFilesListing(data, requestedPath, keep) {
     const pick = (by) => () => {
       setServerFilesSort(by);
       renderServerFilesListing(state.serverFilesListing, currentPath, { selected: getSelectedFiles(panel) });
+      document.querySelector('#server-files-panel .sf-sort-btn')?.focus();
     };
     toggleServerFilesMenu(panel, e.currentTarget, ["name", "modified", "size"].map((by) => (
       { label: serverFilesSortLabel(by), checked: by === sortBy, run: pick(by) }
@@ -15346,6 +15367,10 @@ function renderServerFilesListing(data, requestedPath, keep) {
   updateServerFilesSelection(panel);
   const list = panel.querySelector('.portal-file-list');
   if (list && keep && Number.isFinite(keep.scrollTop)) list.scrollTop = keep.scrollTop;
+  if (keep && keep.focusPath) {
+    const again = Array.from(panel.querySelectorAll('.file-item')).find((row) => row.dataset.path === keep.focusPath);
+    if (again) again.focus({ preventScroll: true });
+  }
   if (revealNames.length > 0) revealServerFileRows(panel, revealNames);
   renderServerFilesUploadStrip();
 }
@@ -15465,17 +15490,21 @@ async function refreshServerFilesQuietly() {
   if (document.getElementById('server-files-panel') !== panel) return;
   if (!serverFilesPanelShows(agentId) || state.serverFilesCurrentPath !== path || serverFilesMemberIsBusy(panel)) return;
   if (serverFilesListingSignature(data) === serverFilesListingSignature(state.serverFilesListing)) return;
-  const list = panel.querySelector('.portal-file-list');
-  renderServerFilesListing(data, path, { selected: getSelectedFiles(panel), scrollTop: list ? list.scrollTop : 0 });
+  renderServerFilesListing(data, path, { ...serverFilesViewToKeep(panel), quiet: true });
 }
 
 // After something the member did changed the folder: it is read again and
 // redrawn where it stands, with no "Loading" line in between and the ticked
-// rows and the scroll position kept. Without a list on screen to redraw, or
-// when the runtime does not answer, this is an ordinary load.
+// rows, the scroll position and the keyboard's row kept. With no list on
+// screen there is nothing to redraw: a file being previewed, or a folder
+// still loading, is not replaced because an upload happened to finish.
 async function reloadServerFilesInPlace(path) {
   const agentId = state.selectedAgentId;
-  if (!path || !document.getElementById('server-files-panel')) {
+  if (!document.getElementById('server-files-panel')) {
+    state.serverFilesRevealNames = [];
+    return;
+  }
+  if (!path) {
     await loadServerFiles(path);
     return;
   }
@@ -15484,14 +15513,14 @@ async function reloadServerFilesInPlace(path) {
   try {
     data = await agentApiFor(agentId, `/api/server-files?path=${encodeURIComponent(path)}`);
   } catch (_error) {
-    if (serverFilesPanelShows(agentId)) await loadServerFiles(path);
+    // The list on screen is out of date and cannot be read again: say why.
+    if (serverFilesPanelShows(agentId) && document.getElementById('server-files-panel')) await loadServerFiles(path);
     return;
   }
   // The member may have gone to another folder, or away, while it answered.
   const panel = document.getElementById('server-files-panel');
   if (!panel || !serverFilesPanelShows(agentId) || state.serverFilesCurrentPath !== path) return;
-  const list = panel.querySelector('.portal-file-list');
-  renderServerFilesListing(data, path, { selected: getSelectedFiles(panel), scrollTop: list ? list.scrollTop : 0 });
+  renderServerFilesListing(data, path, serverFilesViewToKeep(panel));
 }
 
 function scheduleServerFilesRefresh(delayMs) {
@@ -16038,6 +16067,8 @@ function startServerFileRename(panel, row, currentPath) {
   nameEl.classList.add("hidden");
   cell.appendChild(edit);
   row.classList.add("is-editing");
+  // Otherwise dragging across the name would drag the row, not select text.
+  row.setAttribute("draggable", "false");
 
   const agentId = state.selectedAgentId;
   const input = edit.querySelector("input");
@@ -16049,6 +16080,7 @@ function startServerFileRename(panel, row, currentPath) {
       edit.remove();
       nameEl.classList.remove("hidden");
       row.classList.remove("is-editing");
+      row.setAttribute("draggable", "true");
     },
     save: async (name) => {
       const result = await serverFilesPost(agentId, "move", { source: path, destination: joinServerFilePath(currentPath, name) });
@@ -16281,6 +16313,12 @@ function bindServerFilesDropZone() {
   });
   zone.addEventListener("dragenter", over);
   zone.addEventListener("dragover", over);
+  // A drag can end without a leave or a drop reaching the panel (another
+  // window took it). The browser sends no pointer moves while something is
+  // dragged, so one arriving means the marks are stale.
+  zone.addEventListener("pointermove", () => {
+    if (serverFilesDropShown && !serverFilesDrag) clearServerFilesDrop();
+  });
   zone.addEventListener("dragleave", (event) => {
     // Leaving one row for the next is not leaving the panel. Not every
     // browser names the element entered, so the pointer's position decides.
@@ -16666,6 +16704,16 @@ async function resolveServerFilesUploadConflicts(agentId, targetDir, entries) {
     } catch (_error) {
       existingNames = [];
     }
+  }
+  // What a batch already under way is putting into this folder is as good
+  // as there: a second drop of the same name must not replace the first.
+  const running = serverFilesUploads.get(agentId);
+  if (running && !running.cancelled) {
+    const here = trimServerFilePath(targetDir);
+    const pending = running.queue.concat(Array.from(running.active.keys()));
+    pending.forEach((job) => {
+      if (trimServerFilePath(job.baseDir) === here && !existingNames.includes(job.top)) existingNames.push(job.top);
+    });
   }
   const clashes = serverFilesUploadConflicts(entries, existingNames);
   if (clashes.length === 0) return entries;
