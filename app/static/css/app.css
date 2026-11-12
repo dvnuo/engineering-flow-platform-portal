@@ -2072,6 +2072,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
+  /* The rows drop their time, then their size, as the panel narrows. */
+  container-type: inline-size;
 }
 
 .portal-file-toolbar,
@@ -2086,6 +2088,9 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   overscroll-behavior: contain;
   /* A grid of a fixed height would stretch a few rows to fill it. */
   align-content: start;
+  /* One column no wider than the list: a long name is cut short with an
+     ellipsis instead of widening every row and scrolling the list sideways. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .portal-file-toolbar {
@@ -2100,7 +2105,7 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-file-toolbar-actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
 .portal-file-breadcrumb {
@@ -2117,6 +2122,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   display: flex;
   align-items: center;
   gap: 8px;
+  /* The height of the selection buttons, so ticking a row moves nothing. */
+  min-height: 26px;
   font-size: 12px;
   color: var(--portal-text-muted);
 }
@@ -2161,6 +2168,453 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   white-space: nowrap;
   font-size: 13px;
   color: var(--portal-text);
+}
+
+/* Server Files operations. The toolbar keeps two buttons (Upload, New); what
+   acts on ticked rows shows in the "Select all" line only while rows are
+   ticked; what acts on one row is in its menu. */
+.portal-file-selection-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.portal-file-selection-btn {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.portal-file-selection-btn:hover,
+.portal-file-selection-btn:focus-visible {
+  background: var(--portal-surface-soft);
+  color: var(--portal-text);
+}
+
+.portal-file-selection-btn.is-danger {
+  color: var(--portal-danger);
+}
+
+.portal-file-row.is-selected {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%);
+  background: var(--portal-accent-soft);
+}
+
+.portal-file-meta {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--portal-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fixed widths, so sizes and times line up down the list. */
+.portal-file-size {
+  min-width: 52px;
+  text-align: right;
+}
+
+.portal-file-modified {
+  min-width: 82px;
+  text-align: right;
+}
+
+/* The menu button shows with the pointer or the keyboard on its row, and
+   stays while its menu is open; a touch screen has no hover, so it always
+   shows there. The negative margin keeps the row at its old height. */
+.portal-file-row-menu-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--portal-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.portal-file-row:hover .portal-file-row-menu-button,
+.portal-file-row:focus-within .portal-file-row-menu-button,
+.portal-file-row-menu-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.portal-file-row-menu-button:hover,
+.portal-file-row-menu-button:focus-visible,
+.portal-file-row-menu-button[aria-expanded="true"] {
+  border-color: var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text);
+}
+
+.portal-file-row-menu-button:disabled {
+  visibility: hidden;
+}
+
+@media (hover: none) {
+  .portal-file-row-menu-button {
+    opacity: 1;
+  }
+}
+
+/* A narrow panel keeps the name: the time goes first, then the size. */
+@container (max-width: 400px) {
+  .portal-file-modified {
+    display: none;
+  }
+}
+
+@container (max-width: 300px) {
+  .portal-file-meta {
+    display: none;
+  }
+}
+
+/* One popover for the New button and every row, in the top layer so the
+   scrolling list never clips it; chat_ui.js fills and places it. */
+.portal-file-menu {
+  display: none;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--portal-border);
+  border-radius: 10px;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  box-shadow: var(--portal-shadow-lg);
+}
+
+.portal-file-menu:popover-open {
+  display: grid;
+  gap: 2px;
+}
+
+/* A browser without popovers: the same menu, raised by hand. */
+.portal-file-menu.is-open {
+  display: grid;
+  gap: 2px;
+  z-index: 1300;
+}
+
+.portal-file-menu > button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.portal-file-menu > button:hover,
+.portal-file-menu > button:focus-visible {
+  outline: none;
+  background: var(--portal-surface-soft);
+}
+
+.portal-file-menu > button.is-danger {
+  color: var(--portal-danger);
+}
+
+/* Naming in place: a new file or folder, or a rename. */
+.portal-file-row.is-editing .portal-file-name-cell {
+  align-items: flex-start;
+  cursor: default;
+}
+
+.portal-file-row.is-editing .portal-file-meta,
+.portal-file-row.is-editing .portal-file-row-menu-button {
+  display: none;
+}
+
+.portal-file-checkbox-spacer {
+  flex: 0 0 16px;
+  width: 16px;
+}
+
+.portal-file-name-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.portal-file-name-input {
+  width: 100%;
+  height: 28px;
+  margin: -5px 0;
+  padding: 0 8px;
+  border: 1px solid var(--portal-accent);
+  border-radius: 8px;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  font-size: 13px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--portal-accent-soft);
+}
+
+.portal-file-name-input[aria-invalid="true"] {
+  border-color: var(--portal-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-danger) 16%, transparent);
+}
+
+.portal-file-name-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--portal-danger);
+}
+
+/* The row just created or renamed is marked for a moment. */
+@keyframes portal-file-reveal {
+  from {
+    border-color: var(--portal-accent);
+    background: var(--portal-accent-soft);
+  }
+}
+
+.portal-file-row.is-revealed {
+  animation: portal-file-reveal 1.8s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-file-row.is-revealed {
+    animation: none;
+  }
+}
+
+/* Files dragged over the panel land in the folder on screen. */
+.portal-file-browser.is-drop-target .portal-file-list {
+  border-radius: 14px;
+  outline: 2px dashed var(--portal-accent);
+  outline-offset: -2px;
+  background: var(--portal-accent-soft);
+}
+
+/* The sort choice sits at the right of the "Select all" line and gives way
+   to the selection buttons while rows are ticked. */
+.portal-file-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.portal-file-sort-btn:hover,
+.portal-file-sort-btn:focus-visible,
+.portal-file-sort-btn[aria-expanded="true"] {
+  border-color: var(--portal-border);
+  background: var(--portal-surface-soft);
+  color: var(--portal-text);
+}
+
+/* The sort in use is ticked in its menu. */
+.portal-file-menu > button[aria-checked] {
+  padding-left: 28px;
+  position: relative;
+}
+
+.portal-file-menu > button[aria-checked="true"]::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 5px;
+  height: 9px;
+  margin-top: -7px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* The row the keyboard is on. */
+.portal-file-row:focus {
+  outline: none;
+}
+
+.portal-file-row:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 1px;
+}
+
+/* Dragging. Rows being moved fade; the folder or path crumb a drop would
+   land in is marked; a label at the foot of the panel says where that is. */
+.portal-file-row.is-moving {
+  opacity: 0.5;
+}
+
+.portal-file-row.is-drop-into {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+  box-shadow: 0 0 0 2px var(--portal-accent-soft);
+}
+
+.portal-breadcrumb-link.is-drop-into {
+  border-radius: 6px;
+  background: var(--portal-accent-soft);
+  box-shadow: 0 0 0 4px var(--portal-accent-soft);
+}
+
+.portal-file-drop-label {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 5;
+  max-width: calc(100% - 48px);
+  padding: 8px 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--portal-text);
+  color: var(--portal-surface);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: var(--portal-shadow-lg);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Uploading: the list stays; a strip at the foot of the panel shows how far
+   the batch is and can stop it. */
+.portal-file-upload-strip {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: 14px;
+  background: var(--portal-surface-muted);
+}
+
+.portal-file-upload-text {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--portal-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-file-upload-track {
+  grid-column: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--portal-border);
+}
+
+.portal-file-upload-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--portal-accent);
+  transition: width 160ms linear;
+}
+
+.portal-file-upload-strip .sf-upload-cancel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/* A name that is already taken: Skip, Replace or Keep both. */
+.portal-dialog-card.portal-file-choice-dialog {
+  width: min(480px, calc(100vw - 2rem));
+}
+
+.portal-file-choice-dialog .portal-dialog-msg {
+  overflow-wrap: anywhere;
+}
+
+/* Files over the conversation are attached to the message, not uploaded to
+   the workspace: say so, just above the composer. */
+.portal-message-list.drag-over::after {
+  content: attr(data-drop-label);
+  position: sticky;
+  bottom: calc(var(--portal-composer-height, 200px) + 16px);
+  z-index: 6;
+  align-self: center;
+  margin-top: auto;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--portal-text);
+  color: var(--portal-surface);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: var(--portal-shadow-lg);
+  pointer-events: none;
+}
+
+/* Move: a folder picker in a dialog. Two classes, to outrank the dialog
+   card's own width further down this file. */
+.portal-dialog-card.portal-file-move-dialog {
+  width: min(480px, calc(100vw - 2rem));
+}
+
+.portal-file-move-path {
+  margin: 14px 0 8px;
+}
+
+.portal-file-move-list {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  height: min(280px, 40vh);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  background: var(--portal-surface-muted);
+}
+
+.portal-file-move-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--portal-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.portal-file-move-row:hover,
+.portal-file-move-row:focus-visible {
+  outline: none;
+  background: var(--portal-surface-soft);
 }
 
 .portal-file-preview-header {
