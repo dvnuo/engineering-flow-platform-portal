@@ -358,7 +358,7 @@
       window.setPortalAdminPanel(button.dataset.adminPanel);
     }
 
-    target.innerHTML = `<div class="portal-inline-state">${esc(t("Loading…"))}</div>`;
+    target.innerHTML = `<div class="portal-inline-state is-visible">${esc(t("Loading…"))}</div>`;
     try {
       await window.htmx.ajax("GET", url, { target: "#workspace-detail-content", swap: "innerHTML" });
       target.dataset.workspaceState = `admin-${button.dataset.adminPanel}`;

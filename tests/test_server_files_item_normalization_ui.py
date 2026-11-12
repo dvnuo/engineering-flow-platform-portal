@@ -79,6 +79,9 @@ def test_normalize_server_file_item_handles_missing_path_without_throwing():
 def test_server_files_download_delete_contract_not_regressed():
     source = _chat_ui_source()
     assert "url.searchParams.append('paths'" in source or 'url.searchParams.append("paths"' in source
-    assert "JSON.stringify({ paths })" in source
+    # Delete posts { paths: [...] } through the panel's one file-management
+    # call (the request itself is driven in test_server_files_edit_undo_node).
+    assert 'serverFilesPost(agentId, "delete", { paths })' in _extract_js_function(source, "deleteSelectedServerFiles")
+    assert "body: JSON.stringify(body)," in _extract_js_function(source, "serverFilesPost")
     assert "append('path'" not in _extract_js_function(source, "downloadSelectedFiles")
     assert "paths.join(',')" not in source

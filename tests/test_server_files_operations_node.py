@@ -34,6 +34,7 @@ HELPERS = [
     "parseRuntimeErrorResponse",
     "serverFilesPost",
     "moveServerFilesTo",
+    "summarizeServerFileFailures",
     "describeServerFilesMove",
     "bindServerFileNameEditor",
     "serverFilesDragKind",
@@ -46,9 +47,11 @@ HELPERS = [
     "serverFilesDropTarget",
     "serverFilesPanelShows",
     "reloadServerFilesInPlace",
+    "carryServerFileDrafts",
 ]
 
 HARNESS = r"""
+const serverFileDrafts = new Map();
 const SERVER_FILES_UPLOAD_FAILURES_SHOWN = 5;
 const SERVER_FILES_DRAG_TYPE = "application/x-efp-server-files";
 const SERVER_FILES_DROP_LIMIT = 5;
@@ -347,6 +350,11 @@ def test_move_sends_one_request_per_item_and_keeps_going_past_a_failure():
     assert out["outcome"] == {
         "moved": 2,
         "failures": [{"name": "reports", "error": "Something with that name already exists"}],
+        # What did move, which is what taking the move back needs.
+        "done": [
+            {"from": "/workspace/docs/a.txt", "to": "/workspace/archive/a.txt"},
+            {"from": "/workspace/docs/c.md", "to": "/workspace/archive/c.md"},
+        ],
     }
     assert out["toast"] == "Moved 2 of 3 items. Failed: reports: Something with that name already exists"
     assert out["allMoved"] == "Moved 2 items to /workspace/archive"
@@ -611,7 +619,9 @@ def test_loading_empty_and_progress_states_are_visible():
 def test_keys_on_the_list():
     out = _run_case(
         """
-        const log = { selection: 0, deleted: [], renamed: [], loaded: [], previewed: [] };
+        const log = { selection: 0, deleted: [], renamed: [], loaded: [], previewed: [], undone: 0 };
+        let undoable = false;
+        globalThis.runServerFilesUndo = () => { if (undoable) log.undone += 1; return undoable; };
         globalThis.updateServerFilesSelection = () => { log.selection += 1; };
         globalThis.deleteSelectedServerFiles = (paths) => { log.deleted.push(paths); };
         globalThis.startServerFileRename = (panel, row) => { log.renamed.push(row.dataset.path); };
@@ -668,10 +678,16 @@ def test_keys_on_the_list():
         out.escapeWithTicks = press("Escape", rows[0]);
         out.cleared = boxes().every((cb) => !cb.checked);
 
+        // Ctrl/Cmd+Z takes back a move or a rename, and is left to the browser
+        // when there is nothing to take back.
+        out.undoNothing = press("z", rows[0], { ctrlKey: true });
+        undoable = true;
+        out.undo = [press("z", rows[0], { ctrlKey: true }), press("Z", rows[0], { metaKey: true }), press("z", rows[0], { ctrlKey: true, shiftKey: true })];
+
         // A name being typed keeps its keys: nothing here answers them.
         const typing = { closest: (sel) => (sel === ".portal-file-name-edit" ? {} : null) };
         const before = JSON.stringify(log);
-        out.typingPrevented = [press("Delete", typing), press("F2", typing), press("a", typing, { ctrlKey: true })];
+        out.typingPrevented = [press("Delete", typing), press("F2", typing), press("a", typing, { ctrlKey: true }), press("z", typing, { ctrlKey: true })];
         out.typingChangedNothing = JSON.stringify(log) === before;
         // A row being renamed is left alone as well.
         rows[1].editing = true;
@@ -690,7 +706,10 @@ def test_keys_on_the_list():
     assert out["allTicked"] is True
     assert out["escapeWithTicks"] is True
     assert out["cleared"] is True
-    assert out["typingPrevented"] == [False, False, False]
+    assert out["undoNothing"] is False
+    assert out["undo"] == [True, True, False]
+    assert out["log"]["undone"] == 2
+    assert out["typingPrevented"] == [False, False, False, False]
     assert out["typingChangedNothing"] is True
 
 

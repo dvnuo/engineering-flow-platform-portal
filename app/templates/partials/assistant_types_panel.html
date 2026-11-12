@@ -52,7 +52,7 @@
     <span class="portal-panel-subtitle">{{ tn(assistant_types|length, "{n} type", "{n} types") }}</span>
   </div>
 
-  <div class="portal-inline-state">
+  <div class="portal-inline-state is-visible">
     {% set agent_repo_html %}<strong>{{ default_agent_settings_repo_url or t("the configured default repository") }}</strong>{% endset %}
     {% set skill_repo_html %}<strong>{{ default_skill_repo_url or t("the configured default repository") }}</strong>{% endset %}
     {{ t("Behavior packs come from {agent_repo}, skill packs from {skill_repo}.", agent_repo=agent_repo_html, skill_repo=skill_repo_html)|safe }}

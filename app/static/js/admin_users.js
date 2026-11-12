@@ -474,7 +474,7 @@
     detail.setAttribute("data-member-detail-for", memberId);
     var cell = document.createElement("td");
     cell.colSpan = row.children.length;
-    cell.innerHTML = '<div class="portal-inline-state" data-member-usage-target>' + t("Loading…") + "</div>";
+    cell.innerHTML = '<div class="portal-inline-state is-visible" data-member-usage-target>' + t("Loading…") + "</div>";
     detail.appendChild(cell);
     row.insertAdjacentElement("afterend", detail);
     button.setAttribute("aria-expanded", "true");
