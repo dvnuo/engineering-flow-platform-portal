@@ -2704,10 +2704,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   outline-offset: 1px;
 }
 
-.portal-file-editor-text[readonly] {
-  opacity: 0.7;
-}
-
 .portal-preview-image-wrap {
   display: flex;
   justify-content: center;

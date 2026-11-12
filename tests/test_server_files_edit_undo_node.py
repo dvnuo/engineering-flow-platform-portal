@@ -27,12 +27,13 @@ FUNCTIONS = [
     "trimServerFilePath",
     "serverFileBaseName",
     "joinServerFilePath",
-    "serverFileParentPath",
+    "workspaceFileDirectory",
     "describeServerFileError",
     "parseRuntimeErrorResponse",
     "serverFilesPanelShows",
     "serverFilesPost",
     "moveServerFilesTo",
+    "summarizeServerFileFailures",
     "describeServerFilesMove",
     "undoServerFilesMoves",
     "showServerFilesChangeToast",
@@ -304,9 +305,15 @@ def test_reading_a_file_reports_gone_apart_from_other_failures():
           [403, { success: false, error: "path outside workspace" }],
           [200, { success: false, error: "not_found" }],
           "network",
+          // A 404 of the Portal's own: the assistant, not the file, is missing.
+          [404, { detail: "Agent not found" }],
+          // No text in the answer: a failure, never an empty file to save over.
+          [200, { error: "boom" }],
+          [200, { success: true }],
+          [200, textAnswer("", { is_binary: true })[1]],
         ];
         out.results = [];
-        for (let i = 0; i < 5; i += 1) out.results.push(await readServerFileText("agent-A", "/workspace/docs/a b.md"));
+        for (let i = 0; i < 9; i += 1) out.results.push(await readServerFileText("agent-A", "/workspace/docs/a b.md"));
         """
     )
 
@@ -316,6 +323,10 @@ def test_reading_a_file_reports_gone_apart_from_other_failures():
     assert out["results"][2] == {"ok": False, "gone": False, "error": "path outside workspace"}
     assert out["results"][3] == {"ok": False, "gone": False, "error": "It is no longer there. Reload the folder."}
     assert out["results"][4] == {"ok": False, "gone": False, "error": "Failed to fetch"}
+    assert out["results"][5] == {"ok": False, "gone": False, "error": "Agent not found"}
+    assert out["results"][6] == {"ok": False, "gone": False, "error": "boom"}
+    assert out["results"][7] == {"ok": False, "gone": False, "error": "Request failed"}
+    assert out["results"][8]["ok"] is True and out["results"][8]["read"]["is_binary"] is True
 
 
 def test_a_save_goes_through_the_upload_call_under_the_file_s_own_name():
@@ -337,7 +348,8 @@ def test_a_save_goes_through_the_upload_call_under_the_file_s_own_name():
         ["agent-A", "/workspace", "top.txt", "x", [120]],
         ["agent-A", "/workspace", "top.txt", "x", [120]],
     ]
-    # A file over the cap is refused before it is sent.
+    # Each goes to the folder its file is in. A file over the cap is refused
+    # before it is sent.
     assert out["results"] == ["", "disk full", "Upload failed", "Larger than the 50 MB limit"]
 
 
@@ -465,6 +477,15 @@ def test_a_file_changed_in_the_meantime_is_not_replaced_without_asking():
         confirmAnswers = [true];
         await editorOf().save.fire("click");
         out.recreated = out.uploads.length;
+
+        // It grew past what the runtime reads: the part that came back is
+        // the same, which says nothing about the rest.
+        openServerFileEditor(viewOf("one"), null);
+        type("mine");
+        answers = [textAnswer("one", { truncated: true })];
+        confirmAnswers = [false];
+        await editorOf().save.fire("click");
+        out.afterCut = out.uploads.length;
         """
     )
 
@@ -477,8 +498,9 @@ def test_a_file_changed_in_the_meantime_is_not_replaced_without_asking():
         False,
     ]
     gone = ["The file is gone", "plan.md is no longer there. Save your text as a new file?", "Save my text", False]
-    assert out["confirms"] == [changed, changed, changed, gone]
+    assert out["confirms"] == [changed, changed, changed, gone, changed]
     assert out["recreated"] == 2
+    assert out["afterCut"] == 2
 
 
 def test_a_save_that_fails_keeps_the_text_and_says_why():
@@ -716,8 +738,27 @@ def test_a_text_file_offers_edit_and_anything_else_a_download_with_the_reason():
         out.missing = await show([404, { success: false, error: "not_found" }]);
         out.missingText = screen.html.includes("Unable to preview this file: It is no longer there. Reload the folder.");
 
+        // A picture is shown as one, without asking for its text...
+        const requestsBefore = out.requests.length;
+        await previewServerFile("/workspace/docs/logo.svg", "/workspace/docs", "/workspace");
+        out.picture = [screen.html.includes("<img "), Boolean(screen.editor), out.requests.length - requestsBefore];
+        // ...but one just made with "New file" is opened for its text.
+        answers = [textAnswer("")];
+        await previewServerFile("/workspace/docs/logo.svg", "/workspace/docs", "/workspace", { edit: true });
+        out.newPicture = [screen.title, Boolean(screen.editor), screen.html.includes("<img ")];
+
+        // Two files opened one after the other: the second is the one shown,
+        // and the first one's answer is dropped when it comes.
+        let panelsBefore = out.panels.length;
+        answers = [textAnswer("first"), textAnswer("second")];
+        const first = previewServerFile("/workspace/docs/a.md", "/workspace/docs", "/workspace");
+        const second = previewServerFile("/workspace/docs/b.md", "/workspace/docs", "/workspace");
+        await first;
+        await second;
+        out.lastOpened = [out.panels.length - panelsBefore, screen.title];
+
         // The member went to another panel while the runtime answered.
-        const panelsBefore = out.panels.length;
+        panelsBefore = out.panels.length;
         onFetch = () => { state.activeUtilityPanel = "sessions"; };
         answers = [textAnswer("late")];
         await previewServerFile("/workspace/docs/plan.md", "/workspace/docs", "/workspace");
@@ -741,7 +782,13 @@ def test_a_text_file_offers_edit_and_anything_else_a_download_with_the_reason():
     assert out["freshBinary"]["editor"] is False and out["freshBinary"]["download"] is True
     # With the path above the reason, so there is a way back to the folder.
     assert out["missing"]["path"] is True and out["missingText"] is True
+    assert out["picture"] == [True, False, 0]
+    assert out["newPicture"] == ["File: logo.svg", True, False]
+    assert out["lastOpened"] == [1, "File: b.md"]
     assert out["late"] == 0
+    # Opening a folder also makes a file still being read stale.
+    load = _extract_js_function(SRC.read_text(encoding="utf-8"), "loadServerFiles")
+    assert "state.serverFilesViewSeq = (state.serverFilesViewSeq || 0) + 1;" in load
 
 
 def test_a_file_named_with_enter_is_opened_and_one_named_by_a_click_elsewhere_is_not():

@@ -15061,6 +15061,8 @@ function normalizeServerFileItem(item) {
 }
 
 async function loadServerFiles(path) {
+  // A file still being read for its preview is no longer what was asked for.
+  state.serverFilesViewSeq = (state.serverFilesViewSeq || 0) + 1;
   // A menu belongs to the rows it was opened on.
   closeServerFilesMenu(false);
   bindServerFilesPanelOnce();
@@ -15807,13 +15809,6 @@ async function moveServerFilesTo(agentId, paths, destinationDir) {
 // has gone, so a Ctrl+Z long afterwards moves nothing.
 let serverFilesUndo = null; // { toast, run, agentId }
 
-function serverFileParentPath(path) {
-  const text = trimServerFilePath(path);
-  const cut = text.lastIndexOf("/");
-  if (cut < 0) return "";
-  return cut === 0 ? "/" : text.slice(0, cut);
-}
-
 // Puts back what `done` ({ from, to } pairs) moved. `doneMessage` is the
 // toast when everything went back.
 async function undoServerFilesMoves(agentId, done, doneMessage) {
@@ -15822,20 +15817,18 @@ async function undoServerFilesMoves(agentId, done, doneMessage) {
   for (const step of done) {
     const result = await serverFilesPost(agentId, "move", { source: step.to, destination: step.from });
     if (result.ok) back.push(step.from);
-    else failures.push(`${serverFileBaseName(step.to)}: ${result.error}`);
+    else failures.push({ name: serverFileBaseName(step.to), error: result.error });
   }
   if (failures.length === 0) {
     showToast(doneMessage);
   } else {
-    const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN);
-    if (failures.length > shown.length) shown.push(t("and {n} more", { n: failures.length - shown.length }));
-    showToast(t("Could not undo: {details}", { details: shown.join('; ') }), { variant: 'error' });
+    showToast(t("Could not undo: {details}", { details: summarizeServerFileFailures(failures) }), { variant: 'error' });
   }
   if (!serverFilesPanelShows(agentId)) return;
   const current = state.serverFilesCurrentPath || '';
   // What came back into the folder on screen is pointed out.
   state.serverFilesRevealNames = back
-    .filter((path) => serverFileParentPath(path) === trimServerFilePath(current))
+    .filter((path) => workspaceFileDirectory(path) === trimServerFilePath(current))
     .map(serverFileBaseName);
   reloadServerFilesInPlace(current);
 }
@@ -15872,15 +15865,21 @@ function runServerFilesUndo() {
   return true;
 }
 
+// Failures ({ name, error }) as one line for a toast: the first few, then
+// how many more there are.
+function summarizeServerFileFailures(failures) {
+  const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
+  const hidden = failures.length - shown.length;
+  if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
+  return shown.join('; ');
+}
+
 // Plain text for the toast after a move.
 function describeServerFilesMove(outcome, total, target) {
   if (outcome.failures.length === 0) {
     return tn(total, "Moved {n} item to {target}", "Moved {n} items to {target}", { target });
   }
-  const shown = outcome.failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
-  const hidden = outcome.failures.length - shown.length;
-  if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
-  return t("Moved {done} of {total} items. Failed: {details}", { done: outcome.moved, total, details: shown.join('; ') });
+  return t("Moved {done} of {total} items. Failed: {details}", { done: outcome.moved, total, details: summarizeServerFileFailures(outcome.failures) });
 }
 
 // ----- menus ------------------------------------------------------------------
@@ -16984,10 +16983,7 @@ function describeServerFilesUploadOutcome(batch) {
   if (failures.length === 0) {
     summary.push(tn(uploaded, "Uploaded {n} file", "Uploaded {n} files"));
   } else {
-    const shown = failures.slice(0, SERVER_FILES_UPLOAD_FAILURES_SHOWN).map((f) => `${f.name}: ${f.error}`);
-    const hidden = failures.length - shown.length;
-    if (hidden > 0) shown.push(t("and {n} more", { n: hidden }));
-    summary.push(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: batch.total, details: shown.join('; ') }));
+    summary.push(t("Uploaded {done} of {total} files. Failed: {details}", { done: uploaded, total: batch.total, details: summarizeServerFileFailures(failures) }));
   }
   // A zip is unpacked rather than saved, which "Uploaded n files" alone would hide.
   summary.push(...batch.extracted);
@@ -17189,16 +17185,23 @@ function joinServerFileText(text, shape) {
 }
 
 // The runtime's answer to server-files/read for one file: { ok, read } or
-// { ok: false, gone, error }; never throws.
+// { ok: false, gone, error }; never throws. `gone` is the runtime saying the
+// file is not there, not any 404 (the Portal answers 404 for its own
+// reasons). An answer without text is a failure, never an empty file: what
+// comes back as the file's text is what a save would replace it with.
 async function readServerFileText(agentId, filePath) {
   try {
     const resp = await fetch(`/a/${agentId}/api/server-files/read?path=${encodeURIComponent(filePath)}`);
     if (!resp.ok) {
-      return { ok: false, gone: resp.status === 404, error: describeServerFileError(await parseRuntimeErrorResponse(resp)) };
+      const reason = String(await parseRuntimeErrorResponse(resp));
+      const gone = resp.status === 404 && reason.trim().toLowerCase() === "not_found";
+      return { ok: false, gone, error: describeServerFileError(reason) };
     }
     const read = await resp.json();
-    if (read && read.success === false) return { ok: false, gone: false, error: describeServerFileError(read.error) };
-    return { ok: true, read: read || {} };
+    if (!read || read.success === false || typeof read.content !== "string") {
+      return { ok: false, gone: false, error: describeServerFileError(read && read.error) };
+    }
+    return { ok: true, read };
   } catch (error) {
     return { ok: false, gone: false, error: String(error?.message || error) };
   }
@@ -17209,7 +17212,7 @@ async function saveServerFileText(agentId, filePath, content) {
   const blob = new Blob([content], { type: "text/plain" });
   const tooLarge = serverFileTooLargeReason(blob);
   if (tooLarge) return tooLarge;
-  const result = await uploadOneServerFile(agentId, serverFileParentPath(filePath), blob, { name: serverFileBaseName(filePath) });
+  const result = await uploadOneServerFile(agentId, workspaceFileDirectory(filePath), blob, { name: serverFileBaseName(filePath) });
   return result.ok ? "" : String(result.error || t("Upload failed"));
 }
 
@@ -17302,17 +17305,21 @@ function openServerFileEditor(view, draft, notice) {
   if (draft) area.value = draft.text;
 
   let busy = false;
+  // Whether the box differs from the saved text, as of the last sync().
+  let dirty = false;
   const onScreen = () => document.getElementById("server-file-editor") === editor;
-  const isDirty = () => area.value !== pristine;
   const setStatus = (text, isError) => {
     statusEl.textContent = text;
     statusEl.classList.toggle("is-error", Boolean(isError));
   };
-  // Keeps the draft and the Save button in step with the box.
+  // Keeps `dirty`, the draft and the buttons in step with the box. The box
+  // is read once: its text can be large.
   const sync = () => {
-    if (isDirty()) serverFileDrafts.set(key, { text: area.value, base });
+    const text = area.value;
+    dirty = text !== pristine;
+    if (dirty) serverFileDrafts.set(key, { text, base });
     else serverFileDrafts.delete(key);
-    saveBtn.disabled = busy || !isDirty();
+    saveBtn.disabled = busy || !dirty;
     closeBtn.disabled = busy;
   };
   const setBusy = (on) => {
@@ -17336,7 +17343,7 @@ function openServerFileEditor(view, draft, notice) {
   };
 
   const save = async () => {
-    if (busy || !isDirty()) return;
+    if (busy || !dirty) return;
     setBusy(true);
     setStatus(t("Saving…"));
     const now = await readServerFileText(agentId, view.filePath);
@@ -17344,7 +17351,8 @@ function openServerFileEditor(view, draft, notice) {
       notSaved(t("Could not check the file: {error}", { error: now.error }), true);
       return;
     }
-    const changed = now.ok && (Boolean(now.read.is_binary) || String(now.read.content || "") !== base);
+    // A cut answer cannot show that the rest is unchanged, so it counts as changed.
+    const changed = now.ok && (Boolean(now.read.is_binary) || Boolean(now.read.truncated) || now.read.content !== base);
     if (!now.ok || changed) {
       const overwrite = await showConfirm({
         title: now.ok ? t("The file changed") : t("The file is gone"),
@@ -17371,12 +17379,12 @@ function openServerFileEditor(view, draft, notice) {
     pristine = typed;
     setBusy(false);
     if (!onScreen()) showToast(t("Saved {name}", { name: fileName }));
-    else setStatus(isDirty() ? t("Unsaved changes") : t("Saved"));
+    else setStatus(dirty ? t("Unsaved changes") : t("Saved"));
   };
 
   const close = async () => {
     if (busy) return;
-    if (isDirty()) {
+    if (dirty) {
       const discard = await showConfirm({
         title: t("Discard changes?"),
         message: t("Your changes to {name} will be lost.", { name: fileName }),
@@ -17396,7 +17404,7 @@ function openServerFileEditor(view, draft, notice) {
   area.addEventListener("input", () => {
     sync();
     // While a save runs the line says so; it is set again when that ends.
-    if (!busy) setStatus(isDirty() ? t("Unsaved changes") : "");
+    if (!busy) setStatus(dirty ? t("Unsaved changes") : "");
   });
   // On the editor, not the box alone, so the keys also work from its buttons.
   editor.addEventListener("keydown", (event) => {
@@ -17422,6 +17430,9 @@ function openServerFileEditor(view, draft, notice) {
 }
 
 async function previewServerFile(filePath, currentDir, rootPath, options) {
+  // The folder or file opened last is the one shown, whichever answers last.
+  const seq = (state.serverFilesViewSeq || 0) + 1;
+  state.serverFilesViewSeq = seq;
   try {
     const encodedPath = encodeURIComponent(filePath);
     const dir = currentDir || filePath.substring(0, filePath.lastIndexOf('/'));
@@ -17436,8 +17447,13 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
       audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'],
       video: ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'],
     };
+    // A file opened for its text (one just made with "New file") is not
+    // shown as a picture or a player, whatever its name: there is nothing
+    // in it yet, and an .svg is written as text.
+    const openForText = Boolean(options && options.edit);
+    const shownAs = (kind) => !openForText && binaryPreviewExtensions[kind].includes(ext);
 
-    if (binaryPreviewExtensions.image.includes(ext)) {
+    if (shownAs("image")) {
       setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`,
@@ -17445,7 +17461,7 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
       );
       return;
     }
-    if (binaryPreviewExtensions.pdf.includes(ext)) {
+    if (shownAs("pdf")) {
       setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`,
@@ -17453,7 +17469,7 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
       );
       return;
     }
-    if (binaryPreviewExtensions.audio.includes(ext)) {
+    if (shownAs("audio")) {
       setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<audio controls src="${contentUrl}" class="w-full"></audio>`,
@@ -17461,7 +17477,7 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
       );
       return;
     }
-    if (binaryPreviewExtensions.video.includes(ext)) {
+    if (shownAs("video")) {
       setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`,
@@ -17476,8 +17492,9 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
     const agentId = state.selectedAgentId;
     const view = { agentId, filePath, dir, rootPath: activeRootPath, read: null };
     const loaded = await readServerFileText(agentId, filePath);
-    // The member may have gone elsewhere while the runtime answered.
-    if (!serverFilesPanelShows(agentId)) return;
+    // The member may have gone elsewhere, or opened something else, while
+    // the runtime answered.
+    if (seq !== state.serverFilesViewSeq || !serverFilesPanelShows(agentId)) return;
     const draft = serverFileDrafts.get(serverFileDraftKey(agentId, filePath)) || null;
     if (!loaded.ok && draft) {
       openServerFileEditor(view, draft, t("The file could not be read: {error}", { error: loaded.error }));
@@ -17494,7 +17511,7 @@ async function previewServerFile(filePath, currentDir, rootPath, options) {
     }
     view.read = loaded.read;
     if (draft) openServerFileEditor(view, draft);
-    else if (options && options.edit && !serverFileEditBlocker(fileName, loaded.read)) openServerFileEditor(view, null);
+    else if (openForText && !serverFileEditBlocker(fileName, loaded.read)) openServerFileEditor(view, null);
     else renderServerFileText(view);
   } catch (error) {
     setToolPanel(t("File Preview"),

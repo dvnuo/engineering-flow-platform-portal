@@ -34,6 +34,7 @@ HELPERS = [
     "parseRuntimeErrorResponse",
     "serverFilesPost",
     "moveServerFilesTo",
+    "summarizeServerFileFailures",
     "describeServerFilesMove",
     "bindServerFileNameEditor",
     "serverFilesDragKind",

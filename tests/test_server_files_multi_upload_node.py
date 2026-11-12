@@ -40,6 +40,7 @@ FUNCTIONS = [
     "queueServerFilesUploadStrip",
     "cancelServerFilesUpload",
     "runServerFilesUploadBatch",
+    "summarizeServerFileFailures",
     "describeServerFilesUploadOutcome",
     "startServerFilesUpload",
     "uploadFilesToServerFiles",
