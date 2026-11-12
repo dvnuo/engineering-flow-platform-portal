@@ -15100,7 +15100,7 @@ async function loadServerFiles(path) {
         `<div class="portal-file-select-row">` +
           `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">${t("Select all")}</label>` +
         `</div>` +
-        `<div class="portal-panel-stack">${rows || `<div class="portal-inline-state">${t("Empty directory")}</div>`}</div>` +
+        `<div class="portal-panel-stack portal-file-list">${rows || `<div class="portal-inline-state">${t("Empty directory")}</div>`}</div>` +
       `</div>`,
       "server-files"
     );
