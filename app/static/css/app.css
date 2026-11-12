@@ -2058,9 +2058,34 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   place-items: center;
 }
 
+/* Server Files: the path, the buttons and "Select all" stay put; only the
+   list scrolls. The panel body stops scrolling while it holds the browser. */
+.portal-tool-panel-body:has(> .portal-file-browser) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .portal-file-browser {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.portal-file-toolbar,
+.portal-file-select-row {
+  flex: 0 0 auto;
+}
+
+.portal-file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A grid of a fixed height would stretch a few rows to fill it. */
+  align-content: start;
 }
 
 .portal-file-toolbar {

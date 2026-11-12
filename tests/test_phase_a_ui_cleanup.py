@@ -464,6 +464,32 @@ def test_server_files_uses_native_checkboxes_not_toggle_switches():
     css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert ".portal-file-checkbox" in css_source
 
+
+def test_server_files_list_scrolls_under_a_fixed_toolbar():
+    js_source = _chat_ui_js_source()
+    load_start = js_source.index("async function loadServerFiles(path) {")
+    load_end = js_source.index("async function uploadToServerFiles(targetPath) {")
+    block = js_source[load_start:load_end]
+    assert 'class="portal-panel-stack portal-file-list"' in block
+
+    css_source = (_repo_root() / "app/static/css/app.css").read_text(encoding="utf-8")
+
+    # The panel body no longer scrolls the toolbar away with the rows.
+    body = _css_block(css_source, ".portal-tool-panel-body:has(> .portal-file-browser) {")
+    assert "flex-direction: column" in body
+    assert "overflow: hidden" in body
+
+    browser = _css_block(css_source, ".portal-file-browser {")
+    assert "flex-direction: column" in browser
+    assert "min-height: 0" in browser
+
+    file_list = _css_block(css_source, ".portal-file-list {")
+    assert "overflow-y: auto" in file_list
+    assert "min-height: 0" in file_list
+    # A fixed-height grid would otherwise stretch a few rows to fill it.
+    assert "align-content: start" in file_list
+
+
 def test_thinking_process_removed_from_assistant_messages():
     js_source = _chat_ui_js_source()
     assert "function buildPendingAssistantArticle(" in js_source
