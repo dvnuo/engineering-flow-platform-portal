@@ -6,6 +6,8 @@
     <div>
       <strong>{{ member.display_name }}</strong>
       <span class="portal-member-usage-meta">@{{ member.username }} · {{ t("Last {n} days", n=usage.period_days) }}</span>
+      {# All time, unlike the totals beside it: what left the member table's view. #}
+      <span class="portal-member-usage-meta portal-member-usage-work" data-member-usage-work>{% if member.created_at %}{{ t("Joined {date}", date=local_datetime(member.created_at, style='date'))|safe }} · {% endif %}{{ t("{done} / {total} tasks done", done=member.completed_task_count, total=member.task_count) }} · {{ tn(member.delegation_count, "{n} delegation", "{n} delegations") }}</span>
     </div>
     <div class="portal-member-usage-totals">
       <span><strong>{{ '%.1f'|format(usage.totals.credits) }}</strong> {{ t("credits") }}</span>

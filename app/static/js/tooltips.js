@@ -130,16 +130,13 @@
     ["[data-open-create-delegation-main]", t("Create a rule that starts work automatically from GitHub, Jira, or a timer")],
 
     // --- user management ---
-    // Each pill explains what it grants, replacing the permanent line of helper
-    // text that used to sit under the control and break the row's grid.
-    ['[data-admin-role-option][value="user"]', t("Owns and runs their own assistants")],
-    ['[data-admin-role-option][value="group_admin"]', t("Manages their own group's members and Default connectors")],
-    ['[data-admin-role-option][value="admin"]', t("Full access to every member's assistants, plus member management")],
-    ["[data-admin-role-group]", t("What this member can do")],
+    // The Role column header explains the three roles; the select says what it does.
+    ["[data-admin-role-select]", t("What this member can do. Saved as soon as you pick another role.")],
     ["[data-remove-allowlist]", t("Revoke access. They lose sign-in immediately and existing sessions end.")],
     ["[data-allow-member]", t("Put this member back on the allowlist so they can sign in again")],
     ["[data-admin-member-search]", t("Filter by name or username")],
-    ["[data-admin-member-access-filter]", t("Show everyone, or only members who can/cannot sign in")],
+    ["[data-admin-member-access-filter]", t("Everyone, or only the members who need access, ran nothing in the period, or are administrators")],
+    ["[data-admin-row-menu-trigger]", t("Usage details and access")],
 
     // --- connector: proxy ---
     ['input[name="proxy_enabled"]', t("Route the assistant's outbound traffic through a proxy")],

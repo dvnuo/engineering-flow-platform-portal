@@ -180,7 +180,7 @@ def test_a_group_administrator_gets_neither_boxes_nor_the_bar(monkeypatch):
         env.db.commit()
         _as(monkeypatch, env, env.other)
         html = env.client.get("/app/users/panel").text
-        assert "Members of Dev" in html
+        assert '<span class="portal-admin-scope-chip"' in html and ">Dev</span>" in html
         assert "is-selectable" not in html
         assert "data-admin-member-select" not in html
         assert "data-admin-member-bulk-bar" not in html

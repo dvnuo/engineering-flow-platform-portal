@@ -95,12 +95,14 @@ def test_help_surface_is_reachable_and_explains_portal_vocabulary():
 
 
 def test_role_options_describe_what_they_actually_grant():
-    # The descriptions moved out of <option> text and into per-pill tooltips:
-    # member cards are ~380px wide, so a select carrying them truncated to
-    # "User — owns and runs their own assis…".
-    tooltips = Path("app/static/js/tooltips.js").read_text(encoding="utf-8")
-    assert "Owns and runs their own assistants" in tooltips
-    assert "Full access to every member's assistants, plus member management" in tooltips
+    # The descriptions stay out of <option> text, where they once truncated to
+    # "User — owns and runs their own assis…": the Role column header explains
+    # the three roles and the select's tooltip says a pick is saved at once.
+    header = USERS_HTML.split('data-sort-key="role"', 1)[1].split("</th>", 1)[0]
+    assert "User: runs their own assistants." in header
+    assert "Admin: manages every group, member and assistant." in header
+    options = USERS_HTML.split("data-admin-role-select", 1)[1].split("</select>", 1)[0]
+    assert "runs their own" not in options
 
 
 def test_viewer_role_is_gone_everywhere():
@@ -121,7 +123,8 @@ def test_viewer_role_is_gone_everywhere():
 
 
 def test_member_count_is_pluralised():
-    assert '{{ tn(summary.total_users, "{n} member", "{n} members") }}' in USERS_HTML
+    # The member count is the Show filter's first option now.
+    assert '{{ t("All members ({n})", n=summary.total_users) }}' in USERS_HTML
     assert "function pluralize(count, singular, plural = null)" in CHAT_JS
 
 

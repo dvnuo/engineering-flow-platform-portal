@@ -480,10 +480,10 @@ This section requires the **Admin** role. Platform installation, storage, SSO, a
 1. Open **Administration → User Management**.
 2. Click **Add to allowlist**, enter the actual sign-in usernames (one per line), choose their shared **Initial role**, and click **Allow users**. With enterprise username normalization, use the Portal usernames your deployment expects.
 3. Ask the member to sign in using the approved external method. Their account is created on first eligible sign-in.
-4. Search the registered-member list and use the access filter to find the account.
-5. Review the member's assistant/task/activity counts. These are Portal activity summaries, not a provider invoice.
-6. Change the **User/Admin** control only when the member's role should change. The selection saves immediately; wait for its status feedback. You cannot demote your own account through this control.
-7. To revoke access, click **Revoke** on the registered member and read the confirmation. Use **Allow** to restore access. For an allowlisted person who has not signed in yet, expand **Pending registration** and use **Remove** to withdraw their entry; this label does not mean a self-service registration form exists.
+4. Search the member list, or narrow it with the filter next to the search box: **All members**, **Needs access**, **Inactive in N days** or **Administrators**, each with its count. The table scrolls inside its own box, so its header row and each row's **⋯** menu stay in view.
+5. Review the member's assistants, executions, credits, active days and last activity. Click a name (or **⋯ → Usage details**) for daily credits, models, tokens in and out, tasks and delegations. **Export CSV** writes every column, including the ones only the drawer shows. These are Portal activity summaries, not a provider invoice.
+6. Change the **Role** select only when the member's role should change. The selection saves as soon as you pick it; granting or removing **Admin** asks first. Your own role shows as plain text: another administrator changes it.
+7. To revoke access, open the member's **⋯** menu, choose **Revoke access** and read the confirmation. A member without access shows **Needs access** by the name and an **Allow** button to restore it. For allowlisted people who have not signed in yet, click **Pending (N)** in the toolbar and use **Remove** to withdraw an entry; this label does not mean a self-service registration form exists.
 
 Removing allowlist access blocks continued use as well as future sign-in. It does not delete the account's stored work. Environment-configured entries are reconciled at startup, so operators must also update deployment configuration when revoking an entry that it supplies.
 

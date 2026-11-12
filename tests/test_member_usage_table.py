@@ -226,9 +226,10 @@ def test_users_panel_is_a_sortable_table_with_period_and_export(monkeypatch):
         assert "data-admin-member-period" in html and '<option value="30" selected>' in html
         assert "data-admin-member-export" in html
         assert "Mem Ber" in html and "@member" in html
-        # The role toggle and the allowlist actions moved into the last cell unchanged.
-        assert html.count("data-admin-role-group") == 2
-        assert "data-remove-allowlist" in html
+        # The role is its own column (the own account's as text) and Revoke sits in the row menu.
+        assert html.count("data-admin-role-select data-user-id") == 1
+        assert 'data-sort-key="role"' in html
+        assert 'role="menuitem" class="is-danger" data-remove-allowlist' in html
 
         week = client.get("/app/users/panel?days=7").text
         assert 'data-period-days="7"' in week and '<option value="7" selected>' in week

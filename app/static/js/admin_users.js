@@ -41,16 +41,83 @@
     if (trigger && !trigger.classList.contains("hidden")) trigger.focus();
   }
 
-  function checkRoleOption(group, role) {
-    var options = group ? group.querySelectorAll("[data-admin-role-option]") : [];
-    Array.prototype.forEach.call(options, function (input) {
-      input.checked = input.value === role;
-    });
+  function isAdminRole(role) {
+    return role === "admin" || role === "group_admin";
   }
 
-  function selectedRole(scope) {
-    var checked = scope && scope.querySelector("[data-admin-role-option]:checked");
-    return checked ? checked.value : "user";
+  function roleWord(role) {
+    if (role === "admin") return t("Admin");
+    if (role === "group_admin") return t("Group admin");
+    return t("User");
+  }
+
+  // The row's role select, or (own row, a system administrator's row seen by a
+  // group administrator) the role it shows as text.
+  function selectedRole(row) {
+    var select = row && row.querySelector("[data-admin-role-select]");
+    if (select) return select.value;
+    var role = row && row.dataset.memberRole;
+    return isAdminRole(role) ? role : "user";
+  }
+
+  // Saved as soon as it changes, like the group. Granting or removing Admin
+  // (every group, member and assistant) asks first.
+  async function changeRole(select) {
+    var root = panelRoot(select);
+    var row = select.closest("tr[data-member-id]");
+    var previousRole = select.dataset.originalRole || "user";
+    var nextRole = select.value;
+    if (previousRole === nextRole) return;
+    var username = select.dataset.memberUsername || t("this member");
+    if (previousRole === "admin" || nextRole === "admin") {
+      var title = t("Change {username}'s role to {role}?", { username: username, role: roleWord(nextRole) });
+      var confirmed = window.showConfirm
+        ? await window.showConfirm({
+            title: title,
+            message: nextRole === "admin"
+              ? t("An Admin manages every group, member and assistant on the Portal.")
+              : t("They lose the Admin role's access to every group, member and assistant."),
+            confirmText: t("Change role"),
+          })
+        : window.confirm(title);
+      if (!confirmed) {
+        select.value = previousRole;
+        return;
+      }
+    }
+    select.classList.add("is-saving");
+    try {
+      var updated = await request("/api/users/" + encodeURIComponent(select.dataset.userId), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      var savedRole = isAdminRole(updated && updated.role) ? updated.role : "user";
+      select.dataset.originalRole = savedRole;
+      select.value = savedRole;
+      if (row) {
+        row.dataset.memberRole = savedRole;
+        var cell = select.closest("td");
+        if (cell) {
+          cell.dataset.sortValue = roleWord(savedRole).toLowerCase();
+          cell.dataset.exportValue = roleWord(savedRole);
+        }
+      }
+      refreshFilterCounts(root);
+      applyMemberFilters(root);
+      if (window.showToast) {
+        window.showToast(t("{username} is now {role}.", { username: username, role: roleWord(savedRole) }), { variant: "success" });
+      }
+    } catch (error) {
+      // Put the select back so it never shows a role the server did not accept.
+      select.value = previousRole;
+      feedback(root, error.message, true);
+      if (window.showAlert) {
+        await window.showAlert({ title: t("Unable to change role"), message: error.message });
+      }
+    } finally {
+      select.classList.remove("is-saving");
+    }
   }
 
   function groupIdOf(value) {
@@ -435,7 +502,8 @@
   function exportMembersCsv(root) {
     var table = root && root.querySelector("[data-admin-member-table]");
     if (!table) return;
-    var headers = Array.prototype.slice.call(table.querySelectorAll("thead th"))
+    // The table's own header row: an open member drawer holds tables of its own.
+    var headers = Array.prototype.slice.call(table.tHead ? table.tHead.rows[0].cells : [])
       .filter(function (th) { return !th.hasAttribute("data-no-export"); })
       .map(function (th) { return csvField(th.dataset.exportLabel || th.textContent); });
     var lines = [headers.join(",")];
@@ -470,9 +538,12 @@
     cards.forEach(function (card) {
       var identity = ((card.dataset.memberName || "") + " " + (card.dataset.memberUsername || "")).toLowerCase();
       var matchesQuery = !query || identity.indexOf(query) !== -1;
-      // "inactive" = no run in the selected period, whatever the access.
+      // "inactive" = no run in the selected period and "admins" = a group or
+      // system administrator, whatever the access.
       var matchesAccess = access === "all"
-        || (access === "inactive" ? Number(card.dataset.memberExecutionsPeriod || 0) === 0 : card.dataset.memberAccess === access);
+        || (access === "inactive" ? Number(card.dataset.memberExecutionsPeriod || 0) === 0
+          : access === "admins" ? isAdminRole(card.dataset.memberRole)
+          : card.dataset.memberAccess === access);
       var matchesGroup = groupId === "all" || String(card.dataset.memberGroup || "") === groupId;
       card.hidden = !(matchesQuery && matchesAccess && matchesGroup);
       if (!card.hidden) visible += 1;
@@ -483,6 +554,119 @@
     var empty = root.querySelector("[data-admin-member-filter-empty]");
     if (empty) empty.hidden = visible !== 0;
     refreshSelection(root);
+  }
+
+  // The Show filter's options carry their counts (users_panel.html renders
+  // them); a role change moves a member in or out of Administrators without
+  // reloading the panel.
+  function refreshFilterCounts(root) {
+    var filter = root && root.querySelector("[data-admin-member-access-filter]");
+    if (!filter) return;
+    var rows = memberRows(root);
+    var days = root.dataset.periodDays || "30";
+    var count = function (test) { return rows.filter(test).length; };
+    Array.prototype.forEach.call(filter.options, function (option) {
+      if (option.value === "all") {
+        option.textContent = t("All members ({n})", { n: rows.length });
+      } else if (option.value === "blocked") {
+        option.textContent = t("Needs access ({n})", { n: count(function (row) { return row.dataset.memberAccess === "blocked"; }) });
+      } else if (option.value === "inactive") {
+        option.textContent = t("Inactive in {days} days ({n})", { days: days, n: count(function (row) { return Number(row.dataset.memberExecutionsPeriod || 0) === 0; }) });
+      } else if (option.value === "admins") {
+        option.textContent = t("Administrators ({n})", { n: count(function (row) { return isAdminRole(row.dataset.memberRole); }) });
+      }
+    });
+  }
+
+  // ---- the row menu (Usage details, Revoke access) ----
+
+  // A popover (users_panel.html): the browser draws it above the table box and
+  // closes it on Escape or a click elsewhere. It opens under its button, or
+  // above it when the button is near the bottom of the screen.
+  var openRowMenu = null;
+
+  function rowMenuTrigger(menu) {
+    return menu && menu.id ? document.querySelector('[popovertarget="' + menu.id + '"]') : null;
+  }
+
+  function placeRowMenu(menu, flip) {
+    var trigger = rowMenuTrigger(menu);
+    if (!trigger) return;
+    var rect = trigger.getBoundingClientRect();
+    menu.style.left = "auto";
+    menu.style.bottom = "auto";
+    menu.style.right = Math.max(8, document.documentElement.clientWidth - rect.right) + "px";
+    menu.style.top = rect.bottom + 4 + "px";
+    if (!flip) return;
+    var height = menu.getBoundingClientRect().height;
+    if (rect.bottom + 4 + height > window.innerHeight - 8 && rect.top - 4 - height >= 8) {
+      menu.style.top = rect.top - 4 - height + "px";
+    }
+  }
+
+  function closeRowMenu(fromElement) {
+    var menu = fromElement && fromElement.closest ? fromElement.closest("[data-admin-row-menu]") : openRowMenu;
+    if (!menu || typeof menu.hidePopover !== "function") return;
+    try {
+      menu.hidePopover();
+    } catch (error) {
+      // Already closed.
+    }
+  }
+
+  function menuItems(menu) {
+    return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]:not([disabled])'));
+  }
+
+  // beforetoggle runs before the menu is drawn, so it never shows at the
+  // browser's default spot; toggle runs once it has a height to flip by.
+  document.addEventListener("beforetoggle", function (event) {
+    var menu = event.target;
+    if (!menu || !menu.matches || !menu.matches("[data-admin-row-menu]")) return;
+    if (event.newState === "open") placeRowMenu(menu, false);
+  }, true);
+
+  document.addEventListener("toggle", function (event) {
+    var menu = event.target;
+    if (!menu || !menu.matches || !menu.matches("[data-admin-row-menu]")) return;
+    var trigger = rowMenuTrigger(menu);
+    var isOpen = event.newState === "open";
+    if (trigger) trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (isOpen) {
+      openRowMenu = menu;
+      placeRowMenu(menu, true);
+      var first = menuItems(menu)[0];
+      if (first) first.focus();
+    } else if (openRowMenu === menu) {
+      openRowMenu = null;
+    }
+  }, true);
+
+  // A menu left open would float away from its row: scrolling closes it.
+  document.addEventListener("scroll", function (event) {
+    if (openRowMenu && !(event.target && event.target.nodeType === 1 && openRowMenu.contains(event.target))) closeRowMenu(null);
+  }, true);
+  window.addEventListener("resize", function () { closeRowMenu(null); });
+
+  // ---- the pending registrations, a modal opened from the toolbar ----
+
+  function openPendingModal() {
+    var modal = document.querySelector("[data-admin-pending-modal]");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    var close = modal.querySelector("[data-close-admin-pending-modal]");
+    if (close) close.focus();
+  }
+
+  function closePendingModal() {
+    var modal = document.querySelector("[data-admin-pending-modal]");
+    if (!modal || modal.classList.contains("hidden")) return false;
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    var trigger = document.querySelector("[data-open-admin-pending-modal]");
+    if (trigger) trigger.focus();
+    return true;
   }
 
   document.addEventListener("input", function (event) {
@@ -558,55 +742,8 @@
       return;
     }
 
-    var option = event.target.closest("[data-admin-role-option]");
-    if (!option) return;
-    var group = option.closest("[data-admin-role-group]");
-    if (!group) return;
-    var previousRole = group.dataset.originalRole;
-    var nextRole = option.value;
-    if (previousRole === nextRole) return;
-
-    var card = group.closest("[data-member-id]");
-    var statusNode = card && card.querySelector("[data-admin-role-status]");
-    group.classList.add("is-saving");
-    if (statusNode) {
-      statusNode.textContent = t("Saving…");
-      statusNode.classList.remove("is-error", "is-success");
-    }
-
-    try {
-      var updated = await request("/api/users/" + encodeURIComponent(group.dataset.userId), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: nextRole }),
-      });
-      group.dataset.originalRole = updated.role;
-      checkRoleOption(group, updated.role);
-      var adminSummary = panelRoot(group).querySelector("[data-admin-summary-admins]");
-      var isAdminRole = function (role) { return role === "admin" || role === "group_admin"; };
-      var isAllowedMember = card && card.dataset.memberAccess === "allowed";
-      if (adminSummary && isAllowedMember && isAdminRole(previousRole) !== isAdminRole(updated.role)) {
-        var adminCount = Number(adminSummary.textContent) || 0;
-        adminSummary.textContent = String(adminCount + (isAdminRole(updated.role) ? 1 : -1));
-      }
-      if (statusNode) {
-        statusNode.textContent = t("Saved");
-        statusNode.classList.add("is-success");
-      }
-    } catch (error) {
-      // Put the pill back where it was so the control never shows a role the
-      // server did not accept.
-      checkRoleOption(group, previousRole);
-      if (statusNode) {
-        statusNode.textContent = t("Not saved");
-        statusNode.classList.add("is-error");
-      }
-      if (window.showAlert) {
-        await window.showAlert({ title: t("Unable to change role"), message: error.message });
-      }
-    } finally {
-      group.classList.remove("is-saving");
-    }
+    var roleSelect = event.target.closest("[data-admin-role-select]");
+    if (roleSelect) await changeRole(roleSelect);
   });
 
   document.addEventListener("click", async function (event) {
@@ -645,6 +782,33 @@
     if (detailButton) {
       event.preventDefault();
       await toggleMemberDetail(detailButton);
+      return;
+    }
+
+    // The row menu's Usage details: the same drawer as a click on the name,
+    // left open if it already is.
+    var usageItem = event.target.closest("[data-admin-member-usage]");
+    if (usageItem) {
+      event.preventDefault();
+      closeRowMenu(usageItem);
+      var usageRow = usageItem.closest("tr[data-member-id]");
+      var nameButton = usageRow && usageRow.querySelector("[data-admin-member-detail]");
+      if (!nameButton) return;
+      if (nameButton.getAttribute("aria-expanded") !== "true") await toggleMemberDetail(nameButton);
+      var drawer = usageRow.nextElementSibling;
+      if (drawer && drawer.matches("tr[data-member-detail-for]")) drawer.scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    if (event.target.closest("[data-open-admin-pending-modal]")) {
+      event.preventDefault();
+      openPendingModal();
+      return;
+    }
+    var pendingModal = event.target.closest("[data-admin-pending-modal]");
+    if (event.target.closest("[data-close-admin-pending-modal]") || (pendingModal && event.target === pendingModal)) {
+      event.preventDefault();
+      closePendingModal();
       return;
     }
 
@@ -708,7 +872,10 @@
     var button = event.target.closest("[data-remove-allowlist]");
     if (!button) return;
     event.preventDefault();
+    closeRowMenu(button);
     var root = panelRoot(button);
+    // A removal from the pending list reopens it after the reload, for the next one.
+    var fromPendingList = !!button.closest("[data-admin-pending-modal]");
     var removeUsername = button.dataset.allowlistUsername || t("this member");
     var confirmed = window.showConfirm
       ? await window.showConfirm({
@@ -726,6 +893,7 @@
         method: "DELETE",
       });
       await reloadPanel(t("{username} no longer has access.", { username: removeUsername }), false);
+      if (fromPendingList) openPendingModal();
     } catch (error) {
       feedback(root, error.message, true);
       if (window.showAlert) {
@@ -736,7 +904,27 @@
   });
 
   document.addEventListener("keydown", function (event) {
+    // Arrow keys, Home and End move between the open row menu's items
+    // (Escape closing it is the browser's).
+    if (openRowMenu && openRowMenu.contains(document.activeElement)) {
+      var items = menuItems(openRowMenu);
+      var index = items.indexOf(document.activeElement);
+      var next = null;
+      if (event.key === "ArrowDown") next = items[(index + 1) % items.length];
+      else if (event.key === "ArrowUp") next = items[(index - 1 + items.length) % items.length];
+      else if (event.key === "Home") next = items[0];
+      else if (event.key === "End") next = items[items.length - 1];
+      if (next) {
+        event.preventDefault();
+        next.focus();
+      }
+      return;
+    }
     if (event.key !== "Escape") return;
+    if (closePendingModal()) {
+      event.preventDefault();
+      return;
+    }
     var modal = document.querySelector("[data-admin-allowlist-modal]");
     if (!modal || modal.classList.contains("hidden")) return;
     event.preventDefault();

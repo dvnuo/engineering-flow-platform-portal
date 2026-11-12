@@ -97,7 +97,7 @@ def test_a_group_administrator_edits_only_their_groups_default_connectors(monkey
         env.db.commit()
         users = env.client.get("/app/users/panel")
         assert users.status_code == 200
-        assert "Members of Dev" in users.text
+        assert '<span class="portal-admin-scope-chip"' in users.text and ">Dev</span>" in users.text
         assert "@owner" not in users.text
         assert 'data-allowlist-username="pending-member"' in users.text
         assert 'data-allowlist-username="pending-root"' not in users.text
