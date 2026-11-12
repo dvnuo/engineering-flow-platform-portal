@@ -3003,20 +3003,9 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   gap: 10px;
 }
 
-.portal-admin-role-control {
-  display: grid;
-  gap: 6px;
-  color: var(--portal-text-muted);
-  font-size: 12px;
-  min-width: 0;
-}
-
-/* Role is a two-way choice shown as a segmented control rather than a dropdown.
-   Member cards are ~380px wide, so a <select> carrying descriptive option text
-   truncated it to uselessness ("User — owns and runs their own assis…"). Two
-   pills always fit, show the current and the alternative at once, and change
-   the role in one click instead of two. The explanation lives in each pill's
-   tooltip, so nothing needs a permanent line of helper text. */
+/* A segmented choice of two or three short words (a task's visibility): every
+   option shows at once and one click changes it. The explanation lives in
+   each pill's tooltip, so nothing needs a permanent line of helper text. */
 .portal-role-toggle {
   display: inline-flex;
   gap: 2px;
@@ -3087,9 +3076,34 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-role-option > span { transition: none; }
 }
 
-/* One row per member. The wrap scrolls sideways on a narrow pane; numbers are
-   right-aligned; a sortable header shows its direction. */
+/* User Management fills the pane: one toolbar line, then the member table in
+   its own scrolling box. The pane itself stops scrolling, so both scrollbars
+   of the box, its header row and the row actions stay on screen however many
+   members and columns there are (they were 2,300px below the fold at 41
+   members, with the actions past the right edge of a 1920px screen). */
+.portal-workspace-detail:has(> .portal-workspace-detail-content > .portal-admin-users) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.portal-workspace-detail-content:has(> .portal-admin-users) {
+  flex: 1;
+  min-height: 0;
+}
+
+.portal-workspace-detail-content > .portal-admin-users {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* One row per member. Numbers are right-aligned; a sortable header shows its
+   direction. The box grows with its rows up to the space left, then scrolls. */
 .portal-admin-member-table-wrap {
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -3097,6 +3111,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-admin-member-table td {
   vertical-align: middle;
   white-space: nowrap;
+}
+
+/* Kept for the CSV export, shown in the member drawer instead. */
+.portal-admin-member-table .portal-admin-export-only {
+  display: none;
 }
 
 /* The member stays in view while the wide table scrolls sideways. */
@@ -3114,9 +3133,29 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   background: var(--portal-surface-soft);
 }
 
-.portal-admin-member-table th,
+/* Tight enough that the shown columns fit a 1440px screen. */
+.portal-admin-member-table th {
+  padding: 8px;
+}
+
 .portal-admin-member-table td {
-  padding: 8px 10px;
+  padding: 6px 8px;
+}
+
+/* The header row stays at the top of the box (its own row only, not the
+   tables in a member drawer). Collapsed borders stay where the table put
+   them, so the line under a stuck header is a shadow. */
+.portal-admin-member-table > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: inset 0 -1px 0 var(--portal-border);
+  letter-spacing: .03em;
+}
+
+.portal-admin-member-table > thead > tr > th:first-child {
+  z-index: 3;
+  box-shadow: 1px 0 0 var(--portal-border), inset 0 -1px 0 var(--portal-border);
 }
 
 .portal-admin-member-table th.is-number,
@@ -3158,8 +3197,156 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 .portal-admin-member-table .portal-admin-member-identity {
   display: grid;
+  gap: 1px;
+  min-width: 140px;
+  line-height: 1.35;
+}
+
+.portal-admin-member-identity .portal-admin-role-badge,
+.portal-admin-member-identity .portal-admin-status-badge {
+  padding: 0 6px;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+
+/* Group and role are edited in place: a select that reads like the text
+   around it until it is pointed at or focused. */
+.portal-admin-member-table .portal-admin-inline-select {
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  height: 28px;
+  padding: 0 26px 0 8px;
+  border-color: transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  color: var(--portal-text);
+  font-size: 12px;
+}
+
+.portal-admin-member-table .portal-admin-inline-select:hover:not(:disabled),
+.portal-admin-member-table .portal-admin-inline-select:focus-visible {
+  border-color: var(--portal-border-strong);
+  background-color: var(--portal-surface);
+}
+
+/* Held while a role change is in flight, so a slow save cannot be sent twice. */
+.portal-admin-member-table .portal-admin-inline-select.is-saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.portal-admin-role-text {
+  padding-inline: 9px;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+}
+
+/* The row actions stay pinned to the right edge of the box. */
+.portal-admin-member-table .portal-admin-actions-cell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  width: 1%;
+  padding-block: 4px;
+  background: var(--portal-surface);
+  box-shadow: -1px 0 0 var(--portal-border);
+  text-align: right;
+}
+
+.portal-admin-member-table thead .portal-admin-actions-cell {
+  z-index: 3;
+  background: var(--portal-surface-soft);
+  box-shadow: -1px 0 0 var(--portal-border), inset 0 -1px 0 var(--portal-border);
+}
+
+.portal-admin-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.portal-admin-row-actions .portal-btn {
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  padding-inline: 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.portal-admin-row-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--portal-text-muted);
+  cursor: pointer;
+}
+
+.portal-admin-row-menu-button svg {
+  fill: currentColor;
+}
+
+.portal-admin-row-menu-button:hover,
+.portal-admin-row-menu-button:focus-visible,
+.portal-admin-row-menu-button[aria-expanded="true"] {
+  border-color: var(--portal-border);
+  background: var(--portal-surface-soft);
+  color: var(--portal-text);
+}
+
+/* A popover in the top layer, so the table box never clips it;
+   admin_users.js places it under (or above) its button. Only an open menu
+   gets a display: an author display would show the closed ones too. */
+.portal-admin-row-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--portal-border);
+  border-radius: 10px;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  box-shadow: var(--portal-shadow-lg);
+}
+
+.portal-admin-row-menu:popover-open {
+  display: grid;
   gap: 2px;
-  min-width: 160px;
+}
+
+.portal-admin-row-menu > button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.portal-admin-row-menu > button:hover,
+.portal-admin-row-menu > button:focus-visible {
+  outline: none;
+  background: var(--portal-surface-soft);
+}
+
+.portal-admin-row-menu > button.is-danger {
+  color: #dc2626;
 }
 
 .portal-admin-member-table .portal-admin-member-identity strong {
@@ -3237,6 +3424,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 .portal-member-usage-meta {
   margin-left: 6px;
+}
+
+.portal-member-usage-meta.portal-member-usage-work {
+  display: block;
+  margin: 2px 0 0;
 }
 
 .portal-member-usage-totals {
@@ -3448,14 +3640,21 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   color: var(--portal-text-muted);
 }
 
-.portal-admin-allowlist-modal-card {
+.portal-admin-allowlist-modal-card,
+.portal-admin-pending-modal-card {
   width: min(560px, calc(100vw - 2rem));
   max-height: min(88vh, 680px);
   overflow: auto;
 }
 
+.portal-admin-pending-modal-card {
+  width: min(720px, calc(100vw - 2rem));
+}
+
 .portal-admin-allowlist-modal-card .portal-modal-titlebar h3,
-.portal-admin-allowlist-modal-card .portal-modal-titlebar p {
+.portal-admin-allowlist-modal-card .portal-modal-titlebar p,
+.portal-admin-pending-modal-card .portal-modal-titlebar h3,
+.portal-admin-pending-modal-card .portal-modal-titlebar p {
   margin: 0;
 }
 
@@ -3477,19 +3676,60 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 .portal-admin-members-section {
-  display: grid;
-  gap: 12px;
-}
-
-.portal-admin-member-toolbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 420px) 160px auto;
-  align-items: center;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.portal-admin-member-toolbar label {
-  min-width: 0;
+.portal-admin-member-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-admin-member-toolbar .portal-form-input,
+.portal-admin-member-toolbar .portal-form-select {
+  width: auto;
+  min-height: 36px;
+  height: 36px;
+  padding-block: 0;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.portal-admin-member-toolbar .portal-btn {
+  width: auto;
+  white-space: nowrap;
+}
+
+.portal-admin-member-toolbar .portal-admin-member-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 360px;
+}
+
+.portal-admin-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding-inline: 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  background: var(--portal-surface-soft);
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.portal-admin-member-count {
+  margin-left: auto;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .portal-admin-member-table tr[hidden],
@@ -3498,8 +3738,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 /* Picking members (system administrators): a narrow box column before the
-   member, both kept in view while the table scrolls sideways, and a bar that
-   stays at the bottom of the pane while rows are picked. */
+   member, both kept in view while the table scrolls sideways, and a bar under
+   the table box while rows are picked (the box makes room for it). */
 .portal-admin-member-table .portal-admin-select-cell {
   width: 40px;
   min-width: 40px;
@@ -3526,6 +3766,15 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   background: var(--portal-surface-soft);
 }
 
+.portal-admin-member-table.is-selectable > thead > tr > th:nth-child(2) {
+  z-index: 3;
+  box-shadow: 1px 0 0 var(--portal-border), inset 0 -1px 0 var(--portal-border);
+}
+
+.portal-admin-member-table.is-selectable thead .portal-admin-select-cell {
+  box-shadow: inset 0 -1px 0 var(--portal-border);
+}
+
 .portal-admin-select-box {
   display: block;
   width: 15px;
@@ -3540,9 +3789,7 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 .portal-admin-bulk-bar {
-  position: sticky;
-  bottom: 12px;
-  z-index: 4;
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3614,37 +3861,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   overflow-wrap: anywhere;
 }
 
-.portal-admin-pending-section {
-  padding-block: 0;
-}
-
-.portal-admin-pending-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  padding-block: 14px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.portal-admin-pending-summary::-webkit-details-marker {
-  display: none;
-}
-
-.portal-admin-pending-chevron {
-  color: var(--portal-text-muted);
-  transition: transform 160ms ease;
-}
-
-.portal-admin-pending-section[open] .portal-admin-pending-chevron {
-  transform: rotate(180deg);
-}
-
-.portal-admin-pending-section[open] {
-  padding-bottom: 14px;
-}
-
 .portal-admin-role-badge,
 .portal-admin-status-badge {
   display: inline-flex;
@@ -3677,73 +3893,15 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 
-.portal-admin-member-controls {
-  display: grid;
-  grid-template-columns: minmax(140px, 200px) minmax(64px, 1fr) auto;
-  align-items: end;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--portal-border);
-}
-
-/* Inside a table cell the row has no separator of its own. */
-.portal-admin-member-table td .portal-admin-member-controls {
-  grid-template-columns: auto minmax(96px, auto) auto;
-  width: max-content;
-  gap: 10px;
-  padding-top: 0;
-  border-top: 0;
-}
-
-.portal-admin-member-table td:last-child {
-  min-width: 300px;
-}
-
-.portal-admin-role-status {
-  align-self: center;
-  color: var(--portal-text-muted);
-  font-size: 11px;
-}
-
-.portal-admin-role-status.is-success {
-  color: #16a34a;
-}
-
-.portal-admin-role-status.is-error {
-  color: #dc2626;
-}
-
-.portal-admin-member-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.portal-admin-member-actions .portal-btn {
-  width: auto;
-  min-width: 0;
-  height: 32px;
-  padding-inline: 10px;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-
 .portal-modal-feedback.is-error {
   color: #dc2626;
 }
 
 @media (max-width: 760px) {
-  .portal-admin-member-toolbar,
-  .portal-admin-member-controls {
-    grid-template-columns: 1fr;
+  .portal-admin-member-toolbar .portal-admin-member-search {
+    flex-basis: 100%;
+    max-width: none;
   }
-
-  .portal-admin-member-actions {
-    justify-content: flex-start;
-  }
-
 
   .portal-admin-member-heading {
     align-items: flex-start;
@@ -7653,7 +7811,6 @@ body.efp-workspace-open { overflow: hidden; }
   opacity: 0.6;
 }
 
-.portal-default-scope .portal-form-select,
-.portal-admin-group-select {
+.portal-default-scope .portal-form-select {
   min-width: 160px;
 }

@@ -30,7 +30,7 @@ The local no-op Kubernetes path can report an assistant as **Ready/Running** wit
 | `11-delegations.png` | Empty Delegations overview |
 | `12-create-delegation.png` | Create Delegation dialog, Basics step; not submitted |
 | `13-browser-connector.png` | Local browser setup and bridge-not-detected status |
-| `14-user-management.png` | Demonstration administrator and allowlist |
+| `14-user-management.png` | Member table with fictional members (no runs, so the usage columns read 0); recaptured on November 11, 2026 with headless Edge at 1440 × 1000 after the one-toolbar layout |
 | `15-assistant-types.png` | Seeded Business, Dev, and Ops types |
 | `16-default-connections.png` | Administrator's default-connection template |
 | `17-help.png` | Getting-started help topic |

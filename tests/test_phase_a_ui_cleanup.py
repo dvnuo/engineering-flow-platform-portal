@@ -332,16 +332,17 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in tasks_html
     assert "portal-panel-stack" in task_detail_html
     assert "portal-panel-stack" in users_html
-    assert "portal-admin-member-actions" in users_html
-    assert 'class="portal-btn is-danger"' in users_html
+    # Members are one table row each (the card grid is gone); role and group are
+    # inline selects and the access actions sit in a pinned row menu.
+    assert "portal-admin-row-actions" in users_html
+    assert 'role="menuitem" class="is-danger" data-remove-allowlist' in users_html
     assert ">Save role</button>" not in users_html
     assert ">Revoke allowlist</button>" not in users_html
-    assert ".portal-admin-member-actions .portal-btn" in css_source
-    # Members are one table row each (the card grid is gone); the row keeps the
-    # three-column controls block for the role toggle and the access actions.
+    assert ".portal-admin-row-actions .portal-btn" in css_source
     assert ".portal-admin-member-table th[data-sort-key]" in css_source
     assert "repeat(auto-fill, minmax(min(100%, 380px), 1fr))" not in css_source
-    assert "grid-template-columns: minmax(140px, 200px) minmax(64px, 1fr) auto;" in css_source
+    assert "portal-admin-member-controls" not in users_html
+    assert ".portal-admin-member-controls" not in css_source
     assert "portal-panel-stack" in skills_html
     assert "portal-panel-stack" in delegations_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)

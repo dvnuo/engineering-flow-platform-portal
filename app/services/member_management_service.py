@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import case, distinct, func, select
 
 from app.config import get_settings
 from sqlalchemy.orm import Session
@@ -198,6 +198,12 @@ class MemberManagementService:
                 ),
                 "pending_invitations": len(pending_entries),
                 "period_days": period_days,
+                # The counts in User Management's Show filter, one per option:
+                # each matches the rows that option shows (admin_users.js
+                # applyMemberFilters), whatever the member's access.
+                "blocked_users": sum(1 for row in member_rows if not row["is_allowlisted"]),
+                "inactive_members_period": sum(1 for row in member_rows if row["execution_count_period"] == 0),
+                "administrator_members": sum(1 for row in member_rows if row["role"] in ("admin", "group_admin")),
                 "active_members_period": sum(1 for row in member_rows if row["execution_count_period"] > 0),
                 "credits_period_total": round(sum(row["credits_period"] for row in member_rows), 2),
                 "input_tokens_period_total": sum(row["input_tokens_period"] for row in member_rows),
@@ -293,6 +299,18 @@ class MemberManagementService:
             "by_kind": by_kind,
             "by_agent": self._usage_by_agent(user_id, start, today),
         }
+
+    def member_work_counts(self, user_id: int) -> dict[str, int]:
+        """The member's tasks (done / all) and delegation rules, all time: the member drawer's line under the name."""
+        uid = int(user_id)
+        tasks = self.db.execute(
+            select(func.count(AgentTask.id), func.coalesce(func.sum(case((AgentTask.status == "done", 1), else_=0)), 0))
+            .where(AgentTask.owner_user_id == uid)
+        ).one()
+        delegations = self.db.execute(
+            select(func.count(DelegationRule.id)).where(DelegationRule.owner_user_id == uid)
+        ).scalar_one()
+        return {"task_count": int(tasks[0] or 0), "completed_task_count": int(tasks[1] or 0), "delegation_count": int(delegations or 0)}
 
     def member_month_to_date(self, user_id: int, *, now: datetime | None = None) -> dict[str, Any]:
         """The member's credits and runs since the first day of the current month, from the rollups."""

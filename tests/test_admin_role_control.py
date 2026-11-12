@@ -1,21 +1,14 @@
-"""The member role control is a segmented toggle, not a dropdown.
+"""The member role control is a quiet inline select in its own Role column.
 
-Two things went wrong when descriptive copy was first added to this row:
-
-1. A helper paragraph was inserted as a fourth child of
-   `.portal-admin-member-controls`, which declares three grid columns — so the
-   actions wrapped onto a new row and the hint was squeezed into an 85px column.
-2. The `<option>` text ("User — owns and runs their own assistants") needed
-   388px inside a column capped at 200px, so it rendered truncated to
-   "User — owns and runs their own assis…", which is worse than no explanation.
-
-Member cards are ~380px wide, so a dropdown carrying descriptions can never fit.
-A two-pill segmented control cannot truncate, shows both states at once, and
-changes the role in one click; the explanation lives in each pill's tooltip.
+It used to be a three-pill toggle (User / Group admin / Admin) under a "Role"
+label in the last cell, next to Revoke. That cell was 401px wide and made each
+row 71px tall; with sixteen columns the table measured 1941px in a 1475px pane
+at 1920 x 1200, so the role and Revoke sat past the right edge of the screen.
+A select with three short words is about 140px, reads like the text around it
+until it is pointed at, saves on change (asking first when Admin is granted or
+removed), and the Role header explains the roles.
 """
 
-import re
-from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -27,128 +20,83 @@ TOOLTIP_JS = Path("app/static/js/tooltips.js").read_text(encoding="utf-8")
 CSS = Path("app/static/css/app.css").read_text(encoding="utf-8")
 
 
-class _ChildCounter(HTMLParser):
-    """Direct element children of every .portal-admin-member-controls row."""
-
-    VOID = {"input", "br", "img", "hr", "meta", "link", "source"}
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.depth = None
-        self.current = 0
-        self.rows: list[int] = []
-
-    def handle_starttag(self, tag, attrs):
-        classes = dict(attrs).get("class", "")
-        if self.depth is None:
-            if "portal-admin-member-controls" in classes:
-                self.depth = 0
-                self.current = 0
-            return
-        if self.depth == 0:
-            self.current += 1
-        if tag not in self.VOID:
-            self.depth += 1
-
-    def handle_startendtag(self, tag, attrs):
-        if self.depth == 0:
-            self.current += 1
-
-    def handle_endtag(self, tag):
-        if self.depth is None or tag in self.VOID:
-            return
-        self.depth -= 1
-        if self.depth < 0:
-            self.rows.append(self.current)
-            self.depth = None
+def _function(source: str, name: str) -> str:
+    start = source.index(name)
+    return source[start:source.index("\n  }\n", start)]
 
 
-def _member_controls_children(html: str) -> list[int]:
-    parser = _ChildCounter()
-    parser.feed(html)
-    return parser.rows
+def test_role_is_a_select_in_its_own_column():
+    assert 'data-sort-key="role"' in USERS_HTML
+    assert "data-admin-role-select" in USERS_HTML
+    assert "portal-role-toggle" not in USERS_HTML
+    assert "data-admin-role-option" not in USERS_HTML
+    assert "data-admin-role-group" not in USERS_HTML
+    select = USERS_HTML.split("data-admin-role-select", 1)[1].split("</select>", 1)[0]
+    assert '<option value="user"' in select and '<option value="group_admin"' in select
+    # Only a system administrator can give Admin, so the option is not offered otherwise.
+    assert '{% if is_system_admin %}<option value="admin"' in select
 
 
-def test_controls_row_child_count_matches_its_grid_columns(rendered_panel):
-    # The row declares three columns; a fourth child silently wraps the actions
-    # onto a second row, which is exactly how this broke.
-    rule = CSS.split(".portal-admin-member-controls {", 1)[1].split("}", 1)[0]
-    declared = rule.split("grid-template-columns:", 1)[1].split(";", 1)[0]
-    assert len(re.findall(r"minmax\([^)]*\)|auto|\d+px|1fr", declared)) == 3
-    rows = _member_controls_children(rendered_panel)
-    assert rows, "no member rows rendered"
-    assert all(count == 3 for count in rows), rows
-
-
-def test_role_is_a_segmented_toggle_rather_than_a_dropdown():
-    assert 'class="portal-role-toggle"' in USERS_HTML
-    assert 'role="radiogroup"' in USERS_HTML
-    # Member, group administrator, system administrator (app/services/authorization.py).
-    assert USERS_HTML.count("data-admin-role-option") == 3
-    assert "data-admin-role-select" not in USERS_HTML
-    assert "<select" not in USERS_HTML.split("portal-admin-role-control", 1)[1].split("</label>", 1)[0]
-
-
-def test_pill_labels_stay_short_so_they_cannot_truncate():
-    toggle = USERS_HTML.split('class="portal-role-toggle"', 1)[1].split("</div>", 1)[0]
-    labels = re.findall(r"<span>([^<]+)</span>", toggle)
-    assert labels == ['{{ t("User") }}', '{{ t("Group admin") }}', '{{ t("Admin") }}']
-
-
-def test_radio_names_are_scoped_per_member():
-    # A shared name would make every card's pills one mutually exclusive group.
-    assert 'name="role-{{ u.id }}"' in USERS_HTML
-
-
-def test_own_account_cannot_change_its_own_role():
-    # role_locked covers the own account (and, for a group administrator, a
-    # system administrator's); only a system administrator can give "Admin".
+def test_own_account_and_a_group_admins_view_of_a_system_admin_show_text():
     assert "{% set role_locked = u.id == current_user.id or (not is_system_admin and u.role == 'admin') %}" in USERS_HTML
-    toggle = USERS_HTML.split('class="portal-role-toggle"', 1)[1].split("</div>", 1)[0]
-    assert toggle.count("{% if role_locked %}disabled{% endif %}") == 2
-    assert toggle.count("{% if role_locked or not is_system_admin %}disabled{% endif %}") == 1
+    locked = USERS_HTML.split("{% if role_locked %}", 1)[1].split("{% else %}", 1)[0]
+    assert "portal-admin-role-text" in locked and "<select" not in locked
 
 
-def test_no_permanent_helper_text_under_the_control():
-    assert "portal-admin-role-hint" not in USERS_HTML
-    assert "portal-admin-role-hint" not in CSS
+def test_the_role_header_explains_the_three_roles():
+    header = USERS_HTML.split('data-sort-key="role"', 1)[1].split("</th>", 1)[0]
+    assert "User: runs their own assistants. Group admin:" in header
+    assert '["[data-admin-role-select]", t("What this member can do. Saved as soon as you pick another role.")]' in TOOLTIP_JS
+    assert "[data-admin-role-option]" not in TOOLTIP_JS
 
 
-def test_each_pill_explains_what_it_grants():
-    assert '[data-admin-role-option][value="user"]' in TOOLTIP_JS
-    assert '[data-admin-role-option][value="admin"]' in TOOLTIP_JS
-    assert '[data-admin-role-option][value="group_admin"]' in TOOLTIP_JS
-    assert "Owns and runs their own assistants" in TOOLTIP_JS
-    assert "Full access to every member's assistants, plus member management" in TOOLTIP_JS
+def test_change_is_saved_on_change_and_rolled_back_on_failure():
+    change = _function(ADMIN_JS, "async function changeRole(select)")
+    assert 'select.classList.add("is-saving")' in change
+    assert 'select.classList.remove("is-saving")' in change
+    assert "body: JSON.stringify({ role: nextRole })" in change
+    # The select must never show a role the server rejected.
+    assert change.count("select.value = previousRole;") == 2
+    # The row's role feeds the Administrators filter, the sort and the export.
+    assert "row.dataset.memberRole = savedRole;" in change
+    assert "cell.dataset.exportValue = roleWord(savedRole);" in change
+    assert "refreshFilterCounts(root);" in change
+    assert 'closest("[data-admin-role-select]")' in ADMIN_JS
 
 
-def test_toggle_is_width_bounded_and_never_overflows_its_card():
-    rule = CSS.split(".portal-role-toggle {", 1)[1].split("}", 1)[0]
-    assert "width: max-content" in rule
-    assert "max-width: 100%" in rule
-    label_rule = CSS.split(".portal-role-option > span {", 1)[1].split("}", 1)[0]
-    assert "white-space: nowrap" in label_rule
+def test_granting_or_removing_admin_asks_first():
+    change = _function(ADMIN_JS, "async function changeRole(select)")
+    assert 'if (previousRole === "admin" || nextRole === "admin")' in change
+    assert "window.showConfirm" in change
+    assert 'confirmText: t("Change role")' in change
 
 
-def test_selected_pill_is_distinguishable_without_relying_on_colour_alone():
-    rule = CSS.split(".portal-role-option input:checked + span {", 1)[1].split("}", 1)[0]
-    assert "background" in rule
-    assert "font-weight" in rule
+def test_the_saving_select_cannot_be_changed_twice():
+    rule = CSS.split(".portal-admin-member-table .portal-admin-inline-select.is-saving {", 1)[1].split("}", 1)[0]
+    assert "pointer-events: none" in rule
 
 
-def test_change_is_saved_optimistically_and_rolled_back_on_failure():
-    assert "function checkRoleOption(group, role)" in ADMIN_JS
-    assert 'group.classList.add("is-saving")' in ADMIN_JS
-    assert "checkRoleOption(group, updated.role);" in ADMIN_JS
-    # The control must never show a role the server rejected.
-    assert "checkRoleOption(group, previousRole);" in ADMIN_JS
-    assert 'group.classList.remove("is-saving")' in ADMIN_JS
-
-
-def test_allowlisting_reads_the_checked_pill():
-    assert "function selectedRole(scope)" in ADMIN_JS
+def test_allowlisting_reads_the_rows_role():
+    selected = _function(ADMIN_JS, "function selectedRole(row)")
+    assert 'row.querySelector("[data-admin-role-select]")' in selected
+    assert "row.dataset.memberRole" in selected
     assert "selectedRole(allowCard)" in ADMIN_JS
-    assert "roleSelect" not in ADMIN_JS
+
+
+def test_the_segmented_toggle_stays_for_task_visibility():
+    # The pill styles serve the task visibility switch now.
+    assert "portal-role-toggle portal-visibility-toggle" in Path("app/templates/partials/task_detail_panel.html").read_text(encoding="utf-8")
+    assert ".portal-role-toggle {" in CSS
+    assert ".portal-role-option input:checked + span {" in CSS
+
+
+def test_rendered_rows_offer_the_right_roles(rendered_panel):
+    html = rendered_panel
+    # The member's select carries their current role; the own account is text.
+    assert 'data-admin-role-select data-user-id' in html
+    assert 'data-original-role="user"' in html
+    assert '<option value="admin" >' in html or '<option value="admin">' in html
+    assert 'class="portal-admin-role-text"' in html
 
 
 @pytest.fixture()

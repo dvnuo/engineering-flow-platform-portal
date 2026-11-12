@@ -3144,12 +3144,20 @@ async def app_member_usage_panel(request: Request, user_id: int):
         if not member or not administers_group(user, member_group.id if member_group else None, groups.default_group_id()):
             raise HTTPException(status_code=404, detail=N_("User not found"))
         days = normalize_period_days(request.query_params.get("days"))
-        usage = MemberManagementService(db).member_usage(member.id, days=days)
+        service = MemberManagementService(db)
+        usage = service.member_usage(member.id, days=days)
         return templates.TemplateResponse(
             "partials/member_usage_drawer.html",
             {
                 "request": request,
-                "member": {"id": member.id, "username": member.username, "display_name": (member.nickname or member.username or "").strip()},
+                # Joined, tasks and delegations left the table's view; the drawer shows them.
+                "member": {
+                    "id": member.id,
+                    "username": member.username,
+                    "display_name": (member.nickname or member.username or "").strip(),
+                    "created_at": member.created_at,
+                    **service.member_work_counts(member.id),
+                },
                 "usage": usage,
                 "days": days,
             },

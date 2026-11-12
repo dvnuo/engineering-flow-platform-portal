@@ -715,7 +715,9 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
     try:
         response = client.get("/app/users/panel")
         assert response.status_code == 200
-        assert "Member administration" in response.text
+        # The workspace header names the page; the panel has no title or summary cards of its own.
+        assert "Member administration" not in response.text
+        assert "portal-admin-summary-grid" not in response.text
         assert "data-admin-allowlist-form" in response.text
         assert 'id="admin-allowlist-modal" class="modal hidden"' in response.text
         assert "data-close-admin-allowlist-modal" in response.text
@@ -725,11 +727,13 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert "data-admin-member-access-filter" in response.text
         assert "Executions" in response.text
         assert "data-admin-member-form" not in response.text
-        assert "data-admin-role-group" in response.text
-        assert "data-admin-role-option" in response.text
+        assert "data-admin-role-select" in response.text
+        assert "data-admin-role-group" not in response.text
         assert "data-allow-member" in response.text
-        assert "<details" in response.text
-        assert response.text.index("Registered members") < response.text.index("Pending registration")
+        # Pending registrations open from the toolbar in a modal, after the table.
+        assert "<details" not in response.text
+        assert "Pending (1)" in response.text and "data-admin-pending-modal" in response.text
+        assert response.text.index("data-admin-member-table") < response.text.index("Pending registration")
         assert "Account active" not in response.text
         assert 'name="is_active"' not in response.text
         assert ">Active</span>" not in response.text
