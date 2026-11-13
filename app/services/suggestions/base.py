@@ -37,6 +37,8 @@ IDENTITY_UNKNOWN = "unknown"
 REQUEST_TIMEOUT_SECONDS = 4.0
 # A whole source, however many requests it fans out to.
 SOURCE_TIMEOUT_SECONDS = 8.0
+# Connections kept open to one way out while a source is being answered.
+POOL_CONNECTIONS = 4
 
 MAX_QUERY_CHARS = 200
 
@@ -163,6 +165,39 @@ class ConnectorHttp:
         self.timeout = timeout
         self.transport = transport
         self.egress_log: list[tuple[str, str, str]] = []
+        self._clients: dict[tuple, httpx.AsyncClient] = {}
+
+    def _client(self, kwargs: dict) -> httpx.AsyncClient:
+        """One client per way out, kept until ``aclose``.
+
+        A source asks the same system several times in a row. A connection
+        made for each request spends three round trips (TCP, the proxy, TLS)
+        before the request itself leaves, which on a slow link is most of
+        the wait; a kept connection spends one. The pool is small on
+        purpose: six requests over four warm connections finish sooner than
+        six cold ones side by side.
+        """
+        key = (kwargs.get("proxy"), kwargs.get("trust_env", True))
+        client = self._clients.get(key)
+        if client is None:
+            client = httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=False,
+                limits=httpx.Limits(max_connections=POOL_CONNECTIONS, max_keepalive_connections=POOL_CONNECTIONS),
+                **kwargs,
+            )
+            self._clients[key] = client
+        return client
+
+    async def aclose(self) -> None:
+        """Let the kept connections go. Safe to call twice, and a request made
+        afterwards simply opens a new one."""
+        clients, self._clients = list(self._clients.values()), {}
+        for client in clients:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001 - nothing useful to do about a close that failed
+                pass
 
     async def request(
         self,
@@ -183,8 +218,7 @@ class ConnectorHttp:
             kwargs = {"transport": self.transport}
         unlogged = _unlogged_request.set(True)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False, **kwargs) as client:
-                response = await client.request(method, url, headers=headers, params=params, json=json_body)
+            response = await self._client(kwargs).request(method, url, headers=headers, params=params, json=json_body)
         except httpx.TimeoutException as exc:
             raise SourceUnavailable("timeout") from exc
         except Exception as exc:

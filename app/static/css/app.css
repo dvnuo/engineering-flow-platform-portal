@@ -6173,6 +6173,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-picker-list {
   margin-top: 8px;
   max-height: min(320px, 44vh);
+  /* Rows fit the list or are cut short; the list never scrolls sideways. */
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--portal-border);
@@ -6195,13 +6197,27 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 .portal-picker-row.is-active { background: var(--portal-accent-soft); }
 .portal-picker-row-main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+/* A long summary gets a second line before it is cut: one line of an issue's
+   summary is often not enough to tell it from its neighbours. A link or any
+   other text without spaces breaks wherever it has to. */
 .portal-picker-row-title,
-.portal-picker-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-picker-row-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 .portal-picker-row-title { font-weight: 500; }
 .portal-picker-row-sub { font-size: 12px; color: var(--portal-text-muted); }
-.portal-picker-row-side { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.portal-picker-row-meta { font-size: 12px; color: var(--portal-text-muted); white-space: nowrap; }
+/* Never shrunk in step with the text beside it (a long summary would squeeze
+   it until the time fell out of the row); only capped, and then its badge
+   gives way. */
+.portal-picker-row-side { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 0; max-width: 60%; }
+.portal-picker-row-meta { flex: 0 0 auto; font-size: 12px; color: var(--portal-text-muted); white-space: nowrap; }
 .portal-picker-badge {
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 26ch;
   overflow: hidden;
   padding: 1px 8px;
@@ -6237,7 +6253,19 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 @keyframes portal-picker-pulse {
   50% { opacity: .5; }
 }
-.portal-picker-form { display: grid; gap: 4px; max-height: min(62vh, 560px); overflow-y: auto; padding: 0 2px 2px; }
+/* One column that is exactly as wide as the dialog. Left to size itself, a
+   grid column grows to its longest unbroken row and the form scrolls
+   sideways. */
+.portal-picker-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  max-height: min(62vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 2px 2px;
+}
+.portal-picker-field { min-width: 0; }
 .portal-picker-choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .portal-picker-choice {
   display: inline-flex;

@@ -58,9 +58,9 @@
     edited: N_("Edited by you"),
     review_requested: N_("Waiting for your review"),
     mine: N_("Opened by you"),
-    no_pr: N_("Pushed recently, no pull request yet"),
+    no_pr: N_("Your recent branches, no pull request yet"),
     has_pr: N_("Already has a pull request"),
-    pushed: N_("Pushed recently"),
+    pushed: N_("Your recent branches"),
     workspace: N_("In this assistant's workspace"),
     planned: N_("Planned in this workspace"),
     recent: N_("Recent"),
@@ -254,6 +254,17 @@
       });
     });
     return Array.from(names);
+  }
+
+  /**
+   * Whether a picked row may answer a field it was not picked in. Only an
+   * empty field, or one an earlier pick filled: what the member typed, or a
+   * default the card came with, is left alone.
+   */
+  function mayFill(state, offered) {
+    if (!offered || (state && state.touched)) return false;
+    const current = String((state && state.current) || "").trim();
+    return !current || current === String((state && state.filled) || "");
   }
 
   function suggestionUrl(source, options) {
@@ -501,8 +512,8 @@
       return `
         <div class="portal-picker-row" role="option" id="${idPrefix}-row-${index}" data-picker-row="${index}" aria-selected="false">
           <span class="portal-picker-row-main">
-            <span class="portal-picker-row-title">${esc(item.title || item.value)}</span>
-            ${item.subtitle ? `<span class="portal-picker-row-sub">${esc(item.subtitle)}</span>` : ""}
+            <span class="portal-picker-row-title" title="${esc(item.title || item.value)}">${esc(item.title || item.value)}</span>
+            ${item.subtitle ? `<span class="portal-picker-row-sub" title="${esc(item.subtitle)}">${esc(item.subtitle)}</span>` : ""}
           </span>
           <span class="portal-picker-row-side">
             ${item.badge ? `<span class="portal-picker-badge">${esc(item.badge)}</span>` : ""}
@@ -937,15 +948,23 @@
         return values;
       }
 
-      /** A picked row can answer other fields too: the branch knows its base. */
+      /**
+       * A picked row can answer other fields too: a branch knows the branch
+       * its repository merges into by default. A field the member typed in
+       * is theirs and stays; one this filled before follows the new pick,
+       * so choosing a branch of another repository does not leave the first
+       * repository's default behind.
+       */
       function spread(item, from) {
         const extra = (item && item.fields) || {};
         fields.forEach((field) => {
           if (field.name === from || field.type === "choice" || field.type === "file") return;
           const control = controls.get(field.name);
           const offered = extra[field.name];
-          if (!offered || control.touched || control.input.value.trim()) return;
+          if (!mayFill({ touched: control.touched, current: control.input.value, filled: control.filled }, offered)) return;
           control.input.value = String(offered);
+          control.filled = String(offered);
+          control.el.classList.remove("is-invalid");
         });
       }
 
@@ -991,7 +1010,7 @@
 
       fields.forEach((field) => {
         const el = shell.root.querySelector(`[data-picker-field="${field.name}"]`);
-        const control = { el, input: null, list: null, listEl: null, touched: false, depends: [] };
+        const control = { el, input: null, list: null, listEl: null, touched: false, filled: "", depends: [] };
         controls.set(field.name, control);
         el.addEventListener("input", () => el.classList.remove("is-invalid"));
         el.addEventListener("change", () => {
@@ -1097,6 +1116,7 @@
     composeTemplate,
     resolveParams,
     paramDependencies,
+    mayFill,
     filterGroups,
     historyGroup,
     flatItems,

@@ -238,7 +238,7 @@ out = {
     assert out["failed"] == "3 failed" and out["failedPlain"] == "Failed"
     assert out["scenarios"] == "3 scenarios"
     assert out["open"] == "Open" and out["unknown"] == "something_new" and out["none"] == ""
-    assert out["group"] == "Pushed recently, no pull request yet" and out["groupUnknown"] == ""
+    assert out["group"] == "Your recent branches, no pull request yet" and out["groupUnknown"] == ""
     assert out["off"] == "Set up GitHub in Connectors to pick from a list here."
     assert out["refused"] == "Jira refused the connector's credentials. Type or paste the value instead."
     assert out["slow"] == "The list took too long to load. Type or paste the value instead."
@@ -273,6 +273,53 @@ def test_the_dialogs_do_not_close_on_a_click_outside_them():
     assert "event.target === shell.root" not in source
     assert 'shell.setEscape(() => finish(null));' in source
     assert 'shell.cancelEl.addEventListener("click", () => finish(null));' in source
+
+
+def test_a_picked_row_fills_another_field_only_while_that_field_is_not_the_members_own():
+    out = _picker(
+        """
+out = {
+  empty: api.mayFill({ touched: false, current: "", filled: "" }, "master"),
+  // Filled by an earlier pick: a branch of another repository brings its own default.
+  refilled: api.mayFill({ touched: false, current: "master", filled: "master" }, "develop"),
+  typed: api.mayFill({ touched: true, current: "release/1.2", filled: "master" }, "develop"),
+  // A default the card came with was never filled by a pick.
+  cardDefault: api.mayFill({ touched: false, current: "cps-dev", filled: "" }, "cps-uat"),
+  nothingOffered: api.mayFill({ touched: false, current: "", filled: "" }, ""),
+};
+"""
+    )
+    assert out == {"empty": True, "refilled": True, "typed": False, "cardDefault": False, "nothingOffered": False}
+    # The form applies exactly this rule, and remembers what it filled.
+    source = PICKER.read_text(encoding="utf-8")
+    assert "if (!mayFill({ touched: control.touched, current: control.input.value, filled: control.filled }, offered)) return;" in source
+    assert "control.filled = String(offered);" in source
+
+
+def _css_rule(selector: str) -> str:
+    sheet = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    start = sheet.index(f"\n{selector} {{") + 1
+    return " ".join(sheet[start : sheet.index("}", start)].split())
+
+
+def test_long_rows_are_cut_short_instead_of_scrolling_the_list_or_the_form_sideways():
+    # A form is a grid. Left to size its one column, the grid makes it as
+    # wide as the longest issue summary in a list and the dialog scrolls
+    # sideways; the column is pinned to the dialog's width instead.
+    form = _css_rule(".portal-picker-form")
+    assert "grid-template-columns: minmax(0, 1fr);" in form
+    assert "overflow-x: hidden;" in form
+    assert "min-width: 0;" in _css_rule(".portal-picker-field")
+    assert "overflow-x: hidden;" in _css_rule(".portal-picker-list")
+    assert "min-width: 0;" in _css_rule(".portal-picker-row-main")
+    # Text wraps to a second line and is then cut; text without spaces (a
+    # pasted link) breaks anywhere rather than pushing the row wider.
+    text = _css_rule(".portal-picker-row-title,\n.portal-picker-row-sub")
+    assert "-webkit-line-clamp: 2;" in text and "overflow-wrap: anywhere;" in text and "nowrap" not in text
+    # The full text is one hover away.
+    source = PICKER.read_text(encoding="utf-8")
+    assert 'class="portal-picker-row-title" title="${esc(item.title || item.value)}"' in source
+    assert 'class="portal-picker-row-sub" title="${esc(item.subtitle)}"' in source
 
 
 def test_the_picker_script_loads_before_the_scripts_that_use_it():

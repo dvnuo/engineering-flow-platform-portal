@@ -118,3 +118,41 @@ def test_a_non_positive_lifetime_stores_nothing(ttl):
     cache = TTLCache()
     cache.set("k", "v", ttl)
     assert cache.get("k") is None
+
+
+# ------------------------------------------------- connections to the systems
+
+
+def test_a_source_keeps_one_connection_pool_for_all_its_requests_and_lets_it_go_afterwards():
+    """A connection per request spends three round trips (TCP, the proxy,
+    TLS) before the request leaves. On a slow link that was most of the wait."""
+    import httpx
+
+    from app.services.suggestions import clear_cache, suggest
+    from app.services.suggestions.base import ConnectorHttp
+    from tests._suggestions_helpers import GITHUB_CONFIG, Recorder, make_context
+
+    made: list[httpx.AsyncClient] = []
+    real = httpx.AsyncClient
+
+    class Counted(real):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            made.append(self)
+
+    github = Recorder({("GET", "/user"): {"login": "alice"}, ("GET", "/search/issues"): {"items": []}})
+    context = make_context(github, GITHUB_CONFIG)
+    assert isinstance(context.http, ConnectorHttp)
+
+    clear_cache()
+    httpx.AsyncClient = Counted
+    try:
+        result = asyncio.run(suggest("github.pull_requests", context))
+    finally:
+        httpx.AsyncClient = real
+        clear_cache()
+
+    assert result.state == "ok" and len(github.requests) == 3
+    assert len(made) == 1 and made[0].is_closed
+    # Asking again later is not an error: it opens a new pool.
+    assert context.http._clients == {}

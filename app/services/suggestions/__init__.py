@@ -46,6 +46,9 @@ DEFAULT_TTL_SECONDS = 60.0
 # A failure is remembered briefly, so a system that is down does not make
 # every keystroke wait out the timeout again.
 FAILURE_TTL_SECONDS = 10.0
+# How long after a source timed out its connections stay open for whatever
+# shared lookup it left running. Longer than one request may take.
+STRAGGLER_GRACE_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,7 @@ def clear_cache() -> None:
     _results.clear()
     clear_identities()
     github_module._trees.clear()
+    github_module.clear_work()
     jira_module._projects.clear()
 
 
@@ -131,6 +135,23 @@ def _ttl_of(spec: SourceSpec) -> Callable[[Result], float]:
     return ttl
 
 
+async def _release(http: object, *, later: bool) -> None:
+    """Close the connections a source kept open while it was answered.
+
+    A source that ran out of time may have left a shared lookup running (who
+    the member is, where they work: other requests wait on the same one), so
+    its connections are closed a little later instead of under it.
+    """
+    close = getattr(http, "aclose", None)
+    if close is None:
+        return
+    if not later:
+        await close()
+        return
+    loop = asyncio.get_running_loop()
+    loop.call_later(STRAGGLER_GRACE_SECONDS, lambda: loop.create_task(close()))
+
+
 async def suggest(source_id: str, ctx: SourceContext) -> Result:
     """Answer one picker request. Never raises for a known source: a system
     that is off, unreachable or slow is a state the page shows, with the text
@@ -158,6 +179,7 @@ async def suggest(source_id: str, ctx: SourceContext) -> Result:
     async def load() -> Result:
         started = time.monotonic()
         result = await answer()
+        await _release(ctx.http, later=result.reason == "timeout")
         # What happened, for whoever reads the log; never what was asked for.
         # The upstream requests themselves are kept out of the log (base.py).
         logger.info(

@@ -10,7 +10,7 @@ order: 5
 A new chat opens with a few cards. A card that needs something from you (a
 ticket, a pull request, a branch) opens a list of your own recent ones: issues
 you viewed or that are assigned to you, pull requests waiting for your review,
-branches you pushed that have no pull request yet. Click a row and the
+your recent branches that have no pull request yet. Click a row and the
 assistant starts. Type in the box to narrow the list or to search.
 
 The box is always there. Paste a link or type a key and press Enter, exactly
@@ -36,11 +36,18 @@ viewed** is not offered: that history belongs to the shared account.
 What you pick is sent as a key or a link only. Titles and summaries are shown
 to you and are not sent to the assistant.
 
-## Branches in the assistant's workspace
+## Branches for a pull request
 
 For a pull request, the list starts with the branches checked out in this
 assistant's workspace that have commits or changes of their own: work the
 assistant did that nothing outside the workspace knows about yet.
+
+Under them are your own recent branches: the ones you created or pushed to
+lately in the repositories you work in, with the ones that have no pull
+request yet first. A branch you pushed a minute ago is there.
+
+Picking a branch fills in **Merge into** with that repository's default
+branch. Change it when the pull request should go somewhere else.
 
 ## Referring to something while you type
 
