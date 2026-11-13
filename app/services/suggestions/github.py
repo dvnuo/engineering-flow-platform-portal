@@ -12,6 +12,7 @@ missing: the picker's text box and the "owner/repo" search cover that.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from collections import OrderedDict
 from typing import Any
@@ -391,15 +392,22 @@ async def _workspace_group(ctx: SourceContext) -> Group | None:
 
 async def branches(ctx: SourceContext) -> Result:
     api = GithubApi(ctx)
-    identity = await api.identity()
     query = ctx.q.strip()
 
     match = _REPO_QUERY.match(query) if len(query) >= 3 else None
     if match:
+        identity = await api.identity()
         group = await _repository_branches(api, match.group(1), (match.group(2) or "").strip())
         return Result("github.branches", groups=[group], identity=identity.mode)
 
-    workspace = await _workspace_group(ctx)
+    # The workspace is asked while GitHub is: three round trips to GitHub in
+    # a row are slow enough without a fourth wait in front of them.
+    workspace_task = asyncio.ensure_future(_workspace_group(ctx))
+    try:
+        identity = await api.identity()
+    except BaseException:
+        workspace_task.cancel()
+        raise
     pushed: list[Group] = []
     failure: SourceUnavailable | None = None
     if identity.login:
@@ -407,6 +415,7 @@ async def branches(ctx: SourceContext) -> Result:
             pushed = await _pushed_groups(api, identity.login)
         except SourceUnavailable as exc:
             failure = exc
+    workspace = await workspace_task
     if failure is not None and workspace is None:
         raise failure
     groups = ([workspace] if workspace else []) + pushed
