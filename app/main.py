@@ -26,6 +26,7 @@ from app.api.copilot import router as copilot_router
 from app.api.model_catalog import router as model_catalog_router
 from app.api.connectors import router as connectors_router
 from app.api.mobile import router as mobile_router
+from app.api.suggestions import router as suggestions_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.i18n import bind_locale, reset_locale
@@ -226,6 +227,7 @@ app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)
 app.include_router(model_catalog_router)
+app.include_router(suggestions_router)
 app.include_router(agent_tasks_router)
 app.include_router(delegation_rules_router)
 app.include_router(runtime_capability_catalog_router)
