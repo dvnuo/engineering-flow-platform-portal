@@ -470,3 +470,105 @@ def test_hovering_a_card_warms_its_list_and_sends_nothing():
 
     assert result["prefetch"] == [["Summarize a requirement", "a1"]]
     assert result["pickers"] == [] and result["submits"] == 0
+
+
+# ------------------------------------------------------- counts on the cards
+
+HINT_FETCH = """
+const asked = [];
+globalThis.fetch = (url) => {
+  asked.push(String(url));
+  const body = String(url) === "/api/suggestions"
+    ? { sources: [{ id: "github.pull_requests", uses_agent: false }, { id: "ci.failed_builds", uses_agent: false }, { id: "jira.issues", uses_agent: false }] }
+    : ANSWERS[String(url).split("?")[0]] || { state: "ok", groups: [] };
+  return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+};
+"""
+
+
+def test_a_card_shows_a_count_only_for_work_that_is_waiting_on_the_member():
+    out = _node(
+        f"""
+{I18N_STUB}
+const ANSWERS = {{
+  "/api/suggestions/github.pull_requests": {{ state: "ok", groups: [
+    {{ id: "review_requested", items: [{{ value: "a" }}, {{ value: "b" }}] }},
+    {{ id: "mine", items: [{{ value: "c" }}] }},
+  ] }},
+  "/api/suggestions/ci.failed_builds": {{ state: "ok", groups: [{{ id: "pr_checks", items: [{{ value: "x" }}] }}] }},
+  "/api/suggestions/jira.issues": {{ state: "ok", groups: [{{ id: "assigned", items: [{{ value: "ABC-1" }}] }}] }},
+}};
+{HINT_FETCH}
+{PICKER.read_text(encoding="utf-8")}
+const api = module.exports;
+(async () => {{
+  const review = await api.cardHint({{ title: "Review", input: {{ source: "github.pull_requests" }} }}, "a1");
+  const builds = await api.cardHint({{ title: "Builds", input: {{ source: "ci.failed_builds" }} }}, "a1");
+  const issues = await api.cardHint({{ title: "Issues", input: {{ source: "jira.issues" }} }}, "a1");
+  const plain = await api.cardHint({{ title: "Plain", input: {{ label: "x" }} }}, "a1");
+  const before = asked.length;
+  await api.fetchSuggestions("github.pull_requests", {{ params: {{}}, agentId: "", recent: [] }});
+  console.log(JSON.stringify({{ review, builds, issues, plain, asked, reused: asked.length === before }}));
+}})();
+"""
+    )
+
+    assert out["review"] == {"text": "2 to review", "tone": "accent"}
+    assert out["builds"] == {"text": "1 failed", "tone": "danger"}
+    # Assigned issues are not news, and a card without a source has nothing to count.
+    assert out["issues"] is None and out["plain"] is None
+    # Two lists were asked, and nothing for the cards that show no count.
+    assert out["asked"] == ["/api/suggestions", "/api/suggestions/github.pull_requests", "/api/suggestions/ci.failed_builds"]
+    # Opening the picker right after reuses the answer the count was made from.
+    assert out["reused"] is True
+
+
+def test_no_count_when_nothing_is_waiting_or_the_list_could_not_be_read():
+    out = _node(
+        f"""
+{I18N_STUB}
+const ANSWERS = {{
+  "/api/suggestions/github.pull_requests": {{ state: "ok", groups: [{{ id: "mine", items: [{{ value: "c" }}] }}] }},
+  "/api/suggestions/ci.failed_builds": {{ state: "not_configured", groups: [], connector: "jenkins" }},
+}};
+{HINT_FETCH}
+{PICKER.read_text(encoding="utf-8")}
+const api = module.exports;
+(async () => {{
+  const review = await api.cardHint({{ title: "Review", input: {{ source: "github.pull_requests" }} }}, "a1");
+  const builds = await api.cardHint({{ title: "Builds", input: {{ source: "ci.failed_builds" }} }}, "a1");
+  console.log(JSON.stringify({{ review, builds }}));
+}})();
+"""
+    )
+
+    assert out == {"review": None, "builds": None}
+
+
+def test_the_count_is_put_on_its_card_once_the_cards_are_painted():
+    setup = """
+const badges = [];
+const cardEl = { querySelector: () => null, append: (node) => badges.push([node.className, node.textContent]) };
+list.querySelector = (selector) => (selector === '[data-starter-card="0"]' ? cardEl : null);
+window.portalCardPicker = {
+  historyKeyFor: () => "k",
+  prefetchCard: () => {},
+  cardHint: (card, agentId) => Promise.resolve(card.input && card.input.source === "github.pull_requests" ? { text: "2 waiting for your review", tone: "accent" } : null),
+};
+window.showPicker = () => Promise.resolve(null);
+"""
+    review = {"title": "Review a pull request", "prompt": "Review {{input}}.", "input": {"label": "Pull request", "source": "github.pull_requests"}}
+    script = f"""
+{I18N_STUB}
+{DOM_SHIM}
+globalThis.window = {{}};
+{setup}
+globalThis.fetch = () => Promise.resolve({{ ok: true, json: () => Promise.resolve({{ welcome: null, cards: {json.dumps([review, SOURCE_CARD])} }}) }});
+{PERSONALIZATION.read_text(encoding="utf-8")}
+fireDocument("portal:agent-selected", {{ agentId: "a1" }});
+settle().then(settle).then(() => console.log(JSON.stringify({{ badges, submits: calls.submits }})));
+"""
+    out = _node(script)
+
+    assert out["badges"] == [["portal-starter-card-hint is-accent", "2 waiting for your review"]]
+    assert out["submits"] == 0

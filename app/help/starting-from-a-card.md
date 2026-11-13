@@ -19,6 +19,9 @@ as before; the list is only a shortcut.
 Some cards ask for more than one thing, for example a story and the platforms
 to run on. Fill in the fields and press **Continue**.
 
+A card can carry a small count, such as **2 to review** or **1 failed**: work
+that is waiting on you, from the same list the card opens.
+
 ## Where the list comes from
 
 The Portal reads it with your own connector settings, the same ones your

@@ -413,3 +413,28 @@ def test_modes_default_to_the_members_own_for_rows_that_were_never_classified():
     # make_context() uses OWN unless told otherwise; this pins that SHARED is
     # an explicit choice in these tests and not an accident of an empty dict.
     assert OWN["jira"] == "custom" and SHARED == {}
+
+
+# ---------------------------------------------------------------------- logs
+
+
+def test_what_a_member_searched_for_never_reaches_the_log(caplog):
+    import logging
+
+    jira = _jira(lambda jql: [_issue("ABC-20", "Quarterly layoffs plan")])
+    with caplog.at_level(logging.DEBUG):
+        # A request made the ordinary way is logged by httpx, address and all:
+        # this is what the picker's requests must not do.
+        httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200))).get(
+            "https://elsewhere.example/ping?marker=ordinary"
+        )
+        result = run("jira.issues", make_context(jira, JIRA_CONFIG, q="layoffs"))
+
+    assert values(result, "results") == ["ABC-20"]
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "marker=ordinary" in logged, "httpx request logging is on in this run, so the check below means something"
+    for private in ("layoffs", "jira.corp", "summary ~", "pat-1", "ABC-20"):
+        assert private not in logged, private
+    # One line says what happened, without what was asked.
+    summary = [record.getMessage() for record in caplog.records if record.name == "app.services.suggestions"]
+    assert summary == [summary[0]] and summary[0].startswith("Suggestion source jira.issues state=ok reason=- rows=1 searched=True ms=")

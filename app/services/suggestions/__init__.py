@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -136,7 +137,7 @@ async def suggest(source_id: str, ctx: SourceContext) -> Result:
     box still there."""
     spec = SOURCES[source_id]
 
-    async def load() -> Result:
+    async def answer() -> Result:
         try:
             result = await asyncio.wait_for(spec.handler(ctx), SOURCE_TIMEOUT_SECONDS)
         except SourceNotConfigured as exc:
@@ -152,6 +153,22 @@ async def suggest(source_id: str, ctx: SourceContext) -> Result:
             return Result(spec.id, STATE_UNAVAILABLE, connector=spec.connector, reason="error")
         result.source = spec.id
         result.connector = result.connector or spec.connector
+        return result
+
+    async def load() -> Result:
+        started = time.monotonic()
+        result = await answer()
+        # What happened, for whoever reads the log; never what was asked for.
+        # The upstream requests themselves are kept out of the log (base.py).
+        logger.info(
+            "Suggestion source %s state=%s reason=%s rows=%d searched=%s ms=%d",
+            spec.id,
+            result.state,
+            result.reason or "-",
+            sum(len(group.items) for group in result.groups),
+            bool(ctx.q),
+            int((time.monotonic() - started) * 1000),
+        )
         return result
 
     return await _results.get_or_load(_cache_key(spec, ctx), load, _ttl_of(spec))

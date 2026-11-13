@@ -2807,5 +2807,6 @@
   "≈ {credits} credits": "≈ {credits} 额度",
   "≈{percent}% used": "已使用 ≈{percent}%",
   "👋 Welcome! Ask me anything.": "👋 欢迎！想问什么都可以。",
-  "📎 Attachment": "📎 附件"
+  "📎 Attachment": "📎 附件",
+  "{n} to review": "{n} 个待审阅"
 }

@@ -233,12 +233,39 @@
     return value === null ? null : { prompt: promptFromCard(card, value), files: [] };
   }
 
+  /**
+   * Put a count on the cards that have work waiting behind them ("2 waiting
+   * for your review"). The picker decides which cards those are and asks the
+   * same list it would show on the click.
+   */
+  function decorateCards(agentId, cards) {
+    const picker = window.portalCardPicker;
+    if (!picker || typeof picker.cardHint !== "function") return;
+    cards.forEach((card, index) => {
+      Promise.resolve(picker.cardHint(card, agentId))
+        .then((hint) => {
+          if (!hint || !hint.text || activeAgentId !== agentId) return;
+          const list = document.getElementById("message-list");
+          const button = list ? list.querySelector(`[data-starter-card="${index}"]`) : null;
+          if (!button || button.querySelector(".portal-starter-card-hint")) return;
+          const badge = document.createElement("span");
+          badge.className = `portal-starter-card-hint${hint.tone ? ` is-${hint.tone}` : ""}`;
+          badge.textContent = hint.text;
+          button.append(badge);
+        })
+        .catch(() => {
+          /* a count is a nicety; the card works without it */
+        });
+    });
+  }
+
   /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
   async function applyForAgent(agentId) {
     if (!agentId) return;
     const payload = await loadPersonalization(agentId);
     if (activeAgentId !== agentId) return;
     applyToWelcome(payload);
+    decorateCards(agentId, payload.cards);
   }
 
   // Fetched ahead of the paint so the greeting and the cards are already in

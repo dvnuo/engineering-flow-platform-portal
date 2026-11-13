@@ -21,7 +21,7 @@ class TTLCache:
     def __init__(self, max_entries: int = MAX_ENTRIES) -> None:
         self._max_entries = max_entries
         self._entries: dict[Hashable, tuple[float, Any]] = {}
-        self._inflight: dict[Hashable, asyncio.Future] = {}
+        self._inflight: dict[Hashable, asyncio.Future] = {}  # key -> the load under way
 
     @staticmethod
     def _now() -> float:
@@ -65,29 +65,29 @@ class TTLCache:
     ) -> Any:
         """The cached value, or the loader's, kept for ``ttl_of(value)`` seconds.
 
-        A loader that raises is not cached, and every caller waiting on it
-        sees the same exception.
+        The load runs as a task of its own, shared by everyone who asks for
+        the same key while it is under way. A caller that goes away (the
+        member closed the dialog, the browser dropped the request) therefore
+        takes nothing from the others: the load finishes and is cached. A
+        loader that raises is not cached, and every caller waiting on it sees
+        the same exception.
         """
         cached = self.get(key)
         if cached is not None:
             return cached
-        pending = self._inflight.get(key)
-        if pending is not None:
-            return await asyncio.shield(pending)
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._inflight[key] = future
+        task = self._inflight.get(key)
+        if task is None:
+            task = asyncio.ensure_future(self._load(key, loader, ttl_of))
+            # If every caller left before it failed, nobody reads the
+            # exception; reading it here keeps the loop from reporting it.
+            task.add_done_callback(lambda done: done.cancelled() or done.exception())
+            self._inflight[key] = task
+        return await asyncio.shield(task)
+
+    async def _load(self, key: Hashable, loader: Callable[[], Awaitable[Any]], ttl_of: Callable[[Any], float]) -> Any:
         try:
             value = await loader()
-        except BaseException as exc:
-            if not future.done():
-                future.set_exception(exc)
-                # Nobody may be waiting; do not let the loop log it as unretrieved.
-                future.exception()
-            raise
-        else:
             self.set(key, value, ttl_of(value))
-            if not future.done():
-                future.set_result(value)
             return value
         finally:
             self._inflight.pop(key, None)

@@ -7404,6 +7404,25 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   min-width: 0;
 }
 
+/* Work waiting behind a card ("2 waiting for your review"), from the same
+   list its picker shows (card_picker.js). */
+.portal-starter-card-hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.portal-starter-card-hint.is-danger {
+  background: color-mix(in srgb, var(--portal-danger) 12%, var(--portal-surface));
+  color: var(--portal-danger);
+}
+
 .portal-starter-card-copy strong {
   font-size: 0.88rem;
   color: var(--portal-text);

@@ -354,13 +354,19 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
       })
-      .then((body) => ({
-        state: String((body && body.state) || "ok"),
-        groups: Array.isArray(body && body.groups) ? body.groups : [],
-        connector: String((body && body.connector) || ""),
-        reason: String((body && body.reason) || ""),
-        identity: String((body && body.identity) || ""),
-      }))
+      .then((body) => {
+        const result = {
+          state: String((body && body.state) || "ok"),
+          groups: Array.isArray(body && body.groups) ? body.groups : [],
+          connector: String((body && body.connector) || ""),
+          reason: String((body && body.reason) || ""),
+          identity: String((body && body.identity) || ""),
+        };
+        // Only a list is worth remembering: a connector set up a moment ago,
+        // or a system that is back, should show on the next open.
+        if (result.state !== "ok") memo.delete(url);
+        return result;
+      })
       .catch(() => {
         memo.delete(url);
         return { state: "unavailable", groups: [], connector: "", reason: "error", identity: "" };
@@ -389,6 +395,38 @@
         recent: field.source === "ci.failed_builds" ? usedBefore.get(historyKeyFor(card, name)) : [],
       });
     });
+  }
+
+  // Two lists are worth a glance before the card is even opened: work that is
+  // waiting on the member. A card whose input names one of these sources gets
+  // a small count on it, short enough to sit beside the card's title on a
+  // narrow screen. That is all the "notification" there is: the same
+  // request the picker would make on the click, made a moment earlier, and at
+  // most these two per new chat.
+  const CARD_HINTS = {
+    "github.pull_requests": { group: "review_requested", tone: "accent", label: (n) => t("{n} to review", { n }) },
+    "ci.failed_builds": { group: "pr_checks", tone: "danger", label: (n) => t("{n} failed", { n }) },
+  };
+
+  /** `{ text, tone }` for a card that has work waiting behind it, else null. */
+  async function cardHint(card, agentId) {
+    const source = card && card.input ? card.input.source : "";
+    const rule = CARD_HINTS[source];
+    if (!rule) return null;
+    const sources = await loadSources();
+    const spec = sources.get(source);
+    if (!spec) return null;
+    // The same request the picker makes when the card is opened, so this is
+    // also what warms it.
+    const result = await fetchSuggestions(source, {
+      params: resolveParams(card.input.params, {}),
+      agentId: spec.uses_agent ? agentId : "",
+      recent: source === "ci.failed_builds" ? usedBefore.get(historyKeyFor(card, "input")) : [],
+    });
+    if (result.state !== "ok") return null;
+    const group = result.groups.find((entry) => entry.id === rule.group);
+    const count = group && Array.isArray(group.items) ? group.items.length : 0;
+    return count ? { text: rule.label(count), tone: rule.tone } : null;
   }
 
   const usedBefore = createHistory(typeof window !== "undefined" ? safeStorage() : null);
@@ -1049,6 +1087,7 @@
     showPicker,
     showCardForm,
     prefetchCard,
+    cardHint,
     loadSources,
     fetchSuggestions,
     createSuggestionList,

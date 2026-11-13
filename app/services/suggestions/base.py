@@ -10,6 +10,8 @@ stay on the display side and never reach the model through a picker.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -37,6 +39,22 @@ REQUEST_TIMEOUT_SECONDS = 4.0
 SOURCE_TIMEOUT_SECONDS = 8.0
 
 MAX_QUERY_CHARS = 200
+
+# httpx logs every request it sends, address and query string included. For a
+# picker that address carries what the member typed and who they are (a JQL
+# with their search words, their username), and none of that belongs in the
+# Portal's log. Requests made through ConnectorHttp are therefore left out of
+# httpx's own log; the source's outcome is logged once, without the query
+# (app/services/suggestions/__init__.py).
+_unlogged_request: contextvars.ContextVar[bool] = contextvars.ContextVar("suggestions_unlogged_request", default=False)
+
+
+class _UnloggedRequests(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _unlogged_request.get()
+
+
+logging.getLogger("httpx").addFilter(_UnloggedRequests())
 # A picker is a short list; a source that could return hundreds (every Jira
 # project, every path of a repository) is narrowed by typing, not by scrolling.
 MAX_ITEMS_PER_GROUP = 30
@@ -163,6 +181,7 @@ class ConnectorHttp:
         kwargs = connector_http.client_kwargs(choice, plan)
         if self.transport is not None:
             kwargs = {"transport": self.transport}
+        unlogged = _unlogged_request.set(True)
         try:
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False, **kwargs) as client:
                 response = await client.request(method, url, headers=headers, params=params, json=json_body)
@@ -172,6 +191,8 @@ class ConnectorHttp:
             if describe_verification_failure(exc, host=host or url):
                 raise SourceUnavailable("tls") from exc
             raise SourceUnavailable("unreachable") from exc
+        finally:
+            _unlogged_request.reset(unlogged)
 
         status = response.status_code
         if status == 429 or (status == 403 and response.headers.get("x-ratelimit-remaining") == "0"):
