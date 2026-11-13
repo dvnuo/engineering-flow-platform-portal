@@ -12218,24 +12218,28 @@ function hideSuggest() {
   state.suggestRequestSeq += 1;
 }
 
-function showSuggest(items, onPick) {
+// `preselect: false` opens the list with no row highlighted, for suggestions
+// the member did not ask for by name: Enter then still sends the message, and
+// only an arrow key moves into the list.
+function showSuggest(items, onPick, options = {}) {
   if (!dom.chatSuggest) return;
   if (!items.length) {
     hideSuggest();
     return;
   }
+  const preselect = options.preselect !== false;
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
     `<button type="button" data-i="${index}" class="portal-suggest-item${item.callable === false ? " is-blocked" : ""}" title="${escapeHtmlAttr(item.title || "")}"><div class="portal-suggest-title">${safe(item.label || item.title || "")}${item.callable === false ? ' <span class="portal-badge">' + t("blocked") + '</span>' : ""}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
-  state.selectedSuggestionIndex = 0;
+  state.selectedSuggestionIndex = preselect ? 0 : -1;
 
   const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
   buttons.forEach((button) => {
     button.addEventListener("click", () => onPick(items[Number(button.dataset.i)]));
   });
-  buttons[0]?.classList.add("is-active");
+  if (preselect) buttons[0]?.classList.add("is-active");
 }
 
 function moveSuggestionSelection(direction) {
@@ -12244,7 +12248,10 @@ function moveSuggestionSelection(direction) {
   if (!buttons.length) return;
 
   buttons.forEach((b) => b.classList.remove("is-active"));
-  state.selectedSuggestionIndex = (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
+  // Nothing highlighted yet: down enters at the top, up at the bottom.
+  state.selectedSuggestionIndex = state.selectedSuggestionIndex < 0
+    ? (direction > 0 ? 0 : buttons.length - 1)
+    : (state.selectedSuggestionIndex + direction + buttons.length) % buttons.length;
   const selected = buttons[state.selectedSuggestionIndex];
   selected.classList.add("is-active");
   selected.scrollIntoView({ block: "nearest" });
@@ -12254,9 +12261,52 @@ function pickCurrentSuggestion() {
   if (!dom.chatSuggest || dom.chatSuggest.classList.contains("hidden")) return false;
   const buttons = Array.from(dom.chatSuggest.querySelectorAll("button"));
   if (!buttons.length) return false;
-  const idx = Math.max(0, Math.min(state.selectedSuggestionIndex, buttons.length - 1));
+  // No row highlighted means the member is not choosing from the list.
+  if (state.selectedSuggestionIndex < 0) return false;
+  const idx = Math.min(state.selectedSuggestionIndex, buttons.length - 1);
   buttons[idx].click();
   return true;
+}
+
+// ===== references in the composer (#) =====
+// Typing "#" offers the member's own recent issues, pull requests and pages
+// from the same sources the starter-card pickers use (card_picker.js); a pick
+// replaces the "#..." with the item's identifier (a key or a link), so the
+// assistant is told exactly which one is meant. Sources whose connector is
+// off simply contribute nothing.
+const COMPOSER_REFERENCE_SOURCES = ["jira.issues", "github.pull_requests", "confluence.pages"];
+const COMPOSER_REFERENCE_PATTERN = /(^|\s)#([^\s#]{0,60})$/;
+const COMPOSER_REFERENCE_PER_SOURCE = 5;
+const COMPOSER_REFERENCE_SEARCH_DELAY_MS = 220;
+
+function composerReferenceToken(text, cursor) {
+  const match = String(text || "").slice(0, cursor).match(COMPOSER_REFERENCE_PATTERN);
+  if (!match) return null;
+  return { start: match.index + match[1].length, query: match[2] || "" };
+}
+
+function composerReferenceItems(results, query, picker) {
+  const items = [];
+  results.forEach((result) => {
+    if (!result || result.state !== "ok") return;
+    // A search answer is already narrowed; the recent lists are narrowed here.
+    const groups = query.length >= 2 ? result.groups : picker.filterGroups(result.groups, query);
+    picker.flatItems(groups).slice(0, COMPOSER_REFERENCE_PER_SOURCE).forEach((item) => {
+      const detail = [item.subtitle, item.badge].filter(Boolean).join(" - ");
+      items.push({ label: item.title || item.value, desc: detail, title: item.value, value: String(item.value) });
+    });
+  });
+  return items;
+}
+
+async function composerReferenceSuggestions(query) {
+  const picker = window.portalCardPicker;
+  if (!picker || typeof picker.fetchSuggestions !== "function") return [];
+  const known = await picker.loadSources();
+  const wanted = COMPOSER_REFERENCE_SOURCES.filter((id) => known.has(id));
+  if (!wanted.length) return [];
+  const results = await Promise.all(wanted.map((id) => picker.fetchSuggestions(id, { q: query.length >= 2 ? query : "" })));
+  return composerReferenceItems(results, query, picker);
 }
 
 // Fetch file preview and update pendingFile
@@ -12317,6 +12367,36 @@ async function maybeShowSuggest() {
       dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
       hideSuggest();
     });
+    return;
+  }
+
+  const reference = window.portalCardPicker ? composerReferenceToken(text, cursor) : null;
+  if (reference) {
+    // Let a burst of typing settle before asking; the first "#" asks at once.
+    if (reference.query) await new Promise((resolve) => setTimeout(resolve, COMPOSER_REFERENCE_SEARCH_DELAY_MS));
+    if (requestSeq !== state.suggestRequestSeq) return;
+    let items = [];
+    try {
+      items = await composerReferenceSuggestions(reference.query);
+    } catch {
+      items = [];
+    }
+    if (requestSeq !== state.suggestRequestSeq) return;
+    const nowCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+    if (!items.length || !composerReferenceToken(dom.chatInput.value, nowCursor)) {
+      hideSuggest();
+      return;
+    }
+    // The list is an offer, not a question: "fix #12" and Enter must still send.
+    showSuggest(items, (item) => {
+      const pickCursor = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+      const token = composerReferenceToken(dom.chatInput.value, pickCursor);
+      if (!token) return;
+      dom.chatInput.setRangeText(`${item.value} `, token.start, pickCursor, "end");
+      dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+      dom.chatInput.focus();
+      hideSuggest();
+    }, { preselect: false });
     return;
   }
 

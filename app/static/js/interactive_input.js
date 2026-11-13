@@ -128,8 +128,29 @@
         // The runtime defaults `custom` to true; only an explicit false closes
         // off free text, so a malformed entry stays answerable.
         custom: !(item && item.custom === false),
+        source: questionSource(item),
       }))
       .filter((item) => item.question);
+  }
+
+  /**
+   * The picker source a question names, if this page can offer it.
+   *
+   * The assistant may ask "which issue?" by naming a source instead of
+   * listing options (the runtime carries it in the question's metadata). The
+   * card then shows the member's own recent items, live, and the assistant
+   * spends no tool calls finding candidates first. The pick lands in the
+   * answer box, so a question that refuses free text cannot use one.
+   */
+  function questionSource(item) {
+    const meta = item && item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    const id = typeof meta.source === "string" ? meta.source.trim() : "";
+    if (!id || id.length > 64 || !/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/.test(id)) return null;
+    if (item.custom === false) return null;
+    const picker = window.portalCardPicker;
+    if (!picker || typeof picker.createSuggestionList !== "function") return null;
+    const params = meta.source_params && typeof meta.source_params === "object" ? meta.source_params : {};
+    return { id, params };
   }
 
   function hasLabel(option) {
@@ -180,7 +201,88 @@
     return `pii-q${index}-hint`;
   }
 
+  function sourcedQuestionMarkup(question, index) {
+    let params = "{}";
+    try {
+      params = JSON.stringify(question.source.params || {});
+    } catch (error) {
+      params = "{}";
+    }
+    return `
+    <fieldset class="portal-question-item" data-question-index="${index}">
+      ${question.header ? `<legend class="portal-question-header">${esc(question.header)}</legend>` : ""}
+      <p class="portal-question-text" id="${questionId(index)}">${esc(question.question)}</p>
+      <div class="portal-question-custom" data-question-custom>
+        <textarea class="portal-form-input portal-question-textarea" data-question-custom-input
+                  rows="1" placeholder="${t("Pick from the list, or type your answer")}"
+                  aria-labelledby="${questionId(index)}"></textarea>
+      </div>
+      <div class="portal-picker-list hidden" role="listbox" aria-labelledby="${questionId(index)}" data-picker-list
+           data-question-source="${esc(question.source.id)}" data-question-params="${esc(params)}"></div>
+      <p class="portal-picker-note hidden" data-picker-note></p>
+    </fieldset>`;
+  }
+
+  /**
+   * Fill the lists of the questions that name a source.
+   *
+   * A pick goes into the answer box, where it can be read and changed before
+   * it is sent: the card's Send button stays the one way to answer, the same
+   * as for a question with options.
+   */
+  function mountQuestionSources(row) {
+    const picker = window.portalCardPicker;
+    if (!picker || typeof picker.createSuggestionList !== "function") return;
+    row.querySelectorAll("[data-question-source]").forEach((listEl) => {
+      const fieldset = listEl.closest("[data-question-index]");
+      const input = fieldset ? fieldset.querySelector("[data-question-custom-input]") : null;
+      if (!input) return;
+      let params = {};
+      try {
+        params = JSON.parse(listEl.dataset.questionParams || "{}");
+      } catch (error) {
+        params = {};
+      }
+      const list = picker.createSuggestionList({
+        listEl,
+        noteEl: fieldset.querySelector("[data-picker-note]"),
+        inputEl: input,
+        idPrefix: `${CARD_ID}-q${fieldset.dataset.questionIndex}`,
+        source: listEl.dataset.questionSource,
+        params: picker.resolveParams(params, {}),
+        agentId: agentId() || "",
+        onPick: (item) => {
+          input.value = String(item.value);
+          list.clearActive();
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.focus();
+        },
+      });
+      input.addEventListener("input", () => list.setQuery(input.value));
+      input.addEventListener("keydown", (browserEvent) => {
+        if (browserEvent.key === "ArrowDown") {
+          browserEvent.preventDefault();
+          list.move(1);
+        } else if (browserEvent.key === "ArrowUp") {
+          browserEvent.preventDefault();
+          list.move(-1);
+        } else if (browserEvent.key === "Enter" && !browserEvent.shiftKey && list.activeItem()) {
+          // Enter on a highlighted row takes the row; without one it sends
+          // the answer, which the card's own handler does.
+          browserEvent.preventDefault();
+          browserEvent.stopPropagation();
+          const item = list.activeItem();
+          input.value = String(item.value);
+          list.clearActive();
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
+      list.load();
+    });
+  }
+
   function questionMarkup(question, index) {
+    if (question.source) return sourcedQuestionMarkup(question, index);
     const options = optionMarkup(question, index);
     // One option is not a choice. Models reach for it to label a free-text
     // answer -- "Provide ticket details" with the real instructions in the
@@ -489,6 +591,10 @@
     state.kind = "question";
     state.session = forSessionId || sessionId();
     mountCard(markup);
+    // Only a question can name a source; its lists are filled once the card
+    // is on the page.
+    const card = document.getElementById(CARD_ID);
+    if (card) mountQuestionSources(card);
     restoreAnswers();
   }
 

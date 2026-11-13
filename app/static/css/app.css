@@ -6160,6 +6160,135 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-dialog, .portal-dialog-card { transition: none; }
 }
 
+/* Starter card picker and form (card_picker.js). The dialog is the styled
+   prompt above with a list under its text box: the member's recent work from
+   the source a card names, and the values they used with the card before.
+   Two classes on the card, to outrank the dialog card's own width. */
+.portal-dialog-card.portal-picker-dialog { width: min(560px, calc(100vw - 2rem)); }
+.portal-picker-label { display: block; margin: 12px 0 6px; font-size: 13px; font-weight: 500; color: var(--portal-text-secondary); }
+.portal-picker-optional { font-weight: 400; color: var(--portal-text-muted); }
+.portal-picker-dialog .portal-picker-input,
+.portal-picker-dialog .portal-picker-textarea { width: 100%; }
+.portal-picker-textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+.portal-picker-list {
+  margin-top: 8px;
+  max-height: min(320px, 44vh);
+  /* Rows fit the list or are cut short; the list never scrolls sideways. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  background: var(--portal-surface-muted);
+}
+.portal-picker-list.is-inline { max-height: min(200px, 30vh); }
+.portal-picker-group + .portal-picker-group { margin-top: 6px; }
+.portal-picker-group-label { padding: 6px 10px 4px; font-size: 12px; line-height: 1.4; color: var(--portal-text-muted); }
+.portal-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--portal-text);
+  cursor: pointer;
+}
+.portal-picker-row.is-active { background: var(--portal-accent-soft); }
+.portal-picker-row-main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+/* A long summary gets a second line before it is cut: one line of an issue's
+   summary is often not enough to tell it from its neighbours. A link or any
+   other text without spaces breaks wherever it has to. */
+.portal-picker-row-title,
+.portal-picker-row-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.portal-picker-row-title { font-weight: 500; }
+.portal-picker-row-sub { font-size: 12px; color: var(--portal-text-muted); }
+/* Never shrunk in step with the text beside it (a long summary would squeeze
+   it until the time fell out of the row); only capped, and then its badge
+   gives way. */
+.portal-picker-row-side { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 0; max-width: 60%; }
+.portal-picker-row-meta { flex: 0 0 auto; font-size: 12px; color: var(--portal-text-muted); white-space: nowrap; }
+.portal-picker-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 26ch;
+  overflow: hidden;
+  padding: 1px 8px;
+  border: 1px solid var(--portal-border);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--portal-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portal-picker-badge.is-accent { border-color: transparent; background: var(--portal-accent-soft); color: var(--portal-accent-strong); }
+.portal-picker-badge.is-danger {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--portal-danger) 12%, var(--portal-surface));
+  color: var(--portal-danger);
+}
+.portal-picker-badge.is-warning {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--portal-warning) 14%, var(--portal-surface));
+  color: var(--portal-warning);
+}
+.portal-picker-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--portal-text-muted); }
+.portal-picker-connect { margin-top: 4px; padding: 0; border: 0; background: none; font-size: 12px; cursor: pointer; }
+.portal-picker-loading span {
+  display: block;
+  height: 34px;
+  margin: 4px;
+  border-radius: 8px;
+  background: var(--portal-surface-soft);
+  animation: portal-picker-pulse 1.2s ease-in-out infinite;
+}
+@keyframes portal-picker-pulse {
+  50% { opacity: .5; }
+}
+/* One column that is exactly as wide as the dialog. Left to size itself, a
+   grid column grows to its longest unbroken row and the form scrolls
+   sideways. */
+.portal-picker-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  max-height: min(62vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 2px 2px;
+}
+.portal-picker-field { min-width: 0; }
+.portal-picker-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.portal-picker-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--portal-text);
+  cursor: pointer;
+}
+.portal-picker-choice:has(input:checked) { border-color: var(--portal-accent); background: var(--portal-accent-soft); }
+.portal-picker-choice:has(input:focus-visible) { outline: 2px solid var(--portal-accent); outline-offset: 1px; }
+.portal-picker-choice input { margin: 0; accent-color: var(--portal-accent); }
+.portal-picker-file { max-width: 100%; font-size: 13px; color: var(--portal-text-secondary); }
+.portal-picker-field.is-invalid .portal-form-input,
+.portal-picker-field.is-invalid .portal-picker-choice { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 40%); }
+@media (prefers-reduced-motion: reduce) {
+  .portal-picker-loading span { animation: none; }
+}
+
 /* Toast variants (default remains success-tinted) */
 .portal-toast-inner.is-error {
   border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 65%);
@@ -7301,6 +7430,25 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* Work waiting behind a card ("2 waiting for your review"), from the same
+   list its picker shows (card_picker.js). */
+.portal-starter-card-hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.portal-starter-card-hint.is-danger {
+  background: color-mix(in srgb, var(--portal-danger) 12%, var(--portal-surface));
+  color: var(--portal-danger);
 }
 
 .portal-starter-card-copy strong {

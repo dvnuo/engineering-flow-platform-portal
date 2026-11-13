@@ -7,6 +7,7 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT
+from app.services import connector_http
 from app.services.ai_platform_config import materialize_ai_platform_llm_config
 from app.services.proxy_plan import (
     DEFAULT_NO_PROXY,
@@ -73,19 +74,11 @@ class RuntimeProfileTestService:
         command carries no --instance. A disabled default is skipped, since
         the assistant could not use it either.
         """
-        instances = [item for item in (section_cfg.get("instances") or []) if isinstance(item, dict)]
-        usable = [item for item in instances if item.get("enabled") is not False]
-        wanted = str(section_cfg.get("default_instance") or "").strip().lower()
-        if wanted:
-            for item in usable:
-                if str(item.get("name") or "").strip().lower() == wanted:
-                    return item
-        return usable[0] if usable else (instances[0] if instances else None)
+        return connector_http.default_instance(section_cfg)
 
     @staticmethod
     def _basic_auth_header(username: str, secret: str) -> dict:
-        encoded = base64.b64encode(f"{username}:{secret}".encode("utf-8")).decode("ascii")
-        return {"Authorization": f"Basic {encoded}"}
+        return connector_http.basic_auth_header(username, secret)
 
     # ------------------------------------------------------------------
     # Egress: along the path the runtime's tool would take
@@ -95,9 +88,9 @@ class RuntimeProfileTestService:
     def _egress(config: dict, connector: str, host: str, instance_setting: str | None = None) -> tuple[ProxyChoice, ProxyPlan]:
         """Where the runtime's connection from ``connector`` to ``host`` leaves:
         the proxy the Proxy connector assigns it (or the default), or a direct
-        connection; see app/services/proxy_plan.py."""
-        plan = build_proxy_plan(config.get("proxy") if isinstance(config.get("proxy"), dict) else {})
-        return plan.egress(connector, host=host, instance_setting=instance_setting), plan
+        connection; see app/services/proxy_plan.py. Shared with the starter-card
+        pickers (app/services/connector_http.py), so they leave the same way."""
+        return connector_http.egress(config, connector, host, instance_setting)
 
     @staticmethod
     def _no_proxy_exempts(host: str, no_proxy) -> bool:
@@ -116,11 +109,7 @@ class RuntimeProfileTestService:
         store, certifi, PORTAL_CA_BUNDLE), so ``trust_env=False`` changes the
         path and not what is trusted.
         """
-        if choice.kind == KIND_PROXY:
-            return {"proxy": choice.proxy_url, "trust_env": False, "verify": trust_context()}
-        if choice.kind == KIND_NONE and plan.configured:
-            return {"trust_env": False, "verify": trust_context()}
-        return {"verify": trust_context()}
+        return connector_http.client_kwargs(choice, plan)
 
     @staticmethod
     def _path_text(choice: ProxyChoice, connector_label: str) -> str:
@@ -614,34 +603,11 @@ class RuntimeProfileTestService:
 
     @staticmethod
     def _first_auth_instance(instances: list) -> dict | None:
-        for item in instances:
-            if not isinstance(item, dict):
-                continue
-            url = str(item.get("url") or "").strip()
-            token = str(item.get("token") or "").strip()
-            username = str(item.get("username") or "").strip()
-            password = str(item.get("password") or "").strip()
-            has_username_token = bool(username and token)
-            has_token_only = bool(token and not username)
-            has_username_password = bool(username and password)
-            if url and (has_username_token or has_token_only or has_username_password):
-                return item
-        return None
+        return connector_http.first_auth_instance(instances)
 
     @staticmethod
     def _build_auth(instance: dict) -> dict:
-        username = str(instance.get("username") or "").strip()
-        token = str(instance.get("token") or "").strip()
-        if username and token:
-            encoded = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
-            return {"Authorization": f"Basic {encoded}"}
-        if token:
-            return {"Authorization": f"Bearer {token}"}
-        password = str(instance.get("password") or "").strip()
-        if username and password:
-            encoded = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-            return {"Authorization": f"Basic {encoded}"}
-        return {}
+        return connector_http.instance_auth_headers(instance)
 
     async def _http_json_smoke(
         self,

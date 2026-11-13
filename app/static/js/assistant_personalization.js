@@ -10,6 +10,12 @@
  * asks for it in a dialog the member confirms, and the composed prompt lands in
  * the transcript where it can be read and edited -- so a second trip to the
  * Send button only added a step between deciding and starting.
+ *
+ * The dialog is a picker when card_picker.js is on the page: a card names a
+ * source (input.source) and the member picks from their own recent work
+ * instead of typing, or the card lists several fields and gets a form. Without
+ * that script, or for a source this Portal does not have, it is the one-line
+ * prompt it always was.
  */
 (function () {
   "use strict";
@@ -45,7 +51,9 @@
     // including after the assistant had been woken and could have answered.
     let settled = false;
     try {
-      const response = await fetch(`/a/${encodeURIComponent(agentId)}/api/personalization`);
+      // v=2 asks for cards with several fields too; a runtime that predates
+      // them ignores the parameter and answers with the cards it knows.
+      const response = await fetch(`/a/${encodeURIComponent(agentId)}/api/personalization?v=2`);
       if (response.ok) {
         const parsed = await response.json();
         if (parsed && typeof parsed === "object") {
@@ -186,12 +194,78 @@
     return answer === null || !String(answer).trim() ? null : String(answer).trim();
   }
 
+  function isFormCard(card) {
+    return Boolean(card && Array.isArray(card.fields) && card.fields.length && card.template);
+  }
+
+  /**
+   * What a clicked card sends: `{ prompt, files }`, or null when the member
+   * cancelled (or the card cannot be answered on this page).
+   */
+  async function answerCard(card, agentId) {
+    if (isFormCard(card) && typeof window.showCardForm === "function") {
+      const answer = await window.showCardForm(card, { agentId });
+      return answer ? { prompt: answer.prompt, files: answer.files || [] } : null;
+    }
+    if (!card.input) {
+      // A card that only has fields cannot be asked here; one with a plain
+      // prompt needs nothing asked.
+      const prompt = promptFromCard(card, "");
+      return prompt ? { prompt, files: [] } : null;
+    }
+    if (typeof window.showPicker === "function") {
+      const picker = window.portalCardPicker;
+      const answer = await window.showPicker({
+        title: card.title || t("Start this"),
+        label: card.input.label || t("Details"),
+        placeholder: card.input.placeholder || "",
+        source: card.input.source || "",
+        params: card.input.params || {},
+        multiline: card.input.multiline === true,
+        agentId,
+        historyKey: picker && typeof picker.historyKeyFor === "function" ? picker.historyKeyFor(card, "input") : "",
+      });
+      return answer ? { prompt: promptFromCard(card, answer.value), files: [] } : null;
+    }
+    const value = await askForCardInput(card);
+    // Cancelled: leave the composer alone rather than filling it with a
+    // half-formed prompt the member did not ask for.
+    return value === null ? null : { prompt: promptFromCard(card, value), files: [] };
+  }
+
+  /**
+   * Put a count on the cards that have work waiting behind them ("2 waiting
+   * for your review"). The picker decides which cards those are and asks the
+   * same list it would show on the click.
+   */
+  function decorateCards(agentId, cards) {
+    const picker = window.portalCardPicker;
+    if (!picker || typeof picker.cardHint !== "function") return;
+    cards.forEach((card, index) => {
+      Promise.resolve(picker.cardHint(card, agentId))
+        .then((hint) => {
+          if (!hint || !hint.text || activeAgentId !== agentId) return;
+          const list = document.getElementById("message-list");
+          const button = list ? list.querySelector(`[data-starter-card="${index}"]`) : null;
+          if (!button || button.querySelector(".portal-starter-card-hint")) return;
+          const badge = document.createElement("span");
+          badge.className = `portal-starter-card-hint${hint.tone ? ` is-${hint.tone}` : ""}`;
+          badge.textContent = hint.text;
+          button.append(badge);
+        })
+        .catch(() => {
+          /* a count is a nicety; the card works without it */
+        });
+    });
+  }
+
   /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
   async function applyForAgent(agentId) {
     if (!agentId) return;
     const payload = await loadPersonalization(agentId);
     if (activeAgentId !== agentId) return;
     applyToWelcome(payload);
+    decorateCards(agentId, payload.cards);
   }
 
   // Fetched ahead of the paint so the greeting and the cards are already in
@@ -224,17 +298,34 @@
       const card = cards[Number(button.dataset.starterCard)];
       if (!card) return;
 
-      let value = "";
-      if (card.input) {
-        const answer = await askForCardInput(card);
-        // Cancelled: leave the composer alone rather than filling it with a
-        // half-formed prompt the member did not ask for.
-        if (answer === null) return;
-        value = answer;
+      const agentId = activeAgentId;
+      const answer = await answerCard(card, agentId);
+      // Cancelled, or the member moved to another assistant while the dialog
+      // was open: nothing is sent.
+      if (!answer || !answer.prompt || activeAgentId !== agentId) return;
+      if (answer.files.length && typeof window.addPendingFilesAndUpload === "function") {
+        // A file a card asked for travels as an attachment of the message,
+        // the same way a file dropped on the composer does.
+        await window.addPendingFilesAndUpload(answer.files);
       }
-      fillComposer(promptFromCard(card, value));
+      fillComposer(answer.prompt);
       sendComposer();
     });
+
+    // Warm a card's list while the pointer is on its way to the click, so
+    // the picker usually opens with the rows already there.
+    const warm = (browserEvent) => {
+      const target = browserEvent.target;
+      const button = target && typeof target.closest === "function" ? target.closest("[data-starter-card]") : null;
+      const picker = window.portalCardPicker;
+      if (!button || !activeAgentId || !picker || typeof picker.prefetchCard !== "function") return;
+      const cards = (cache.get(activeAgentId) || {}).cards || [];
+      const card = cards[Number(button.dataset.starterCard)];
+      if (card) picker.prefetchCard(card, activeAgentId);
+    };
+    const list = document.getElementById("message-list");
+    list?.addEventListener("mouseover", warm);
+    list?.addEventListener("focusin", warm);
   }
 
   if (document.readyState === "loading") {

@@ -132,8 +132,14 @@ def test_cancelling_leaves_the_composer_alone():
     handler = js[js.index('document.getElementById("message-list")?.addEventListener("click"') :]
     handler = handler[: handler.index("\n    });")]
 
-    assert "await askForCardInput(card)" in handler, "the dialog is async now"
-    assert "if (answer === null) return;" in handler
+    assert "await answerCard(card, agentId)" in handler, "the dialog is async now"
+    assert "if (!answer || !answer.prompt || activeAgentId !== agentId) return;" in handler
+    # Whichever dialog asked -- the picker, the form, or the one-line prompt --
+    # a cancel comes back as null and never as an empty value.
+    answer = _extract_js_function(js, "answerCard")
+    assert "await askForCardInput(card)" in answer
+    assert "return value === null ? null :" in answer
+    assert "return answer ? { prompt: promptFromCard(card, answer.value), files: [] } : null;" in answer
 
 
 def test_the_dialog_module_loads_before_this_script():
