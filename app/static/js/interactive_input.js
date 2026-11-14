@@ -121,15 +121,22 @@
   function normalizeQuestions(request) {
     const raw = request && Array.isArray(request.questions) ? request.questions : [];
     return raw
-      .map((item) => ({
-        question: String(item && item.question ? item.question : "").trim(),
-        header: String(item && item.header ? item.header : "").trim(),
-        options: Array.isArray(item && item.options) ? item.options : [],
+      .map((item) => {
+        const options = Array.isArray(item && item.options) ? item.options : [];
         // The runtime defaults `custom` to true; only an explicit false closes
-        // off free text, so a malformed entry stays answerable.
-        custom: !(item && item.custom === false),
-        source: questionSource(item),
-      }))
+        // off free text, so a malformed entry stays answerable. And it closes
+        // it off only while there is an option to pick instead: a question
+        // with neither a labelled option nor a box drew as its words alone,
+        // and "Send answer" could only repeat that a question was still open.
+        const custom = !(item && item.custom === false) || !options.some(hasLabel);
+        return {
+          question: String(item && item.question ? item.question : "").trim(),
+          header: String(item && item.header ? item.header : "").trim(),
+          options,
+          custom,
+          source: questionSource(item, custom),
+        };
+      })
       .filter((item) => item.question);
   }
 
@@ -141,12 +148,14 @@
    * card then shows the member's own recent items, live, and the assistant
    * spends no tool calls finding candidates first. The pick lands in the
    * answer box, so a question that refuses free text cannot use one.
+   * `custom` is the box as `normalizeQuestions` settled it, which keeps it
+   * for a question that has no options to fall back on.
    */
-  function questionSource(item) {
+  function questionSource(item, custom) {
     const meta = item && item.metadata && typeof item.metadata === "object" ? item.metadata : {};
     const id = typeof meta.source === "string" ? meta.source.trim() : "";
     if (!id || id.length > 64 || !/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/.test(id)) return null;
-    if (item.custom === false) return null;
+    if (!custom) return null;
     const picker = window.portalCardPicker;
     if (!picker || typeof picker.createSuggestionList !== "function") return null;
     const params = meta.source_params && typeof meta.source_params === "object" ? meta.source_params : {};
@@ -611,7 +620,7 @@
 
   function collectAnswers(form) {
     const answers = [];
-    const fieldsets = form.querySelectorAll("[data-question-index]");
+    const fieldsets = Array.from(form.querySelectorAll("[data-question-index]"));
     for (const fieldset of fieldsets) {
       const custom = fieldset.querySelector("[data-question-custom-input]");
       const customValue = custom && !custom.disabled ? String(custom.value || "").trim() : "";
@@ -624,9 +633,41 @@
         answers.push(checked.value);
         continue;
       }
-      return { error: t("Answer every question before sending.") };
+      return { error: unansweredMessage(fieldset, fieldsets.length), unanswered: fieldset };
     }
     return { answers };
+  }
+
+  /**
+   * Which question is still open, in words.
+   *
+   * The questions scroll inside the card, so with several of them the open
+   * one is often below the fold: the member had answered everything in sight,
+   * and "answer every question" named nothing to go and look for.
+   */
+  function unansweredMessage(fieldset, total) {
+    const asked = String(fieldset.querySelector(".portal-question-text")?.textContent || "").trim();
+    if (total < 2 || !asked) return t("Answer every question before sending.");
+    return t("Still to answer: “{asked}”", { asked });
+  }
+
+  function clearUnansweredMark(scope) {
+    scope?.querySelectorAll?.(".is-unanswered").forEach((item) => item.classList.remove("is-unanswered"));
+  }
+
+  /** Bring the open question into view, mark it, and put the caret in it. */
+  function revealUnanswered(form, fieldset) {
+    clearUnansweredMark(form);
+    if (!fieldset) return;
+    fieldset.classList?.add("is-unanswered");
+    // "nearest" moves the card's own scroll, and the transcript's, only as far
+    // as it takes to see the question; one already in view stays put.
+    if (typeof fieldset.scrollIntoView === "function") fieldset.scrollIntoView({ block: "nearest" });
+    const control =
+      fieldset.querySelector('input[type="radio"]')
+      || fieldset.querySelector("[data-question-custom-input]:not([disabled])")
+      || fieldset.querySelector("[data-question-other-toggle]");
+    if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
   }
 
   /**
@@ -691,7 +732,11 @@
     // The composer supplies its own answer: it is one line for a card that may
     // have several fields, or none it could have typed into.
     const collected = override || collectAnswers(form);
-    if (collected.error) return setMessage(form, "error", collected.error);
+    if (collected.error) {
+      revealUnanswered(form, collected.unanswered);
+      return setMessage(form, "error", collected.error);
+    }
+    clearUnansweredMark(form);
     const questions = normalizeQuestions(state.pending);
 
     setBusy(form, true);
@@ -816,7 +861,15 @@
 
     state.checking = true;
     try {
-      applyPendingInput(await fetchPendingInput());
+      const payload = await fetchPendingInput();
+      // No reply is not the reply "nothing is pending". A read that failed (a
+      // dropped connection, a gateway error while the assistant restarts) used
+      // to be applied as if it were, which took the card down with the
+      // question still open: the composer went back to sending ordinary
+      // messages, the runtime answered the next one by asking again, and the
+      // message never reached the model. What is on screen stays until a read
+      // that succeeds says otherwise.
+      if (payload) applyPendingInput(payload);
     } finally {
       state.checking = false;
     }
@@ -886,9 +939,11 @@
       return { acceptsText: false, reason: t("Approve or reject the tool above to continue.") };
     }
     // Every question can be answered in words. The runtime takes a shorter
-    // answers array than there are questions and reports the rest as
-    // unanswered, and it does not enforce `custom: false` -- that is how the
-    // card chooses to render, not a rule about what the member may say.
+    // answers array than there are questions as a reply in the member's own
+    // words, for the assistant to read against all of them (an older runtime
+    // reports the rest as unanswered), and it does not enforce
+    // `custom: false` -- that is how the card chooses to render, not a rule
+    // about what the member may say.
     const questions = normalizeQuestions(state.pending);
     // Named, because typing into the composer puts the card away -- and an
     // answer box with the question out of sight is a guessing game.
@@ -1058,6 +1113,7 @@
         fieldset?.querySelectorAll('input[type="radio"]').forEach((radio) => {
           radio.checked = false;
         });
+        fieldset?.classList.remove("is-unanswered");
         return;
       }
 
@@ -1071,6 +1127,8 @@
     list.addEventListener("input", (browserEvent) => {
       if (!browserEvent.target.closest(`#${CARD_ID}`)) return;
       autosizeAnswerBox(browserEvent.target.closest("[data-question-custom-input]"));
+      // Being answered now: it is no longer the question that was left open.
+      browserEvent.target.closest("[data-question-index]")?.classList.remove("is-unanswered");
       snapshotAnswers();
     });
 
@@ -1097,6 +1155,7 @@
       const fieldset = radio.closest("[data-question-index]");
       const input = fieldset?.querySelector("[data-question-custom-input]");
       if (input && !input.disabled) input.value = "";
+      fieldset?.classList.remove("is-unanswered");
       snapshotAnswers();
     });
   }
