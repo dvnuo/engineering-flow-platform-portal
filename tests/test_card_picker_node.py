@@ -708,3 +708,26 @@ out = {
     assert out["bottom"]["bottom"] == 104 and out["bottom"]["maxHeight"] == 280
     # No room either way: it opens where there is more, and never thinner than it can be read.
     assert out["cramped"]["up"] is False and out["cramped"]["maxHeight"] == 120
+
+
+def test_a_fields_list_waits_to_be_asked_for():
+    # The dialog puts the focus in its first field as it opens. A list that
+    # opened with the focus lay over the fields under it before the member
+    # had read the form.
+    source = PICKER.read_text(encoding="utf-8")
+    form = source.split("function showCardForm(", 1)[1].split("const api = {", 1)[0]
+    assert 'addEventListener("focus"' not in form
+    # Asked for: a click in the field, typing in it, an arrow key.
+    assert 'control.input.addEventListener("click", () => showList(field.name));' in form
+    typing = form.split('control.input.addEventListener("input", () => {', 1)[1].split("});", 1)[0]
+    assert "showList(field.name);" in typing
+    arrows = form.split('if (event.key === "ArrowDown" || event.key === "ArrowUp") {', 1)[1].split("} else if", 1)[0]
+    assert arrows.index("showList(field.name);") < arrows.index("control.list.move(")
+    # Rows or a note that arrive later open nothing by themselves.
+    assert "const follow = () => showList(openField);" in form
+    assert "document.activeElement" not in form
+    # The lists are still read as the dialog opens, ready for the first click.
+    assert "control.list.load();" in form
+    # A list that closes forgets the row marked in it: Enter in the field then
+    # sends the form instead of taking a row nobody can see.
+    assert "if (!open && isOpen(control)) control.list.clearActive();" in form
