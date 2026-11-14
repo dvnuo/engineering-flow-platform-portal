@@ -474,6 +474,16 @@
     let timer = null;
     let destroyed = false;
     let busy = false;
+    // A list that keeps its place is never taken away while its dialog is
+    // open: with nothing to list it says so, in the room the rows had.
+    let steady = Boolean(config.steady);
+
+    function emptyMarkup() {
+      const text = query
+        ? t("No matches. Press Enter to use what you typed.")
+        : t("Nothing to suggest yet. Type what you need.");
+      return `<div class="portal-picker-empty">${esc(text)}</div>`;
+    }
 
     function requestOptions(q) {
       return {
@@ -546,8 +556,9 @@
             }${body}</div>`;
           })
           .join("") +
-        (loading ? `<div class="portal-picker-loading" aria-hidden="true"><span></span><span></span><span></span></div>` : "");
-      if (!config.inline) listEl.classList.toggle("hidden", !rows.length && !loading);
+        (loading ? `<div class="portal-picker-loading" aria-hidden="true"><span></span><span></span><span></span></div>` : "") +
+        (steady && !loading && !rows.length ? emptyMarkup() : "");
+      if (!config.inline) listEl.classList.toggle("hidden", !steady && !rows.length && !loading);
       listEl.setAttribute("aria-busy", loading ? "true" : "false");
       setActive(-1);
       if (typeof config.onRender === "function") config.onRender(rows.length);
@@ -648,6 +659,15 @@
       },
       isLoading() {
         return busy;
+      },
+      /**
+       * Hold the list at the height it has now. For a list that can only get
+       * shorter from here (values used before, filtered as the member
+       * types): the dialog must not shrink around the box being typed in.
+       */
+      keepSize() {
+        steady = true;
+        listEl.style.height = `${listEl.offsetHeight}px`;
       },
       destroy() {
         destroyed = true;
@@ -756,6 +776,10 @@
   function showPicker(options) {
     const opts = options || {};
     const multiline = Boolean(opts.multiline) && !opts.source;
+    // A source means a list that loads, filters and may come back empty. The
+    // dialog is a frame of one height from the start and the list is the
+    // part of it that gives: nothing the list does moves the dialog.
+    const framed = Boolean(opts.source);
     const shell = openShell(
       opts.title || t("Start this"),
       (id) =>
@@ -766,9 +790,10 @@
           : `<input id="${id}-input" type="text" class="portal-form-input portal-picker-input" autocomplete="off" ` +
             `spellcheck="false" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="${id}-list" ` +
             `placeholder="${esc(opts.placeholder || "")}" />`) +
-        `<div class="portal-picker-list hidden" id="${id}-list" role="listbox" aria-label="${esc(opts.label || t("Details"))}" data-picker-list></div>` +
+        `<div class="portal-picker-list${framed ? "" : " hidden"}" id="${id}-list" role="listbox" aria-label="${esc(opts.label || t("Details"))}" data-picker-list></div>` +
         noteMarkup(id),
-      opts.confirmText || t("Continue")
+      opts.confirmText || t("Continue"),
+      framed ? "has-list" : ""
     );
     const input = shell.root.querySelector(".portal-picker-input");
     const connectEl = shell.root.querySelector("[data-picker-connect]");
@@ -784,6 +809,7 @@
         params: resolveParams(opts.params, {}),
         agentId: opts.agentId || "",
         historyKey: opts.historyKey || "",
+        steady: framed,
         onPick: (item) => finish({ value: String(item.value), item }),
         onState: (result) => connectEl.classList.toggle("hidden", result.state !== "not_configured"),
       });
@@ -839,11 +865,39 @@
       });
 
       list.load();
+      // Without a source the list is the values used before, drawn by now:
+      // typing can only shorten it, so it keeps the height it opened with.
+      if (!framed && list.count()) list.keepSize();
       window.requestAnimationFrame(() => input.focus());
     });
   }
 
   // ------------------------------------------------------------------- form
+
+  // The tallest a field's list gets, and the least room it is opened in.
+  const POP_MAX_HEIGHT = 280;
+  const POP_MIN_HEIGHT = 120;
+  const POP_GAP = 4;
+  const POP_EDGE = 12;
+
+  /**
+   * Where a field's list goes: under its input, or above it when there is
+   * too little room below and more above. Pure, for the tests.
+   */
+  function popPlacement(rect, viewportHeight) {
+    const below = viewportHeight - rect.bottom - POP_GAP - POP_EDGE;
+    const above = rect.top - POP_GAP - POP_EDGE;
+    const up = below < POP_MIN_HEIGHT && above > below;
+    const room = Math.max(POP_MIN_HEIGHT, Math.min(POP_MAX_HEIGHT, up ? above : below));
+    return {
+      up,
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      maxHeight: Math.round(room),
+      top: up ? null : Math.round(rect.bottom + POP_GAP),
+      bottom: up ? Math.round(viewportHeight - rect.top + POP_GAP) : null,
+    };
+  }
 
   function optionList(field) {
     return (Array.isArray(field.options) ? field.options : [])
@@ -893,8 +947,13 @@
         `<input id="${inputId}" type="text" class="portal-form-input portal-picker-input" autocomplete="off" spellcheck="false" ` +
         `role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="${inputId}-list" ` +
         `placeholder="${esc(field.placeholder || "")}" value="${esc(defaultValues(field)[0] || "")}" />` +
-        `<div class="portal-picker-list is-inline hidden" id="${inputId}-list" role="listbox" aria-label="${esc(field.label || field.name)}" data-picker-list></div>` +
-        `<p class="portal-picker-note hidden" data-picker-note></p>`;
+        // The list and its note open over the form (see showCardForm): a
+        // list in the flow of the form would push the fields under it away
+        // and change the height of the dialog with every field.
+        `<div class="portal-picker-pop hidden" data-picker-pop>` +
+        `<div class="portal-picker-list is-inline" id="${inputId}-list" role="listbox" aria-label="${esc(field.label || field.name)}" data-picker-list></div>` +
+        `<p class="portal-picker-note hidden" data-picker-note></p>` +
+        `</div>`;
     }
     return `<div class="portal-picker-field" data-picker-field="${esc(field.name)}">${label}${control}</div>`;
   }
@@ -923,6 +982,7 @@
         if (settled) return;
         settled = true;
         controls.forEach((control) => control.list && control.list.destroy());
+        window.removeEventListener("resize", placeOpen);
         shell.close();
         resolve(result);
       }
@@ -977,16 +1037,46 @@
       }
 
       let openField = "";
+      // Escape closed the open list: it stays closed, whatever arrives for
+      // it, until the member types, clicks or arrows into the field again.
+      let dismissed = false;
+
+      function place(control) {
+        const spot = popPlacement(control.input.getBoundingClientRect(), window.innerHeight);
+        const style = control.popEl.style;
+        style.left = `${spot.left}px`;
+        style.width = `${spot.width}px`;
+        style.maxHeight = `${spot.maxHeight}px`;
+        style.top = spot.up ? "auto" : `${spot.top}px`;
+        style.bottom = spot.up ? `${spot.bottom}px` : "auto";
+      }
+
+      function isOpen(control) {
+        return Boolean(control && control.popEl && !control.popEl.classList.contains("hidden"));
+      }
+
+      function placeOpen() {
+        const control = controls.get(openField);
+        if (isOpen(control)) place(control);
+      }
 
       function showList(name) {
         openField = name;
         controls.forEach((control, other) => {
-          if (!control.listEl) return;
-          // Open while it loads too, so the wait is visible where the rows will be.
-          const open = other === name && control.list && (control.list.count() > 0 || control.list.isLoading());
-          control.listEl.classList.toggle("hidden", !open);
+          if (!control.popEl) return;
+          // Open while it loads too, so the wait is visible where the rows
+          // will be; and for a note alone, which says why there are none.
+          const noted = !control.noteEl.classList.contains("hidden");
+          const open = other === name && control.list && (control.list.count() > 0 || control.list.isLoading() || noted);
+          control.popEl.classList.toggle("hidden", !open);
           control.input.setAttribute("aria-expanded", open ? "true" : "false");
+          if (open) place(control);
         });
+      }
+
+      function wake(name) {
+        dismissed = false;
+        showList(name);
       }
 
       function submit() {
@@ -1012,7 +1102,7 @@
 
       fields.forEach((field) => {
         const el = shell.root.querySelector(`[data-picker-field="${field.name}"]`);
-        const control = { el, input: null, list: null, listEl: null, touched: false, filled: "", depends: [] };
+        const control = { el, input: null, list: null, listEl: null, popEl: null, noteEl: null, touched: false, filled: "", depends: [] };
         controls.set(field.name, control);
         el.addEventListener("input", () => el.classList.remove("is-invalid"));
         el.addEventListener("change", () => {
@@ -1023,11 +1113,24 @@
         control.input = el.querySelector("input, textarea");
         if (field.type === "file" || field.type === "textarea") return;
 
-        control.listEl = el.querySelector("[data-picker-list]");
+        control.popEl = el.querySelector("[data-picker-pop]");
+        control.listEl = control.popEl.querySelector("[data-picker-list]");
+        control.noteEl = control.popEl.querySelector("[data-picker-note]");
+        // Out of the form and over the dialog: nothing in the form moves
+        // when the list opens, and the form's own scrolling cannot cut it.
+        shell.root.appendChild(control.popEl);
+        // The input keeps the focus whatever is pressed in its list.
+        control.popEl.addEventListener("mousedown", (event) => event.preventDefault());
+        // What the list does when something arrives for it: follow the
+        // focus, unless the member closed it.
+        const follow = () => {
+          if (dismissed && document.activeElement === control.input) return;
+          showList(document.activeElement === control.input ? field.name : openField);
+        };
         control.depends = paramDependencies(field.params);
         control.list = createSuggestionList({
           listEl: control.listEl,
-          noteEl: el.querySelector("[data-picker-note]"),
+          noteEl: control.noteEl,
           inputEl: control.input,
           idPrefix: `${shell.id}-${field.name}`,
           source: field.source || "",
@@ -1045,18 +1148,26 @@
             showList("");
             focusNext(field.name);
           },
-          onRender: () => showList(document.activeElement === control.input ? field.name : openField),
+          onRender: follow,
+          // The note is set after the rows are drawn, and a note alone opens
+          // the list too.
+          onState: follow,
         });
-        control.input.addEventListener("focus", () => showList(field.name));
+        control.input.addEventListener("focus", () => wake(field.name));
+        control.input.addEventListener("click", () => wake(field.name));
+        // A list left open would lie over the field the member went on to.
+        control.input.addEventListener("blur", () => {
+          if (openField === field.name) showList("");
+        });
         control.input.addEventListener("input", () => {
           control.touched = true;
           control.list.setQuery(control.input.value);
-          showList(field.name);
+          wake(field.name);
         });
         control.input.addEventListener("keydown", (event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            showList(field.name);
+            wake(field.name);
             control.list.move(1);
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
@@ -1092,9 +1203,26 @@
         shell.confirmEl.focus();
       }
 
-      shell.setEscape(() => finish(null));
+      // Escape closes an open list first, like any list under a field; the
+      // next one closes the dialog.
+      shell.setEscape(() => {
+        if (isOpen(controls.get(openField))) {
+          dismissed = true;
+          showList("");
+          return;
+        }
+        finish(null);
+      });
       shell.confirmEl.addEventListener("click", submit);
       shell.cancelEl.addEventListener("click", () => finish(null));
+
+      // The open list follows its input: when the form scrolls, when the
+      // window changes, and once the dialog has finished sliding in.
+      const formEl = shell.root.querySelector("[data-picker-form]");
+      if (formEl) formEl.addEventListener("scroll", placeOpen);
+      window.addEventListener("resize", placeOpen);
+      const cardEl = shell.root.querySelector("[data-dialog-card]");
+      if (cardEl) cardEl.addEventListener("transitionend", placeOpen);
 
       window.requestAnimationFrame(() => {
         const first = fields[0] && controls.get(fields[0].name);
@@ -1119,6 +1247,7 @@
     resolveParams,
     paramDependencies,
     mayFill,
+    popPlacement,
     filterGroups,
     historyGroup,
     flatItems,

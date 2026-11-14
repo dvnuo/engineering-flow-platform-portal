@@ -650,13 +650,24 @@
 
   // ---- the pending registrations, a modal opened from the toolbar ----
 
-  function openPendingModal() {
+  // `keepHeight` is the height the card had before the panel was reloaded
+  // (a removal reloads it and opens the list again): the card does not
+  // shrink around the member's pointer, only the rows under the removed one
+  // move up.
+  function openPendingModal(keepHeight) {
     var modal = document.querySelector("[data-admin-pending-modal]");
     if (!modal) return;
+    var card = modal.querySelector(".modal-card");
+    if (card) card.style.minHeight = keepHeight ? keepHeight + "px" : "";
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     var close = modal.querySelector("[data-close-admin-pending-modal]");
     if (close) close.focus();
+  }
+
+  function pendingModalHeight() {
+    var card = document.querySelector("[data-admin-pending-modal]:not(.hidden) .modal-card");
+    return card ? card.offsetHeight : 0;
   }
 
   function closePendingModal() {
@@ -888,12 +899,13 @@
     if (!confirmed) return;
 
     button.disabled = true;
+    var heldHeight = fromPendingList ? pendingModalHeight() : 0;
     try {
       await request("/api/users/allowlist/" + encodeURIComponent(button.dataset.removeAllowlist), {
         method: "DELETE",
       });
       await reloadPanel(t("{username} no longer has access.", { username: removeUsername }), false);
-      if (fromPendingList) openPendingModal();
+      if (fromPendingList) openPendingModal(heldHeight);
     } catch (error) {
       feedback(root, error.message, true);
       if (window.showAlert) {

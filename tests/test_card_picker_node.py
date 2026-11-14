@@ -619,3 +619,92 @@ settle().then(settle).then(() => console.log(JSON.stringify({{ badges, submits: 
 
     assert out["badges"] == [["portal-starter-card-hint is-accent", "2 waiting for your review"]]
     assert out["submits"] == 0
+
+
+# ------------------------------------------------------- a dialog of one size
+
+# The least of an element the list component touches.
+FAKE_ELEMENT = """
+function fakeElement() {
+  const classes = new Set();
+  return {
+    innerHTML: "", style: {}, offsetHeight: 132,
+    classList: {
+      toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+      contains(name) { return classes.has(name); },
+    },
+    setAttribute() {}, removeAttribute() {}, addEventListener() {}, querySelectorAll() { return []; },
+  };
+}
+"""
+
+
+def test_a_list_that_keeps_its_place_says_so_when_it_has_nothing_to_list():
+    out = _picker(
+        FAKE_ELEMENT
+        + """
+const kept = fakeElement();
+const list = api.createSuggestionList({ listEl: kept, inputEl: fakeElement(), idPrefix: "p", steady: true, onPick() {} });
+list.load();
+const idle = kept.innerHTML;
+list.setQuery("zzz");
+const typed = kept.innerHTML;
+
+const plain = fakeElement();
+api.createSuggestionList({ listEl: plain, inputEl: fakeElement(), idPrefix: "q", onPick() {} }).load();
+
+out = {
+  keptHidden: kept.classList.contains("hidden"),
+  idle: idle.includes("portal-picker-empty") && idle.includes("Nothing to suggest yet."),
+  typed: typed.includes("No matches. Press Enter to use what you typed."),
+  plainHidden: plain.classList.contains("hidden"),
+  plainHtml: plain.innerHTML,
+};
+"""
+    )
+
+    # In its dialog from the first moment to the last, whatever it holds.
+    assert out["keptHidden"] is False and out["idle"] and out["typed"]
+    # A list nobody asked to keep in place still steps aside when empty
+    # (the lists of a question card, in the conversation).
+    assert out["plainHidden"] is True and out["plainHtml"] == ""
+
+
+def test_a_list_can_be_held_at_the_height_it_has():
+    out = _picker(
+        FAKE_ELEMENT
+        + """
+const el = fakeElement();
+const list = api.createSuggestionList({ listEl: el, inputEl: fakeElement(), idPrefix: "p", onPick() {} });
+list.load();
+list.keepSize();
+list.setQuery("nothing matches this");
+out = { height: el.style.height, hidden: el.classList.contains("hidden"), empty: el.innerHTML.includes("portal-picker-empty") };
+"""
+    )
+
+    assert out == {"height": "132px", "hidden": False, "empty": True}
+
+
+def test_a_fields_list_opens_under_its_input_or_above_it_near_the_bottom_of_the_window():
+    out = _picker(
+        """
+const rect = (top, bottom) => ({ top, bottom, left: 467.4, width: 506.2 });
+out = {
+  roomy: api.popPlacement(rect(350, 392), 900),
+  tight: api.popPlacement(rect(350, 392), 560),
+  bottom: api.popPlacement(rect(700, 742), 800),
+  cramped: api.popPlacement(rect(40, 82), 180),
+};
+"""
+    )
+
+    # Plenty of room: under the input, as tall as a list gets.
+    assert out["roomy"] == {"up": False, "left": 467, "width": 506, "maxHeight": 280, "top": 396, "bottom": None}
+    # Less room below than a full list, still enough: under it, shorter.
+    assert out["tight"]["up"] is False and out["tight"]["maxHeight"] == 152
+    # Next to nothing below and more above: over the input, its foot on the input's top.
+    assert out["bottom"]["up"] is True and out["bottom"]["top"] is None
+    assert out["bottom"]["bottom"] == 104 and out["bottom"]["maxHeight"] == 280
+    # No room either way: it opens where there is more, and never thinner than it can be read.
+    assert out["cramped"]["up"] is False and out["cramped"]["maxHeight"] == 120

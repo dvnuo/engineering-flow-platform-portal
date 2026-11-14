@@ -8520,3 +8520,208 @@ body.efp-workspace-open { overflow: hidden; }
 .portal-default-scope .portal-form-select {
   min-width: 160px;
 }
+
+/* -- steady layers ---------------------------------------------------------
+   A layer the member works in keeps one size from the moment it opens until
+   it closes. Steps, lists that load and messages that come and go change what
+   is inside the frame, never the frame: a centred card that changes height
+   moves both of its edges, and with them the field being typed in and the
+   button about to be pressed.
+
+   Three ways a layer stays put, all of them in this block:
+   1. a fixed frame: the card has a height, the part that changes scrolls
+      inside it and the buttons stay on its bottom edge (wizards, the tour,
+      pickers with a list);
+   2. a kept place: what shows up later has its room from the start (a link
+      that does not exist yet, a status line, a button that comes and goes);
+   3. a list that floats: suggestions under a field of a form lie over the
+      form instead of pushing its fields apart (card_picker.js).
+
+   tests/test_steady_layers.py lists every layer and how it is held; a new
+   one has to be added there. */
+
+/* 1. Wizards: create and edit an assistant, create and continue a task,
+   create and edit a delegation. One frame for every step. The step scrolls
+   when it is taller than the frame; Back and Next never move. */
+.modal-card.create-agent-wizard-card {
+  --portal-layer-height: 600px;
+  display: flex;
+  flex-direction: column;
+  height: min(var(--portal-layer-height), calc(100vh - 2rem));
+  max-height: none;
+  overflow: hidden;
+}
+
+.modal-card.create-agent-wizard-card.is-tall { --portal-layer-height: 720px; }
+.modal-card.create-agent-wizard-card.portal-task-followup-card { --portal-layer-height: 440px; }
+
+.modal-card.create-agent-wizard-card > .portal-modal-titlebar { flex: 0 0 auto; }
+
+.modal-card.create-agent-wizard-card > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.modal-card.create-agent-wizard-card > form > * { flex: 0 0 auto; }
+
+/* The padding and the matching negative margin keep focus rings, which a
+   scrolling box would cut off at its edge. */
+.modal-card.create-agent-wizard-card > form > .create-agent-step-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: -3px;
+  padding: 3px;
+}
+
+/* 1. A starter card with one value and a source (card_picker.js): a frame of
+   one height. The list is the part that gives: it loads, filters and comes
+   back empty inside the same box. Two classes more than the dialog card, to
+   outrank its rules above. */
+.portal-dialog-card.portal-picker-dialog.has-list {
+  display: flex;
+  flex-direction: column;
+  height: min(540px, calc(100vh - 2rem));
+}
+
+.portal-dialog-card.portal-picker-dialog.has-list > * { flex: 0 0 auto; }
+
+.portal-dialog-card.portal-picker-dialog.has-list > .portal-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.portal-picker-empty {
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--portal-text-muted);
+}
+
+/* 3. A starter card with fields: a field's list opens over the form, placed
+   under its input by card_picker.js (or above it near the bottom of the
+   window). It sits in the dialog's overlay, outside the card, so the form's
+   own scrolling cannot cut it off. */
+.portal-picker-pop {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  box-shadow: var(--portal-shadow-lg);
+}
+
+.portal-picker-pop.hidden { display: none; }
+
+.portal-picker-pop > .portal-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.portal-picker-pop > .portal-picker-list:empty { display: none; }
+
+.portal-picker-pop > .portal-picker-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-picker-pop > .portal-picker-list:empty + .portal-picker-note { border-top: 0; }
+
+/* 1. The first-run tour: three steps in one card. */
+.portal-onboarding-card {
+  height: min(480px, calc(100vh - 48px));
+  max-height: none;
+  overflow: hidden;
+}
+
+.portal-onboarding-card > * { flex: 0 0 auto; }
+
+.portal-onboarding-card > .portal-onboarding-step {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -3px;
+  padding: 3px;
+}
+
+/* 1. Create assistant: the kinds of assistant arrive after the dialog opens,
+   and there are as many as an administrator has set up. They scroll in the
+   room the dialog gave them. */
+#create-simple-modal > .modal-card {
+  display: flex;
+  flex-direction: column;
+  height: min(520px, calc(100vh - 2rem));
+}
+
+#create-simple-modal > .modal-card > * { flex: 0 0 auto; }
+
+#create-simple-modal > .modal-card > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#create-simple-modal > .modal-card > form > * { flex: 0 0 auto; }
+
+#create-simple-modal > .modal-card > form > .portal-assistant-type-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+  margin: -3px;
+  padding: 3px;
+}
+
+/* 1. Replay (mobile_testing.js): one dialog that is first a form, then the
+   progress of the run, then its result, redrawn on every poll. */
+[data-recording-dialog] > .portal-dialog-card {
+  display: flex;
+  flex-direction: column;
+  height: min(460px, calc(100vh - 2rem));
+}
+
+[data-recording-dialog] > .portal-dialog-card > * { flex: 0 0 auto; }
+
+[data-recording-dialog] > .portal-dialog-card > .efp-replay-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -3px;
+  padding: 3px;
+}
+
+/* 2. Move (the folder picker): the path is one line however deep it gets;
+   chat_ui.js keeps its end, the folder being looked at, in view. */
+.portal-file-breadcrumb.portal-file-move-path {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.portal-file-breadcrumb.portal-file-move-path::-webkit-scrollbar { display: none; }
+
+.portal-file-breadcrumb.portal-file-move-path > * { flex: 0 0 auto; }
+
+/* 2. Browser window (the composer's panel): the state line has the height of
+   the "Open window" button whether the button is there or not, and of two
+   lines of text when the text wraps beside it. */
+.composer-browser-window-state { min-height: 30px; }
