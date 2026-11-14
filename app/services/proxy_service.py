@@ -13,6 +13,7 @@ except Exception:
 
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
+from app.services.member_identity import github_login_for
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,15 @@ def build_portal_user_metadata(user, reply_language=None) -> dict[str, object]:
     display_name = sanitize_header_value(getattr(user, "nickname", None)) or username
     if display_name:
         identity["display_name"] = display_name
+    # The member's GitHub login is not their username where the Portal strips
+    # an enterprise suffix at sign-in, and the assistant cannot guess it. With
+    # it, "my pull requests" can name the member instead of ``@me``, which is
+    # whoever owns the connector's token: often a shared service account.
+    suffix = str(getattr(get_settings(), "github_username_suffix", "") or "").strip()
+    if suffix and username:
+        github_login = github_login_for(username, suffix)
+        if github_login:
+            identity["github_login"] = github_login
     if reply_language is not None:
         tag = sanitize_header_value(getattr(reply_language, "reply_language", None), max_length=32)
         if tag:

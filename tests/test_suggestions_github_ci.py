@@ -17,7 +17,8 @@ from app.services.suggestions import clear_cache
 from app.services.suggestions import github as github_source
 from app.services.suggestions.ci import jenkins_job_url
 from app.services.suggestions.github import GithubApi, activity_marks, feed_marks, match_paths, recent_branches
-from tests._suggestions_helpers import GITHUB_CONFIG, SHARED, Recorder, group_ids, make_context, run, values
+from app.services.suggestions.identity import github_candidate_logins
+from tests._suggestions_helpers import GITHUB_CONFIG, Recorder, group_ids, make_context, run, values
 
 API = "https://api.github.com"
 
@@ -53,7 +54,7 @@ def _github(routes: dict | None = None, *, login: str = "alice") -> Recorder:
 # ------------------------------------------------------------- pull requests
 
 
-def test_own_token_lists_reviews_waiting_and_the_members_own_pull_requests():
+def test_a_token_of_the_members_own_account_lists_reviews_waiting_and_their_pull_requests():
     def search(request: httpx.Request):
         q = request.url.params.get("q", "")
         if "review-requested" in q:
@@ -75,7 +76,11 @@ def test_own_token_lists_reviews_waiting_and_the_members_own_pull_requests():
     assert result.groups[1].items[0].status == "draft"
 
 
-def test_a_shared_token_names_the_member_by_their_enterprise_login():
+def test_another_accounts_token_names_the_member_by_their_enterprise_login():
+    # Whose account the token opens is decided by comparing it with the
+    # member, never by who typed it: a service account a member put into
+    # their own connector settings is still a service account, and "@me"
+    # would be that account.
     github = _github(
         {
             ("GET", "/users/alice_corp"): {"login": "alice_corp"},
@@ -83,18 +88,19 @@ def test_a_shared_token_names_the_member_by_their_enterprise_login():
         },
         login="svc-bot",
     )
-    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, modes=SHARED, suffix="_corp"))
+    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, suffix="_corp"))
 
     assert result.identity == "shared"
     assert github.queries("/search/issues", "q") == [
         "is:pr is:open review-requested:alice_corp archived:false",
         "is:pr is:open author:alice_corp archived:false",
     ]
+    assert not any("@me" in q or "svc-bot" in q for q in github.queries("/search/issues", "q"))
 
 
-def test_a_shared_token_that_is_the_member_after_all_is_their_own():
+def test_a_token_whose_account_is_the_member_is_their_own():
     github = _github({("GET", "/search/issues"): {"items": []}}, login="Alice_Corp")
-    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, modes=SHARED, suffix="_corp"))
+    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, suffix="_corp"))
 
     assert result.identity == "personal"
     assert all("@me" in q for q in github.queries("/search/issues", "q"))
@@ -102,10 +108,94 @@ def test_a_shared_token_that_is_the_member_after_all_is_their_own():
 
 def test_a_member_github_does_not_know_gets_no_list():
     github = _github({}, login="svc-bot")
-    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, modes=SHARED))
+    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG))
 
     assert result.state == "ok" and result.identity == "unknown" and group_ids(result) == []
     assert "/search/issues" not in github.paths()
+
+
+@pytest.mark.parametrize("source", ["github.branches", "github.repos", "ci.failed_builds"])
+def test_the_account_behind_the_token_is_never_listed_in_the_members_place(source):
+    """The reported defect: a service account's branches shown as the member's.
+
+    With nobody to name, the lists that mean "mine" stay empty. Nothing is
+    asked about the account: not its repositories, not its feed, not its
+    pull requests.
+    """
+    github = _github(
+        {
+            ("GET", "/user/repos"): [{"full_name": "svc-bot/everything", "pushed_at": "2026-11-12T09:00:00Z", "default_branch": "main"}],
+            ("GET", "/users/svc-bot/events"): [_push("acme/portal", "feat/somebody-elses", "2026-11-12T09:00:00Z")],
+            ("GET", "/repos/acme/portal/activity"): [_activity("push", "feat/somebody-elses", "2026-11-12T09:00:00Z")],
+            ("POST", "/graphql"): _graphql(),
+        },
+        login="svc-bot",
+    )
+    result = run(source, make_context(github, GITHUB_CONFIG, suffix="_corp"))
+
+    assert result.state == "ok" and group_ids(result) == []
+    assert github.paths() == ["/user", "/users/alice_corp"]
+
+
+def test_the_members_login_is_their_username_with_the_enterprise_suffix_put_back():
+    def logins(username: str, suffix: str, base: str = API) -> list[str]:
+        return github_candidate_logins(make_context(Recorder(), GITHUB_CONFIG, username=username, suffix=suffix), base)
+
+    assert logins("12345678", "_corp") == ["12345678_corp"]
+    assert logins("12345678", "") == ["12345678"]
+    # A username that already carries the suffix is not given it twice.
+    assert logins("12345678_CORP", "_corp") == ["12345678_CORP"]
+    # The suffix belongs to the GitHub the Portal signs members in from. A
+    # GitHub Enterprise Server may know them by the bare name; on github.com
+    # the bare name is whoever registered it, and is never asked about.
+    assert logins("12345678", "_corp", "https://ghe.corp/api/v3") == ["12345678_corp", "12345678"]
+    # A name that could not sit in an address as is names nobody.
+    assert logins("a b", "") == [] and logins("", "_corp") == []
+
+
+def test_an_enterprise_server_that_knows_the_member_by_the_bare_username():
+    config = {"github": {"enabled": True, "api_token": "t", "base_url": "https://ghe.corp/api/v3"}}
+    github = Recorder(
+        {
+            ("GET", "/api/v3/user"): {"login": "svc-bot"},
+            ("GET", "/api/v3/users/alice"): {"login": "alice", "type": "User"},
+            ("GET", "/api/v3/search/issues"): {"items": []},
+        }
+    )
+    result = run("github.pull_requests", make_context(github, config, suffix="_corp"))
+
+    assert result.identity == "shared"
+    assert github.paths()[:3] == ["/api/v3/user", "/api/v3/users/alice_corp", "/api/v3/users/alice"]
+    assert all("alice " in q + " " and "alice_corp" not in q for q in github.queries("/api/v3/search/issues", "q"))
+
+
+def test_an_organization_named_like_the_member_is_not_the_member():
+    github = _github({("GET", "/users/alice"): {"login": "alice", "type": "Organization"}}, login="svc-bot")
+    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG))
+
+    assert result.identity == "unknown" and "/search/issues" not in github.paths()
+
+
+def test_a_lookup_that_timed_out_is_asked_again_instead_of_remembered_as_nobody():
+    answers = [httpx.ReadTimeout("slow"), {"login": "alice_corp", "type": "User"}]
+    github = _github(
+        {("GET", "/users/alice_corp"): lambda request: answers.pop(0), ("GET", "/search/issues"): {"items": [_pull_search_item(3)]}},
+        login="svc-bot",
+    )
+    first = run("github.pull_requests", make_context(github, GITHUB_CONFIG, suffix="_corp"))
+    assert first.state == "unavailable" and first.reason == "timeout"
+
+    # Another question of the same member a moment later: who they are is
+    # looked up again, not remembered as "nobody" for an hour.
+    second = run("github.repos", make_context(github, GITHUB_CONFIG, suffix="_corp", q="acme/portal"))
+    assert second.state == "ok" and second.identity == "shared"
+
+
+def test_an_account_that_may_not_look_users_up_leaves_the_member_unknown():
+    github = _github({("GET", "/users/alice_corp"): httpx.Response(403, json={})}, login="svc-bot")
+    result = run("github.pull_requests", make_context(github, GITHUB_CONFIG, suffix="_corp"))
+
+    assert result.state == "ok" and result.identity == "unknown" and group_ids(result) == []
 
 
 def test_typed_text_searches_titles_of_pull_requests_that_involve_the_member():
@@ -380,7 +470,7 @@ def test_only_the_most_recent_repositories_have_their_activity_read():
     assert sorted(asked) == sorted(f"/repos/acme/repo-{index}/activity" for index in range(1, 7))
 
 
-def test_a_shared_token_reads_the_activity_of_the_member_not_of_the_account():
+def test_another_accounts_token_reads_the_activity_of_the_member_not_of_the_account():
     github = _github(
         {
             ("GET", "/users/alice_corp"): {"login": "alice_corp"},
@@ -389,7 +479,7 @@ def test_a_shared_token_reads_the_activity_of_the_member_not_of_the_account():
         },
         login="svc-bot",
     )
-    result = run("github.branches", make_context(github, GITHUB_CONFIG, modes=SHARED, suffix="_corp"))
+    result = run("github.branches", make_context(github, GITHUB_CONFIG, suffix="_corp"))
 
     assert result.identity == "shared"
     assert values(result, "no_pr") == ["branch feat/card-pickers of acme/portal (default branch master)"]
@@ -400,7 +490,7 @@ def test_a_shared_token_reads_the_activity_of_the_member_not_of_the_account():
     assert github.queries("/repos/acme/portal/activity", "actor") == ["alice_corp"]
     paths = github.paths()
     assert "/users/alice_corp/events" in paths and "/users/alice_corp/repos" in paths
-    assert "/user/repos" not in paths
+    assert "/user/repos" not in paths and not any("svc-bot" in path for path in paths)
 
 
 def test_a_server_without_the_activity_log_still_lists_what_the_feed_knows():
@@ -822,6 +912,16 @@ def test_failed_builds_come_from_pull_request_checks_and_from_jobs_asked_about_b
     assert [item.status for item in result.groups[1].items] == ["failed", "unstable"]
     assert result.groups[1].items[0].title == "team/app #43"
     assert server.bodies("/graphql")[0]["variables"] == {"q": "is:pr is:open author:@me archived:false sort:updated-desc"}
+
+    # With another account's token the checks are those of the member's pull
+    # requests, not of the account's.
+    clear_cache()
+    shared = _github(
+        {("GET", "/users/alice"): {"login": "alice", "type": "User"}, ("POST", "/graphql"): checks},
+        login="svc-bot",
+    )
+    run("ci.failed_builds", make_context(shared, GITHUB_CONFIG))
+    assert shared.bodies("/graphql")[0]["variables"] == {"q": "is:pr is:open author:alice archived:false sort:updated-desc"}
     # Nothing was sent to the address that is not the member's Jenkins.
     assert {request.url.host for request in server.requests} == {"api.github.com", "ci.corp"}
     jenkins_call = next(request for request in server.requests if request.url.host == "ci.corp")

@@ -559,8 +559,10 @@
       if (result.state !== "ok") setNote(stateNote(result));
       else if (result.identity === "shared" && rows.length) {
         setNote(t("Listed for your username: this connector signs in with shared credentials."));
-      } else if (result.identity === "unknown" && !rows.length && spec && spec.searchable) {
-        setNote(t("Type to search."));
+      } else if (result.identity === "unknown" && !query && spec && spec.searchable) {
+        // Said even beside rows: a branch in the workspace is listed for a
+        // member nobody could find, and their own branches are not.
+        setNote(t("Your username was not found there, so your recent work is not listed. Type to search."));
       } else setNote("");
       if (typeof config.onState === "function") config.onState(result);
     }

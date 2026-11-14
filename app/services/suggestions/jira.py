@@ -30,6 +30,9 @@ ISSUE_FIELDS = "summary,status,issuetype,project,updated"
 GROUP_LIMIT = 8
 SEARCH_LIMIT = 10
 PROJECTS_TTL_SECONDS = 600.0
+RECENT_PROJECTS = 10
+# How many of a member's latest issues are read to find the projects they are in.
+RECENT_PROJECT_ISSUES = 30
 
 _ISSUE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,15}-\d{1,7}$")
 _BROWSE_KEY = re.compile(r"/browse/([A-Za-z][A-Za-z0-9_]{1,15}-\d{1,7})(?:[/?#]|$)")
@@ -213,11 +216,36 @@ async def projects(ctx: SourceContext) -> Result:
             raise SourceUnavailable("error")
         return [item for item in (_project_item(api, row) for row in data) if item is not None]
 
-    async def recent() -> Group:
-        response = await api.get("/project", {"recent": "10"})
-        data = json_of(response) if response.status_code == 200 else None
-        rows = data if isinstance(data, list) else []
-        return Group("recent", [item for item in (_project_item(api, row) for row in rows) if item is not None])
+    mode = ""
+
+    async def recent() -> Group | None:
+        """The projects the member used lately.
+
+        Jira keeps "recent projects" per account, so its own list is only
+        the member's when the account is. For any other account the member's
+        projects are the ones their latest issues are in.
+        """
+        nonlocal mode
+        identity = await api.identity()
+        mode = identity.mode
+        if identity.personal:
+            response = await api.get("/project", {"recent": str(RECENT_PROJECTS)})
+            data = json_of(response) if response.status_code == 200 else None
+            rows = data if isinstance(data, list) else []
+        elif identity.login:
+            who = f'"{identity.login}"'
+            found = await api.search(f"(assignee = {who} OR reporter = {who}) ORDER BY updated DESC", RECENT_PROJECT_ISSUES)
+            rows = [(issue.get("fields") or {}).get("project") for issue in found if isinstance(issue.get("fields"), dict)]
+        else:
+            return None
+        items: list[Item] = []
+        listed: set[str] = set()
+        for row in rows:
+            item = _project_item(api, row)
+            if item is not None and item.value not in listed:
+                listed.add(item.value)
+                items.append(item)
+        return Group("recent", items[:RECENT_PROJECTS])
 
     async def everything() -> Group:
         key = (getattr(ctx.user, "id", None), ctx.revision, api.base)
@@ -236,4 +264,4 @@ async def projects(ctx: SourceContext) -> Result:
         for group in groups:
             if group.id == "all":
                 group.items = [item for item in group.items if item.value not in listed]
-    return Result("jira.projects", groups=groups)
+    return Result("jira.projects", groups=groups, identity=mode)
