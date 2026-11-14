@@ -1036,10 +1036,13 @@
         });
       }
 
+      // The field whose list the member asked for: by clicking its input,
+      // typing in it or pressing an arrow key there. The focus alone opens
+      // nothing. The dialog puts the focus in its first field as it opens,
+      // and a list dropped over the form at that moment hides the fields
+      // under it before the member has read them. The lists still load as
+      // the dialog opens, so one is there the moment it is asked for.
       let openField = "";
-      // Escape closed the open list: it stays closed, whatever arrives for
-      // it, until the member types, clicks or arrows into the field again.
-      let dismissed = false;
 
       function place(control) {
         const spot = popPlacement(control.input.getBoundingClientRect(), window.innerHeight);
@@ -1068,15 +1071,12 @@
           // will be; and for a note alone, which says why there are none.
           const noted = !control.noteEl.classList.contains("hidden");
           const open = other === name && control.list && (control.list.count() > 0 || control.list.isLoading() || noted);
+          // A row marked in a list that closes is not what Enter takes next.
+          if (!open && isOpen(control)) control.list.clearActive();
           control.popEl.classList.toggle("hidden", !open);
           control.input.setAttribute("aria-expanded", open ? "true" : "false");
           if (open) place(control);
         });
-      }
-
-      function wake(name) {
-        dismissed = false;
-        showList(name);
       }
 
       function submit() {
@@ -1121,12 +1121,9 @@
         shell.root.appendChild(control.popEl);
         // The input keeps the focus whatever is pressed in its list.
         control.popEl.addEventListener("mousedown", (event) => event.preventDefault());
-        // What the list does when something arrives for it: follow the
-        // focus, unless the member closed it.
-        const follow = () => {
-          if (dismissed && document.activeElement === control.input) return;
-          showList(document.activeElement === control.input ? field.name : openField);
-        };
+        // Rows or a note that arrive are shown where a list was asked for,
+        // and open no list by themselves.
+        const follow = () => showList(openField);
         control.depends = paramDependencies(field.params);
         control.list = createSuggestionList({
           listEl: control.listEl,
@@ -1153,8 +1150,7 @@
           // the list too.
           onState: follow,
         });
-        control.input.addEventListener("focus", () => wake(field.name));
-        control.input.addEventListener("click", () => wake(field.name));
+        control.input.addEventListener("click", () => showList(field.name));
         // A list left open would lie over the field the member went on to.
         control.input.addEventListener("blur", () => {
           if (openField === field.name) showList("");
@@ -1162,16 +1158,13 @@
         control.input.addEventListener("input", () => {
           control.touched = true;
           control.list.setQuery(control.input.value);
-          wake(field.name);
+          showList(field.name);
         });
         control.input.addEventListener("keydown", (event) => {
-          if (event.key === "ArrowDown") {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
-            wake(field.name);
-            control.list.move(1);
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            control.list.move(-1);
+            showList(field.name);
+            control.list.move(event.key === "ArrowDown" ? 1 : -1);
           } else if (event.key === "Enter" && !event.isComposing) {
             event.preventDefault();
             const picked = control.list.activeItem();
@@ -1207,7 +1200,6 @@
       // next one closes the dialog.
       shell.setEscape(() => {
         if (isOpen(controls.get(openField))) {
-          dismissed = true;
           showList("");
           return;
         }
