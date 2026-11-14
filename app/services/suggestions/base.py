@@ -265,9 +265,6 @@ class SourceContext:
     http: ConnectorHttp
     db: Any = None
     settings: Any = None
-    # {connector type: mode} of the member's row; absent types follow the
-    # Default connectors (app/services/connector_defaults_service.py).
-    modes: dict[str, str] = field(default_factory=dict)
     revision: int = 0
     q: str = ""
     params: dict[str, list[str]] = field(default_factory=dict)

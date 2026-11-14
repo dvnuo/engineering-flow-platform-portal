@@ -17,9 +17,6 @@ import httpx
 from app.services.suggestions import suggest
 from app.services.suggestions.base import ConnectorHttp, Result, SourceContext
 
-OWN = {"github": "custom", "jira": "custom", "confluence": "custom", "jenkins": "custom", "aws": "custom"}
-SHARED: dict[str, str] = {}
-
 JIRA_CONFIG = {"jira": {"enabled": True, "instances": [{"name": "Main", "url": "https://jira.corp", "token": "pat-1"}]}}
 GITHUB_CONFIG = {"github": {"enabled": True, "api_token": "ghp-1"}}
 CONFLUENCE_CONFIG = {
@@ -70,7 +67,6 @@ def make_context(
     config: dict,
     *,
     username: str = "alice",
-    modes: dict[str, str] | None = None,
     q: str = "",
     params: dict[str, list[str]] | None = None,
     recent: list[str] | None = None,
@@ -88,7 +84,6 @@ def make_context(
         http=ConnectorHttp(config, transport=httpx.MockTransport(recorder)),
         db=db,
         settings=SimpleNamespace(github_username_suffix=suffix),
-        modes=dict(OWN if modes is None else modes),
         revision=revision,
         q=q,
         params=dict(params or {}),

@@ -1,9 +1,9 @@
 """Jira and Confluence picker sources.
 
 What matters is the query each source sends: "my issues" must mean the member
-and not whoever owns a shared token, a typed search must not be able to carry
-query syntax, and a server that lacks a function must cost one group, not the
-picker.
+signed in to the Portal and never whoever owns the connector's credential, a
+typed search must not be able to carry query syntax, and a server that lacks
+a function must cost one group, not the picker.
 """
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from app.services.suggestions import clear_cache
 from tests._suggestions_helpers import (
     CONFLUENCE_CONFIG,
     JIRA_CONFIG,
-    OWN,
-    SHARED,
     Recorder,
     group_ids,
     make_context,
@@ -68,7 +66,7 @@ def _jira(by_jql=None, *, myself=None, user=None) -> Recorder:
 # --------------------------------------------------------------------- issues
 
 
-def test_own_credentials_list_what_the_member_viewed_and_what_is_assigned_to_them():
+def test_an_account_that_is_the_member_lists_what_they_viewed_and_what_is_assigned_to_them():
     def by_jql(jql):
         if "issueHistory()" in jql:
             return [_issue("ABC-1", "Viewed one"), _issue("ABC-2", "Viewed two")]
@@ -116,13 +114,16 @@ def test_an_issue_type_that_could_carry_query_syntax_is_left_out():
     assert not any("SECRET" in jql for jql in jira.queries(SEARCH, "jql"))
 
 
-def test_a_shared_token_names_the_member_instead_of_the_token_owner():
+def test_another_accounts_credentials_name_the_member_instead_of_the_account():
+    # Whose account the credential opens is decided by comparing it with the
+    # member, never by who typed it: a service account a member put into
+    # their own connector settings is still a service account.
     jira = _jira(
         lambda jql: [_issue("ABC-4")] if "assignee" in jql else [_issue("ABC-5")],
         myself={"name": "svc-efp", "key": "svc-efp"},
         user={"name": "alice", "key": "alice"},
     )
-    result = run("jira.issues", make_context(jira, JIRA_CONFIG, modes=SHARED))
+    result = run("jira.issues", make_context(jira, JIRA_CONFIG))
 
     assert result.identity == "shared"
     assert group_ids(result) == ["assigned", "reported"]
@@ -136,31 +137,56 @@ def test_a_shared_token_names_the_member_instead_of_the_token_owner():
     assert jira.queries("/rest/api/2/user", "username") == ["alice"]
 
 
-def test_a_shared_token_whose_account_is_the_member_counts_as_their_own():
-    jira = _jira(lambda jql: [_issue("ABC-1")], myself={"name": "Alice", "key": "alice"})
-    result = run("jira.issues", make_context(jira, JIRA_CONFIG, modes=SHARED))
+def test_the_account_is_the_member_when_its_username_is_theirs_whatever_the_case():
+    jira = _jira(lambda jql: [_issue("ABC-1")], myself={"name": "Alice", "key": "JIRAUSER10200"})
+    result = run("jira.issues", make_context(jira, JIRA_CONFIG))
 
     assert result.identity == "personal"
     assert any("currentUser()" in jql for jql in jira.queries(SEARCH, "jql"))
 
 
-def test_a_member_the_shared_account_cannot_find_gets_search_and_no_recent_list():
+def test_a_user_key_that_matches_is_not_the_member():
+    # A key outlives a rename: the account now called asmith still carries
+    # the key "alice", and is not the member who signs in as alice.
+    jira = _jira(lambda jql: [], myself={"name": "asmith", "key": "alice"}, user={"name": "alice", "key": "JIRAUSER10200"})
+    result = run("jira.issues", make_context(jira, JIRA_CONFIG))
+
+    assert result.identity == "shared"
+    assert not any("currentUser" in jql or "issueHistory" in jql for jql in jira.queries(SEARCH, "jql"))
+
+
+def test_a_member_jira_does_not_know_gets_search_and_never_the_accounts_own_work():
     jira = _jira(lambda jql: [_issue("ABC-7", "Login page")], myself={"name": "svc-efp"})
-    listing = run("jira.issues", make_context(jira, JIRA_CONFIG, modes=SHARED))
+    listing = run("jira.issues", make_context(jira, JIRA_CONFIG))
 
     assert listing.state == "ok" and listing.identity == "unknown"
     assert group_ids(listing) == []
     assert jira.queries(SEARCH, "jql") == []
 
-    searched = run("jira.issues", make_context(jira, JIRA_CONFIG, modes=SHARED, q="login"))
+    searched = run("jira.issues", make_context(jira, JIRA_CONFIG, q="login"))
     assert values(searched, "results") == ["ABC-7"]
 
 
 def test_a_service_account_that_may_not_browse_users_does_not_fail_the_picker():
     jira = _jira(lambda jql: [], myself={"name": "svc-efp"}, user=httpx.Response(403, json={}))
-    result = run("jira.issues", make_context(jira, JIRA_CONFIG, modes=SHARED))
+    result = run("jira.issues", make_context(jira, JIRA_CONFIG))
 
     assert result.state == "ok" and result.identity == "unknown"
+    assert jira.queries(SEARCH, "jql") == []
+
+
+def test_a_lookup_that_timed_out_is_asked_again_instead_of_remembered_as_nobody():
+    answers = [httpx.ReadTimeout("slow"), {"name": "alice"}]
+    jira = _jira(lambda jql: [_issue("ABC-4")], myself={"name": "svc-efp"}, user=lambda request: answers.pop(0))
+
+    first = run("jira.issues", make_context(jira, JIRA_CONFIG))
+    assert first.state == "unavailable" and first.reason == "timeout"
+
+    # Another question of the same member a moment later: a different answer
+    # is asked for, and who the member is gets looked up again.
+    second = run("jira.issues", make_context(jira, JIRA_CONFIG, params={"lead": ["assigned"]}))
+    assert second.state == "ok" and second.identity == "shared"
+    assert values(second, "assigned") == ["ABC-4"]
 
 
 def test_a_typed_key_or_a_pasted_browse_link_finds_that_issue_whatever_its_type():
@@ -210,9 +236,13 @@ def test_cloud_instances_use_the_search_endpoint_cloud_kept():
             ("GET", "/rest/api/3/search/jql"): {"issues": [_issue("ABC-1")]},
         }
     )
-    result = run("jira.issues", make_context(jira, config))
+    # Cloud has account ids and no usernames, so nobody can say the account
+    # is the member: nothing is listed as theirs, and search still works.
+    listing = run("jira.issues", make_context(jira, config))
+    assert listing.state == "ok" and listing.identity == "unknown" and group_ids(listing) == []
 
-    assert values(result, "viewed") == ["ABC-1"]
+    searched = run("jira.issues", make_context(jira, config, q="login"))
+    assert values(searched, "results") == ["ABC-1"]
     assert "/rest/api/3/search/jql" in jira.paths() and "/rest/api/2/search" not in jira.paths()
 
 
@@ -295,9 +325,10 @@ def test_projects_lead_with_the_ones_the_member_used_lately():
     def project(request: httpx.Request):
         return [everything[1]] if request.url.params.get("recent") else everything
 
-    jira = Recorder({("GET", "/rest/api/2/project"): project})
+    jira = Recorder({("GET", "/rest/api/2/myself"): {"name": "alice"}, ("GET", "/rest/api/2/project"): project})
     result = run("jira.projects", make_context(jira, JIRA_CONFIG))
 
+    assert result.identity == "personal"
     assert values(result, "recent") == ["XYZ"]
     assert values(result, "all") == ["ABC", "OPS"]
     assert jira.queries("/rest/api/2/project", "recent") == ["10"]
@@ -307,6 +338,51 @@ def test_projects_lead_with_the_ones_the_member_used_lately():
     assert values(searched, "results") == ["OPS"]
     by_name = run("jira.projects", make_context(jira, JIRA_CONFIG, q="billing"))
     assert values(by_name, "results") == ["XYZ"]
+
+
+def test_another_accounts_recent_projects_are_not_the_members():
+    """Jira keeps "recent projects" per account. For a service account that
+    list is whatever every member's assistant opened last, so the member's
+    projects are read from the issues they are on instead."""
+    everything = [{"key": "ABC", "name": "Alpha"}, {"key": "XYZ", "name": "Zeta billing"}, {"key": "OPS", "name": "Operations"}]
+
+    def project(request: httpx.Request):
+        return [everything[1]] if request.url.params.get("recent") else everything
+
+    def search(request: httpx.Request):
+        issues = [_issue("OPS-7"), _issue("ABC-2"), _issue("OPS-9")]
+        for issue in issues:
+            issue["fields"]["project"]["name"] = {"OPS": "Operations", "ABC": "Alpha"}[issue["fields"]["project"]["key"]]
+        return {"issues": issues}
+
+    jira = Recorder(
+        {
+            ("GET", "/rest/api/2/myself"): {"name": "svc-efp"},
+            ("GET", "/rest/api/2/user"): {"name": "alice"},
+            ("GET", "/rest/api/2/project"): project,
+            ("GET", SEARCH): search,
+        }
+    )
+    result = run("jira.projects", make_context(jira, JIRA_CONFIG))
+
+    assert result.identity == "shared"
+    assert values(result, "recent") == ["OPS", "ABC"]
+    assert values(result, "all") == ["XYZ"]
+    # The account's own list is never asked for.
+    assert jira.queries("/rest/api/2/project", "recent") == []
+    assert jira.queries(SEARCH, "jql") == ['(assignee = "alice" OR reporter = "alice") ORDER BY updated DESC']
+
+
+def test_a_member_jira_does_not_know_still_gets_every_project_and_no_recent_ones():
+    def project(request: httpx.Request):
+        return [{"key": "XYZ", "name": "Zeta"}] if request.url.params.get("recent") else [{"key": "ABC", "name": "Alpha"}]
+
+    jira = Recorder({("GET", "/rest/api/2/myself"): {"name": "svc-efp"}, ("GET", "/rest/api/2/project"): project})
+    result = run("jira.projects", make_context(jira, JIRA_CONFIG))
+
+    assert result.identity == "unknown"
+    assert group_ids(result) == ["all"] and values(result, "all") == ["ABC"]
+    assert jira.queries("/rest/api/2/project", "recent") == []
 
 
 # ----------------------------------------------------------------- confluence
@@ -372,14 +448,22 @@ def test_a_confluence_without_the_recently_viewed_function_still_lists_edited_pa
     assert group_ids(result) == ["edited"]
 
 
-def test_a_shared_confluence_account_lists_what_the_member_edited():
+def test_another_confluence_account_lists_what_the_member_edited_and_no_viewing_history():
     wiki = _confluence(lambda cql: [_page("3", "Ledger design")], current={"username": "svc-wiki"}, user={"username": "alice"})
-    result = run("confluence.pages", make_context(wiki, CONFLUENCE_CONFIG, modes=SHARED))
+    result = run("confluence.pages", make_context(wiki, CONFLUENCE_CONFIG))
 
     assert result.identity == "shared"
     assert wiki.queries("/rest/api/content/search", "cql") == [
         'type = page AND contributor = "alice" ORDER BY lastmodified DESC'
     ]
+
+
+def test_a_member_confluence_does_not_know_is_not_shown_the_accounts_pages():
+    wiki = _confluence(lambda cql: [_page("3", "Ledger design")], current={"username": "svc-wiki"})
+    result = run("confluence.pages", make_context(wiki, CONFLUENCE_CONFIG))
+
+    assert result.state == "ok" and result.identity == "unknown" and group_ids(result) == []
+    assert "/rest/api/content/search" not in wiki.paths()
 
 
 def test_typed_text_searches_page_titles_without_query_syntax():
@@ -403,16 +487,14 @@ def test_a_pasted_page_link_needs_no_lookup():
 def test_a_cloud_site_is_read_under_wiki():
     config = {"confluence": {"enabled": True, "instances": [{"url": "https://corp.atlassian.net", "username": "a@corp", "token": "t"}]}}
     wiki = _confluence(lambda cql: [_page("1", "Release plan")], current={"accountId": "5b10ac"}, prefix="/wiki")
-    result = run("confluence.pages", make_context(wiki, config))
+    # Cloud has account ids and no usernames: nobody can say the account is
+    # the member, so nothing is listed for them and search still works.
+    listing = run("confluence.pages", make_context(wiki, config))
+    assert listing.state == "ok" and listing.identity == "unknown" and group_ids(listing) == []
 
-    assert values(result, "viewed") == ["https://wiki.corp/wiki/display/ENG/Release+plan"]
+    searched = run("confluence.pages", make_context(wiki, config, q="release"))
+    assert values(searched, "results") == ["https://wiki.corp/wiki/display/ENG/Release+plan"]
     assert all(path.startswith("/wiki/rest/api/") for path in wiki.paths())
-
-
-def test_modes_default_to_the_members_own_for_rows_that_were_never_classified():
-    # make_context() uses OWN unless told otherwise; this pins that SHARED is
-    # an explicit choice in these tests and not an accident of an empty dict.
-    assert OWN["jira"] == "custom" and SHARED == {}
 
 
 # ---------------------------------------------------------------------- logs

@@ -138,7 +138,6 @@ async def get_suggestions(
         http=ConnectorHttp(config, transport=HTTP_TRANSPORT),
         db=db,
         settings=settings,
-        modes=service.connector_modes(profile),
         revision=int(getattr(profile, "revision", 0) or 0),
         q=q.strip(),
         params=_params_from(request),

@@ -364,6 +364,25 @@ def test_enrich_chat_payload_adds_server_owned_portal_user_metadata():
     assert runtime_metadata["portal_user"] == {"id": "spoofed", "username": "spoofed"}
 
 
+def test_portal_user_names_the_members_github_login_when_the_portal_knows_the_suffix(monkeypatch):
+    """An assistant's GitHub token is usually a shared service account, so
+    ``@me`` is not the member, and their login cannot be guessed from the
+    username once the enterprise suffix was stripped at sign-in."""
+    from app.services import proxy_service
+
+    user = SimpleNamespace(id=7, username="12345678", nickname="Jane", role="user")
+    # Without a suffix the Portal knows no more than the username it already sends.
+    assert "github_login" not in proxy_service.build_portal_user_metadata(user)
+
+    monkeypatch.setattr(proxy_service.get_settings(), "github_username_suffix", "_corp")
+    assert proxy_service.build_portal_user_metadata(user)["github_login"] == "12345678_corp"
+    # Never twice, and never a value that could not be a login.
+    already = SimpleNamespace(id=8, username="12345678_CORP", nickname=None, role="user")
+    assert proxy_service.build_portal_user_metadata(already)["github_login"] == "12345678_CORP"
+    odd = SimpleNamespace(id=9, username="jane doe", nickname=None, role="user")
+    assert "github_login" not in proxy_service.build_portal_user_metadata(odd)
+
+
 def test_enrich_chat_payload_portal_user_survives_inference_overrides():
     from app.api.proxy import _enrich_chat_payload_with_runtime_metadata
 

@@ -29,9 +29,13 @@ assistant uses. Nothing is listed for a connector that is off: the card says
 which one to set up under [Connectors](#/help/concepts), and the box still
 works.
 
-When a connector follows your administrator's defaults and those sign in with
-a shared account, the list is made for your username instead, and **Recently
-viewed** is not offered: that history belongs to the shared account.
+The list is always yours, whoever the connector signs in as. Many connectors
+sign in with a shared account, and what that account did is not what you
+did, so the Portal looks you up by your Portal username instead. **Recently
+viewed** is then not offered: that history belongs to the shared account.
+
+If your username is not found in that system, your recent work is not listed
+and the box says so. Typing still searches.
 
 What you pick is sent as a key or a link only. Titles and summaries are shown
 to you and are not sent to the assistant.

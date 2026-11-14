@@ -145,6 +145,25 @@ def test_a_member_gets_their_own_issues_and_the_answer_is_not_cacheable(env):
     assert "pat-1" not in response.text
 
 
+def test_a_service_account_in_a_connector_the_member_customized_is_still_not_the_member(env, monkeypatch):
+    """The state the defect was reported in. The member's GitHub connector is
+    marked as their own (rows from before the Default connectors existed were
+    classified that way), and the token in it opens a shared service account.
+    The lists are the signed-in member's all the same, by their username."""
+    monkeypatch.setattr(suggestions_api.settings, "github_username_suffix", "_corp")
+    _profile(env.db, env.user, {"github": {"enabled": True, "api_token": "ghp-shared"}}, modes={"github": "custom"})
+    env.recorder.routes[("GET", "/user")] = {"login": "svc-bot"}
+    env.recorder.routes[("GET", "/users/alice_corp")] = {"login": "alice_corp", "type": "User"}
+    env.recorder.routes[("GET", "/search/issues")] = {"items": []}
+
+    body = TestClient(app).get("/api/suggestions/github.pull_requests").json()
+
+    assert body["state"] == "ok" and body["identity"] == "shared"
+    asked = env.recorder.queries("/search/issues", "q")
+    assert len(asked) == 2
+    assert all("alice_corp" in q and "@me" not in q and "svc-bot" not in q for q in asked)
+
+
 def test_an_unknown_source_is_a_404_and_a_signed_out_request_is_refused(env):
     assert TestClient(app).get("/api/suggestions/nope.nothing").status_code == 404
 
