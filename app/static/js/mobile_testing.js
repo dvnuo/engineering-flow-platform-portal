@@ -2564,7 +2564,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return `<div class="modal portal-dialog portal-dialog--in" data-recording-dialog role="dialog" aria-modal="true" aria-label="${esc(title)}">
         <div class="modal-card panel portal-dialog-card">
           <div class="portal-modal-titlebar"><h3>${esc(title)}</h3></div>
-          ${body}
+          <div class="efp-replay-body">${body}</div>
           <div class="portal-modal-actions">${actions}</div>
         </div>
       </div>`;

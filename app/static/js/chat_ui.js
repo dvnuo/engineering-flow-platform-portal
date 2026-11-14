@@ -14845,11 +14845,11 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
           <span><strong>${t("Signed-in members")}</strong><small>${t("Viewers sign in to this Portal first.")}</small></span>
         </label>
       </div>
-      <div class="portal-share-link hidden" data-share-link-row>
-        <input type="text" class="portal-form-input" readonly data-share-link-input aria-label="${t("Share link")}" />
-        <button type="button" class="portal-btn" data-share-copy>${t("Copy link")}</button>
+      <div class="portal-share-link" data-share-link-row>
+        <input type="text" class="portal-form-input" readonly data-share-link-input aria-label="${t("Share link")}" placeholder="${t("The link appears here once it is created")}" />
+        <button type="button" class="portal-btn" data-share-copy disabled>${t("Copy link")}</button>
       </div>
-      <p class="portal-share-status hidden" data-share-status aria-live="polite"></p>
+      <p class="portal-share-status" data-share-status aria-live="polite"></p>
       <p class="portal-share-note">${t("Viewers see the conversation as it is now, including later turns, and cannot send messages. It may contain data from connected systems.")}</p>
       <div class="portal-modal-actions">
         <button type="button" class="portal-btn portal-dialog-danger hidden" data-share-revoke>${t("Stop sharing")}</button>
@@ -14862,7 +14862,6 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   root.offsetWidth; // eslint-disable-line no-unused-expressions
   root.classList.add("portal-dialog--in");
 
-  const linkRow = root.querySelector("[data-share-link-row]");
   const linkInput = root.querySelector("[data-share-link-input]");
   const copyBtn = root.querySelector("[data-share-copy]");
   const statusLine = root.querySelector("[data-share-status]");
@@ -14876,11 +14875,13 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       input.checked = input.value === selectedScope;
       input.disabled = busy;
     });
-    if (linkRow) linkRow.classList.toggle("hidden", !share);
+    // The link's row and the line under it are there from the start, empty
+    // until the link exists: creating it fills them in, and the dialog is
+    // the same size before and after.
     if (linkInput) linkInput.value = share?.url || "";
+    if (copyBtn) copyBtn.disabled = !share;
     if (statusLine) {
-      statusLine.classList.toggle("hidden", !share);
-      statusLine.textContent = share ? SHARE_SCOPE_COPY[scopeOf(share.scope)] : "";
+      statusLine.textContent = share ? SHARE_SCOPE_COPY[scopeOf(share.scope)] : t("Not shared yet.");
       statusLine.classList.toggle("is-public", Boolean(share) && scopeOf(share.scope) === "anyone");
     }
     if (revokeBtn) revokeBtn.classList.toggle("hidden", !share);
@@ -16626,6 +16627,7 @@ async function openServerFilesMoveDialog(paths, currentPath) {
       });
       crumbsEl.appendChild(link);
     });
+    crumbsEl.scrollLeft = crumbsEl.scrollWidth;
   };
 
   const show = async (dir) => {
@@ -20693,7 +20695,7 @@ async function openCreateDelegationRuleModal() {
     .join("");
   dom.workspaceDetailContent.innerHTML = `
     <div class="modal portal-workspace-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="create-delegation-modal-title" aria-hidden="false">
-      <div class="modal-card panel create-agent-wizard-card">
+      <div class="modal-card panel create-agent-wizard-card is-tall">
         <div class="portal-modal-titlebar">
           <div>
             <h3 id="create-delegation-modal-title">${t("Create Delegation")}</h3>
@@ -20794,7 +20796,7 @@ async function openEditDelegationRuleModal(ruleId) {
   dom.workspaceDetailContent.dataset.workspaceState = "delegation-rule-edit";
   dom.workspaceDetailContent.innerHTML = `
     <div class="modal portal-workspace-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="edit-delegation-modal-title" aria-hidden="false">
-      <div class="modal-card panel create-agent-wizard-card">
+      <div class="modal-card panel create-agent-wizard-card is-tall">
         <div class="portal-modal-titlebar">
           <div>
             <h3 id="edit-delegation-modal-title">${t("Edit Delegation")}</h3>

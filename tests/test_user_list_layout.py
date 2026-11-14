@@ -123,7 +123,8 @@ def test_pending_registrations_open_in_a_modal_from_the_toolbar(monkeypatch):
     tag = USERS_HTML.split("data-admin-pending-modal>", 1)[0].rsplit("<div", 1)[1]
     assert "id=" not in tag.replace("aria-labelledby=", "")
     reopen = ADMIN_JS.split("var fromPendingList", 1)[1]
-    assert "if (fromPendingList) openPendingModal();" in reopen
+    # It comes back at the height it had: the card does not shrink with each removal.
+    assert "if (fromPendingList) openPendingModal(heldHeight);" in reopen
 
 
 def test_six_columns_are_kept_for_the_export_only(monkeypatch):
