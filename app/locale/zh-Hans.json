@@ -2146,6 +2146,7 @@
   "Steps: {steps}": "步数：{steps}",
   "Still could not save {name}: {error}": "仍然无法保存 {name}：{error}",
   "Still running; these are the totals so far.": "仍在运行；以下是目前的累计值。",
+  "Still to answer: “{asked}”": "还需回答：「{asked}」",
   "Still undetected after the Portal address changed": "Portal 地址更改后仍未检测到",
   "Still waiting for the runtime. The platform marks a start that never finishes as failed, and you can retry from there.": "仍在等待运行时。平台会把始终没有完成的启动标记为失败，你可以从那里重试。",
   "Stop": "停止",

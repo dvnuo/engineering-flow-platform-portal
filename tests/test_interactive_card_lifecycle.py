@@ -827,10 +827,11 @@ def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
 
 
 def test_one_line_answers_the_first_of_several_questions_and_says_so():
-    # The runtime takes a shorter answers array than there are questions and
-    # reports the rest as unanswered, so the assistant can follow up on what is
-    # still open. Blocking the composer here would have been stricter than the
-    # runtime and stricter than the member needs.
+    # The runtime takes a shorter answers array than there are questions as a
+    # reply in the member's own words (an older one reports the rest as
+    # unanswered), so the assistant can follow up on what is still open.
+    # Blocking the composer here would have been stricter than the runtime
+    # and stricter than the member needs.
     intent = _intent({"question_request": TWO_QUESTIONS})["intent"]
 
     assert intent["acceptsText"] is True
@@ -1601,3 +1602,220 @@ def test_the_box_grows_but_not_past_the_card():
     assert "portal-interactive-body" in ceiling
     assert "clientHeight" in ceiling
     assert 'list.addEventListener("input"' in js and "autosizeAnswerBox(" in js
+
+
+# ---------------------------------------------------------------------------
+# every question on the card can be answered, and an open one is pointed at
+
+
+def _card_items(request: dict, *, with_picker: bool = False) -> list[dict]:
+    """How each question of a request is drawn: its box, its options, its picker."""
+    picker = (
+        "window.portalCardPicker = { createSuggestionList: () => ({ load() {}, setQuery() {} }), resolveParams: (p) => p };"
+        if with_picker
+        else ""
+    )
+    return _run_node(f"""
+{picker}
+runtimeEvent("question.requested", {{ question_request: {json.dumps(request)} }});
+const html = list.children[0] ? list.children[0].innerHTML : "";
+const items = html.split("<fieldset").slice(1).map((item) => ({{
+  box: item.includes("data-question-custom-input"),
+  boxDisabled: /disabled><\\/textarea>/.test(item),
+  radios: (item.match(/type="radio"/g) || []).length,
+  picker: item.includes("data-question-source="),
+}}));
+console.log(JSON.stringify(items));
+""")
+
+
+def test_a_question_with_nothing_to_pick_is_drawn_with_a_text_box():
+    # `custom: false` with no usable option drew the question's words and
+    # nothing else. The member answered what they could, and "Send answer"
+    # kept saying a question was still open.
+    items = _card_items({"request_id": "q-dead", "questions": [
+        {"question": "Which branch?", "options": [{"label": "main"}, {"label": "release"}]},
+        {"question": "Who should review it?", "custom": False, "options": []},
+        {"question": "Which environment?", "custom": False, "options": [{"label": ""}, {"label": "  "}]},
+    ]})
+
+    assert items[0] == {"box": True, "boxDisabled": True, "radios": 2, "picker": False}
+    for item in items[1:]:
+        assert item == {"box": True, "boxDisabled": False, "radios": 0, "picker": False}
+
+
+def test_a_question_that_lists_options_may_still_refuse_free_text():
+    items = _card_items({"request_id": "q-closed", "questions": [
+        {"question": "Which project?", "custom": False, "options": [{"label": "EFP"}, {"label": "OPS"}]},
+        {"question": "Go ahead?", "custom": False, "options": [{"label": "Yes"}]},
+    ]})
+
+    assert items == [
+        {"box": False, "boxDisabled": False, "radios": 2, "picker": False},
+        {"box": False, "boxDisabled": False, "radios": 1, "picker": False},
+    ]
+
+
+def test_a_sourced_question_that_refused_free_text_still_gets_its_list():
+    # A model that wants "pick from the list" sets `custom: false` next to
+    # `source`. The pick lands in the answer box, so without the box the card
+    # had neither the list nor anything else to answer with.
+    request = {"request_id": "q-source", "questions": [
+        {"question": "Which issue is this for?", "custom": False, "options": [], "metadata": {"source": "jira.issues"}},
+    ]}
+
+    assert _card_items(request, with_picker=True) == [{"box": True, "boxDisabled": False, "radios": 0, "picker": True}]
+    # Without the picker script the question is still a plain text box.
+    assert _card_items(request) == [{"box": True, "boxDisabled": False, "radios": 0, "picker": False}]
+
+
+# A form with two questions, the second still open. Each fieldset records what
+# is done to it, which is all a card without a layout engine can show.
+OPEN_QUESTION_FORM = """
+const marks = [];
+const posts = [];
+globalThis.fetch = (url, options) => {
+  if (options && options.method === "POST") posts.push(JSON.parse(options.body));
+  return Promise.resolve({ ok: true, status: 202, text: () => Promise.resolve(JSON.stringify({ request_id: "resume-1" })) });
+};
+const message = { textContent: "", classList: { remove() {}, add() {} } };
+const fieldset = (index, text, { typed = "", picked = "" } = {}) => ({
+  dataset: { questionIndex: String(index) },
+  classList: { add: (name) => marks.push(`mark:${index}:${name}`), remove: (name) => marks.push(`unmark:${index}:${name}`) },
+  scrollIntoView: (options) => marks.push(`scroll:${index}:${options && options.block}`),
+  querySelector: (selector) => {
+    if (selector === "[data-question-custom-input]") return { value: typed, disabled: false };
+    if (selector === 'input[type="radio"]:checked') return picked ? { value: picked } : null;
+    if (selector === ".portal-question-text") return { textContent: text };
+    if (selector === 'input[type="radio"]') return { focus: (options) => marks.push(`focus:${index}:${options && options.preventScroll}`) };
+    return null;
+  },
+});
+const submit = (fieldsets) => {
+  const form = {
+    dataset: { requestId: "q-1" },
+    querySelector: (selector) => (selector === "[data-interactive-msg]" ? message : null),
+    querySelectorAll: (selector) => (selector === "[data-question-index]" ? fieldsets : []),
+  };
+  (listHandlers.submit || []).forEach((fn) => fn({
+    target: { closest: (selector) => (selector === '[data-interactive-kind="question"]' ? form : null) },
+    preventDefault() {},
+  }));
+};
+"""
+
+
+def test_send_points_at_the_question_that_is_still_open():
+    # The questions scroll inside the card. With four of them the last two are
+    # below its fold: everything in sight was answered, and the card answered
+    # "Answer every question before sending." without saying which.
+    result = _run_node(OPEN_QUESTION_FORM + """
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+submit([
+  fieldset(0, "Which project?", { picked: "OPS" }),
+  fieldset(1, "Which environment was affected?"),
+  fieldset(2, "Who should be notified?"),
+]);
+for (let i = 0; i < 3; i += 1) await settle();
+console.log(JSON.stringify({ marks, posts, message: message.textContent, shown: shown() }));
+""")
+
+    assert result["posts"] == [], "an incomplete card is not sent"
+    assert result["shown"] is True
+    assert result["message"] == "Still to answer: \u201cWhich environment was affected?\u201d"
+    # The first open question, and only that one: marked, brought into view
+    # inside the card, and given the caret without the page jumping again.
+    assert result["marks"] == ["mark:1:is-unanswered", "scroll:1:nearest", "focus:1:true"]
+
+
+def test_a_card_with_one_question_keeps_the_plain_reminder():
+    result = _run_node(OPEN_QUESTION_FORM + """
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+submit([fieldset(0, "Which project?")]);
+for (let i = 0; i < 3; i += 1) await settle();
+console.log(JSON.stringify({ marks, posts, message: message.textContent }));
+""")
+
+    assert result["posts"] == []
+    assert result["message"] == "Answer every question before sending."
+    assert result["marks"][0] == "mark:0:is-unanswered"
+
+
+def test_a_complete_card_is_sent_with_one_answer_per_question():
+    result = _run_node(OPEN_QUESTION_FORM + """
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+submit([
+  fieldset(0, "Which project?", { picked: "OPS" }),
+  fieldset(1, "Which environment was affected?", { typed: "  production  " }),
+]);
+for (let i = 0; i < 5; i += 1) await settle();
+console.log(JSON.stringify({ marks, posts }));
+""")
+
+    assert result["posts"] == [{"request_id": "q-1", "answers": ["OPS", "production"]}]
+    assert result["marks"] == []
+
+
+def test_the_mark_goes_once_the_question_is_being_answered():
+    js = MODULE.read_text(encoding="utf-8")
+
+    # Typing, picking an option and opening the free-text box all answer it.
+    assert 'classList.remove("is-unanswered")' in js.split('list.addEventListener("input"', 1)[1].split("});", 1)[0]
+    assert 'classList.remove("is-unanswered")' in js.split('list.addEventListener("change"', 1)[1].split("});", 1)[0]
+    assert 'classList.remove("is-unanswered")' in js.split('browserEvent.target.closest("[data-question-other-toggle]")', 1)[1].split("return;", 1)[0]
+    assert ".portal-question-item.is-unanswered" in CSS.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# a read that failed is not the answer "nothing is pending"
+
+
+def test_a_failed_read_of_what_is_pending_leaves_the_card_up():
+    # A dropped connection or a gateway error while the assistant restarts was
+    # applied as "nothing pending": the card went, the composer sent an
+    # ordinary message, and the runtime answered it by asking again.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+
+globalThis.fetch = () => Promise.reject(new Error("network down"));
+runtimeEvent("chat.completed", {});
+drainTimers(); for (let i = 0; i < 3; i += 1) await settle();
+const afterNetworkError = shown();
+
+globalThis.fetch = () => Promise.resolve({ ok: false, status: 502, text: () => Promise.resolve("Bad Gateway") });
+runtimeEvent("chat.completed", {});
+drainTimers(); for (let i = 0; i < 3; i += 1) await settle();
+const afterGatewayError = shown();
+
+console.log(JSON.stringify({
+  afterNetworkError,
+  afterGatewayError,
+  composerStillAnswersTheCard: !!window.portalPendingComposerIntent(),
+}));
+""")
+
+    assert result == {"afterNetworkError": True, "afterGatewayError": True, "composerStillAnswersTheCard": True}
+
+
+def test_a_read_that_succeeds_after_a_failed_one_still_has_the_last_word():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const working = globalThis.fetch;
+
+globalThis.fetch = () => Promise.reject(new Error("network down"));
+runtimeEvent("chat.completed", {});
+drainTimers(); for (let i = 0; i < 3; i += 1) await settle();
+
+globalThis.fetch = working;
+setPending({});
+runtimeEvent("chat.completed", {});
+drainTimers(); for (let i = 0; i < 3; i += 1) await settle();
+console.log(JSON.stringify({ shown: shown(), pending: window.portalHasPendingInput() }));
+""")
+
+    assert result == {"shown": False, "pending": False}

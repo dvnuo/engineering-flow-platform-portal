@@ -7261,6 +7261,14 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   min-width: 0;
 }
 
+/* The question "Send answer" stopped at. With several questions the open one
+   is often below the fold of the card's own scroll, so it is brought into
+   view and marked; the mark goes as soon as it is being answered. */
+.portal-question-item.is-unanswered {
+  padding-left: 10px;
+  border-left: 3px solid var(--portal-danger);
+}
+
 .portal-question-header {
   padding: 0;
   font-size: 0.72rem;
