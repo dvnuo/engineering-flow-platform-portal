@@ -11,8 +11,24 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
+    # Outside debug mode the Portal refuses to start with the default key above
+    # (app/security/startup_checks.py). True keeps an installation that never
+    # set SECRET_KEY running, with a warning at every start, until it has one.
+    allow_insecure_secret_key: bool = Field(default=False, validation_alias="ALLOW_INSECURE_SECRET_KEY")
     session_cookie_name: str = "portal_session"
+    # State-changing requests that carry the session cookie must come from the
+    # Portal's own pages, and the events WebSocket checks its Origin the same
+    # way (app/security/origin_guard.py). False switches both checks off.
+    origin_guard_enabled: bool = Field(default=True, validation_alias="ORIGIN_GUARD_ENABLED")
     portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
+    # The cluster-only APIs runtimes call at PORTAL_INTERNAL_BASE_URL
+    # (app/security/internal_api.py). AUTH_REQUIRED: /api/internal/* rejects a
+    # call without the assistant's trust token; false still serves it (a wrong
+    # token is rejected either way) while assistants are restarted onto runtime
+    # images that send one. BLOCK_FORWARDED: /api/internal/ and /api/app-host/
+    # answer 404 to a request that came through a reverse proxy.
+    internal_api_auth_required: bool = Field(default=False, validation_alias="INTERNAL_API_AUTH_REQUIRED")
+    internal_api_block_forwarded: bool = Field(default=True, validation_alias="INTERNAL_API_BLOCK_FORWARDED")
     # Preferred runtime-catalog alignment hook for Portal runtime compatibility metadata.
     # If this snapshot is missing/invalid, Portal falls back to deterministic local seed mappings.
     runtime_capability_catalog_snapshot_json: str = Field(

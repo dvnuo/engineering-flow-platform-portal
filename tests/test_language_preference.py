@@ -30,6 +30,7 @@ from _js_extract_helpers import _extract_js_function
 from app.api.proxy import _session_turn_request_session_id
 from app.db import Base
 from app.models import User, UserAllowlistEntry
+from app.security.session_cookie import session_cookie_name
 from app.services.locale_service import (
     LocalePreferences,
     locale_for_language_tag,
@@ -277,7 +278,7 @@ def _app_page(monkeypatch, *, accept_language=None, preferences_json=None):
     db.commit()
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+    client.cookies.set(session_cookie_name(), issue_session_token(user.id))
     headers = {"Accept-Language": accept_language} if accept_language else {}
     try:
         response = client.get("/app", headers=headers, follow_redirects=False)

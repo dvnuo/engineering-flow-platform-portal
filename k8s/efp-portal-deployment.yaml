@@ -66,6 +66,15 @@ spec:
               value: "true"
             - name: AGENTS_NAMESPACE
               value: "efp-agents"
+            # Signs member sessions and derives every assistant's trust token.
+            # The Portal refuses to start while it is unset: put a long random
+            # value under SECRET_KEY in efp-portal-secret (k8s/README.md).
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: SECRET_KEY
+                  optional: true
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:

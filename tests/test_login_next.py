@@ -5,8 +5,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.security.sso_state import sso_state_cookie_name
+
 
 SAFE_NEXT = "/share/abcdefghijklmnopqrstuvwxyz012345"
+# The callback is only accepted with the state this browser was given at
+# /login/sso (tests/test_sso_state.py); these tests are about where it goes next.
+SSO_STATE = "state-issued-to-this-browser"
 
 
 @pytest.fixture
@@ -15,7 +20,7 @@ def harness(monkeypatch):
     import app.web as web_module
 
     monkeypatch.setattr(web_module, "sso_enabled", lambda: True)
-    monkeypatch.setattr(web_module, "sso_authorize_url", lambda: "https://idp.example.com/authorize")
+    monkeypatch.setattr(web_module, "sso_authorize_url", lambda state="": "https://idp.example.com/authorize")
     monkeypatch.setattr(web_module, "sso_redirect_uri", lambda: "https://portal.example.com/auth")
     monkeypatch.setattr(web_module, "_session_user_access", lambda _request: (None, "missing_session"))
 
@@ -65,7 +70,8 @@ def test_sso_start_without_next_clears_a_stale_cookie(harness):
 
 def test_sso_callback_returns_to_the_shared_session(harness):
     harness.client.cookies.set(harness.web.POST_LOGIN_NEXT_COOKIE, SAFE_NEXT)
-    response = harness.client.get("/auth?code=abc", follow_redirects=False)
+    harness.client.cookies.set(sso_state_cookie_name(), SSO_STATE)
+    response = harness.client.get(f"/auth?code=abc&state={SSO_STATE}", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == SAFE_NEXT
     assert f'{harness.web.POST_LOGIN_NEXT_COOKIE}=""' in response.headers.get("set-cookie", "")
@@ -73,7 +79,8 @@ def test_sso_callback_returns_to_the_shared_session(harness):
 
 def test_sso_callback_ignores_a_tampered_cookie(harness):
     harness.client.cookies.set(harness.web.POST_LOGIN_NEXT_COOKIE, "https://evil.example.com/")
-    response = harness.client.get("/auth?code=abc", follow_redirects=False)
+    harness.client.cookies.set(sso_state_cookie_name(), SSO_STATE)
+    response = harness.client.get(f"/auth?code=abc&state={SSO_STATE}", follow_redirects=False)
     assert response.headers["location"] == "/app"
 
 

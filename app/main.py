@@ -33,6 +33,7 @@ from app.i18n import bind_locale, reset_locale
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
 from app.services.locale_service import resolve_locale_for_request
 from app.logger import setup_logging
+from app.security import install_portal_security
 from app.services.access_control_service import AccessControlService
 from app.services.connector_defaults_sync import rollout_profiles
 from app.services.group_service import GroupService
@@ -59,6 +60,12 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 # exception is recorded while the request's log context (trace id) is still
 # bound (app/services/error_log_service.py).
 app.add_middleware(ErrorCaptureMiddleware, enabled=lambda: settings.error_log_enabled)
+
+# The cross-site request guard, the cluster-only API prefixes and the startup
+# checks on SECRET_KEY and the session cookie (app/security/). Here, ahead of
+# the request middlewares below, so a refused request is still logged with its
+# trace id, and ahead of on_startup, so nothing runs with the default key.
+install_portal_security(app, settings)
 
 
 @app.middleware("http")

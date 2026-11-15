@@ -12,9 +12,12 @@ from app.schemas.agent_session_metadata import (
     AgentSessionMetadataUpsertRequest,
     SessionTitleUpdateRequest,
 )
+from app.security.internal_api import require_agent_trust_token
 from app.services.session_context_preview import parse_metadata_json, serialize_agent_session_metadata_with_preview
 
-router = APIRouter(tags=["internal-session-metadata"])
+# Every route here is /api/internal/agents/{agent_id}/...: the caller has to be
+# that assistant's runtime (app/security/internal_api.py).
+router = APIRouter(tags=["internal-session-metadata"], dependencies=[Depends(require_agent_trust_token)])
 
 def _metadata_json_keeping_the_title(repo: AgentSessionMetadataRepository, agent_id: str, session_id: str, metadata_json: str | None) -> str | None:
     """The metadata a full publish stores, with the session's published name carried over.

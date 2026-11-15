@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, AgentExecution, AgentTask, DelegationRule, Group, User, UserAllowlistEntry
+from app.security.session_cookie import session_cookie_name
 
 
 def _database():
@@ -305,7 +306,7 @@ def test_revoked_session_stays_on_unauthorized_page_until_access_is_restored(mon
     db.refresh(user)
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+    client.cookies.set(session_cookie_name(), issue_session_token(user.id))
 
     try:
         denied = client.get("/app", follow_redirects=False)
@@ -396,16 +397,15 @@ def test_login_sso_route_redirects_anonymous_user_to_idp(monkeypatch):
 
 def test_admin_login_page_clears_invalid_cookie_without_redirect():
     from app.main import app
-    import app.web as web_module
 
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, "invalid-session")
+    client.cookies.set(session_cookie_name(), "invalid-session")
 
     response = client.get("/admlogin", follow_redirects=False)
     assert response.status_code == 200
     assert "location" not in response.headers
     set_cookie = response.headers.get("set-cookie", "")
-    assert f'{web_module.settings.session_cookie_name}=""' in set_cookie
+    assert f'{session_cookie_name()}=""' in set_cookie
     assert "Max-Age=0" in set_cookie
 
 
@@ -440,14 +440,23 @@ def test_sso_callback_sets_long_lived_session_cookie(monkeypatch):
     monkeypatch.setattr(web_module.settings, "sso_issuer_url", "https://sso.example.com/realms/persons")
     monkeypatch.setattr(web_module.settings, "base_uri", "https://portal.example.com")
     monkeypatch.setattr(web_module, "login_user_by_code", fake_login)
+    from app.security import session_cookie
+    from app.security.sso_state import sso_state_cookie_name
+
+    monkeypatch.setattr(session_cookie.settings, "base_uri", "https://portal.example.com")
     client = TestClient(app)
-    response = client.get("/auth?code=abc&session_state=x", follow_redirects=False)
+    # The callback carries the state this browser was given at /login/sso.
+    client.cookies.set(sso_state_cookie_name(), "issued-state")
+    response = client.get("/auth?code=abc&session_state=x&state=issued-state", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == "/app"
     set_cookie = response.headers.get("set-cookie", "")
-    assert f"{web_module.settings.session_cookie_name}=signed-token" in set_cookie
+    # BASE_URI is https here, so the cookie is the host-bound, Secure one.
+    assert session_cookie_name() == "__Host-portal_session"
+    assert "__Host-portal_session=signed-token" in set_cookie
     assert f"Max-Age={SESSION_COOKIE_MAX_AGE_SECONDS}" in set_cookie
     assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
 
 
 def test_legacy_inactive_flag_does_not_override_allowlist_access(monkeypatch):
@@ -467,7 +476,7 @@ def test_legacy_inactive_flag_does_not_override_allowlist_access(monkeypatch):
     monkeypatch.setattr(auth_api, "verify_password", lambda _raw, _hashed: True)
     app.dependency_overrides[auth_api.get_db] = _override_db(db)
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+    client.cookies.set(session_cookie_name(), issue_session_token(user.id))
 
     try:
         allowed = client.get("/app", follow_redirects=False)

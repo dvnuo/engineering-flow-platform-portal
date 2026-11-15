@@ -16,7 +16,7 @@ from app.redaction import sanitize_exception_message
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.schemas.auth import LoginRequest, MeLocale, MePreferences, MeResponse, PreferencesUpdate
-from app.services.auth_service import issue_session_token, set_session_cookie, verify_password
+from app.services.auth_service import clear_session_cookie, issue_session_token, set_session_cookie, verify_password
 from app.services.copilot_auth_service import copilot_auth_service
 from app.services.external_login_service import (
     fetch_github_user,
@@ -60,7 +60,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(settings.session_cookie_name)
+    clear_session_cookie(response)
     return {"ok": True}
 
 

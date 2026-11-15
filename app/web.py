@@ -114,7 +114,9 @@ from app.services.authorization import (
 from app.services.group_service import GroupService
 from app.services.connector_registry import get_connector_spec as _connector_spec_by_type
 from app.services.runtime_profile_references import seed_config_error
-from app.services.auth_service import parse_session_token, set_session_cookie
+from app.services.auth_service import clear_session_cookie, parse_session_token, set_session_cookie
+from app.security.session_cookie import cookies_are_hardened, read_session_token
+from app.security.sso_state import clear_sso_state_cookie, new_sso_state, set_sso_state_cookie, sso_state_is_valid
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -254,7 +256,7 @@ ACCESS_DENIED_REASONS = frozenset({"not_allowlisted"})
 
 
 def _session_user_access(request: Request):
-    token = request.cookies.get(settings.session_cookie_name)
+    token = read_session_token(request.cookies)
     if not token:
         return None, "missing_session"
     user_id = parse_session_token(token)
@@ -282,7 +284,7 @@ def _current_user_from_cookie(request: Request):
 
 
 def _clear_session_cookie(response: Response) -> Response:
-    response.delete_cookie(settings.session_cookie_name, path="/")
+    clear_session_cookie(response)
     return response
 
 
@@ -311,7 +313,7 @@ def _authorized_web_user(request: Request):
 
 def _anonymous_auth_page(request: Request, template_name: str, title: str, **context) -> Response:
     response = templates.TemplateResponse(template_name, {"request": request, "title": title, **context})
-    if request.cookies.get(settings.session_cookie_name):
+    if read_session_token(request.cookies):
         _clear_session_cookie(response)
     return response
 
@@ -2715,13 +2717,20 @@ def login_via_sso(request: Request):
         return gate
     if not sso_enabled():
         return RedirectResponse(url="/login", status_code=302)
-    response = RedirectResponse(url=sso_authorize_url(), status_code=302)
-    if request.cookies.get(settings.session_cookie_name):
+    # The identity provider hands this back to /auth, which only accepts the
+    # value this browser holds in its cookie (app/security/sso_state.py).
+    sso_state = new_sso_state()
+    response = RedirectResponse(url=sso_authorize_url(sso_state), status_code=302)
+    set_sso_state_cookie(response, sso_state)
+    if read_session_token(request.cookies):
         _clear_session_cookie(response)
     next_path = _requested_next_path(request)
     if next_path:
         # Survives the round trip through the identity provider; /auth reads it.
-        response.set_cookie(POST_LOGIN_NEXT_COOKIE, next_path, max_age=600, path="/", httponly=True, samesite="lax")
+        response.set_cookie(
+            POST_LOGIN_NEXT_COOKIE, next_path, max_age=600, path="/", httponly=True, samesite="lax",
+            secure=cookies_are_hardened(),
+        )
     elif request.cookies.get(POST_LOGIN_NEXT_COOKIE):
         # A share link from an earlier sign-in that never completed must not
         # send this one to that session.
@@ -2737,12 +2746,21 @@ async def auth_page(request: Request, db: Session = Depends(get_db)):
     code = (request.query_params.get("code") or "").strip()
     if not code:
         return _redirect_to_login()
+    if not sso_state_is_valid(request.cookies, request.query_params.get("state")):
+        # Not the sign-in this browser started at /login/sso: the code is not
+        # exchanged. An existing session is left alone, so a forged callback
+        # cannot sign a member out either.
+        logger.warning("SSO callback rejected: its state does not match the one issued to this browser")
+        response = RedirectResponse(url="/login", status_code=302)
+        clear_sso_state_cookie(response)
+        return response
     token = await login_user_by_code(db, redirect_uri=sso_redirect_uri(), code=code)
 
     next_path = _safe_next_path(request.cookies.get(POST_LOGIN_NEXT_COOKIE))
     response = RedirectResponse(url=next_path or "/app", status_code=302)
     if request.cookies.get(POST_LOGIN_NEXT_COOKIE):
         response.delete_cookie(POST_LOGIN_NEXT_COOKIE, path="/")
+    clear_sso_state_cookie(response)
     set_session_cookie(response, token)
     return response
 

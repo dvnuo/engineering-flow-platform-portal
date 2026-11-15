@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
+from app.services.agent_trust import agent_trust_headers
 from app.services.proxy_service import ProxyService
 
 
@@ -27,7 +28,7 @@ class RuntimeCapabilitySyncService:
             raise RuntimeCapabilitySyncError(f"Unable to resolve runtime endpoint: {exc}") from exc
 
         try:
-            response = httpx.get(f"{base_url}/api/capabilities", timeout=15.0)
+            response = httpx.get(f"{base_url}/api/capabilities", headers=agent_trust_headers(agent), timeout=15.0)
         except Exception as exc:
             raise RuntimeCapabilitySyncError(f"Runtime capabilities API is unreachable: {exc}") from exc
 

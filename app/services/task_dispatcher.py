@@ -30,6 +30,7 @@ from app.services.agent_execution_registry import (
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.inference_settings_service import apply_inference_overrides_to_runtime_metadata
+from app.services.agent_trust import agent_trust_headers
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 from app.services.efp_cards import portal_task_id_sentence
 
@@ -162,25 +163,31 @@ class TaskDispatcherService:
             return None, "input_payload_json must decode to a JSON object"
         return payload, None
 
-    async def _post_to_runtime(self, url: str, body: dict) -> httpx.Response:
+    # ``agent_id`` is required on the three runtime calls below: each sends the
+    # assistant's trust token (app/services/agent_trust.py), without which a
+    # runtime that has the token rejects the request.
+    async def _post_to_runtime(self, url: str, body: dict, *, agent_id) -> httpx.Response:
         headers = {}
         metadata = body.get("metadata") if isinstance(body, dict) else None
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
+        headers.update(agent_trust_headers(agent_id))
         async with httpx.AsyncClient(timeout=30.0) as client:
             return await client.post(url, json=body, headers=headers)
 
-    async def _post_cancel_to_runtime(self, url: str, metadata: dict | None = None) -> httpx.Response:
+    async def _post_cancel_to_runtime(self, url: str, metadata: dict | None = None, *, agent_id) -> httpx.Response:
         headers = {}
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
+        headers.update(agent_trust_headers(agent_id))
         async with httpx.AsyncClient(timeout=30.0) as client:
             return await client.post(url, headers=headers)
 
-    async def _get_runtime_task_status(self, url: str, metadata: dict | None = None) -> httpx.Response:
+    async def _get_runtime_task_status(self, url: str, metadata: dict | None = None, *, agent_id) -> httpx.Response:
         headers = {}
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
+        headers.update(agent_trust_headers(agent_id))
         max_bytes = self._runtime_status_max_bytes()
         async with httpx.AsyncClient(timeout=30.0) as client:
             async with client.stream("GET", url, headers=headers) as response:
@@ -504,6 +511,7 @@ class TaskDispatcherService:
         runtime_status_url: str,
         metadata: dict,
         trace_context: dict[str, str],
+        agent_id,
         timeout_seconds: int = 900,
         interval_seconds: int = 1,
     ) -> NormalizedRuntimeOutcome:
@@ -516,7 +524,7 @@ class TaskDispatcherService:
                 break
 
             try:
-                response = await self._get_runtime_task_status(runtime_status_url, metadata)
+                response = await self._get_runtime_task_status(runtime_status_url, metadata, agent_id=agent_id)
             except (httpx.TimeoutException, httpx.RequestError) as exc:
                 last_poll_error_class = exc.__class__.__name__
                 last_poll_error_message = sanitize_exception_message(exc)
@@ -987,7 +995,7 @@ class TaskDispatcherService:
                 try:
                     start = time.monotonic()
                     logger.debug("Dispatch HTTP call start task_id=%s runtime_url=%s", task.id, runtime_url)
-                    response = await self._post_to_runtime(runtime_url, runtime_body)
+                    response = await self._post_to_runtime(runtime_url, runtime_body, agent_id=agent.id)
                     duration_ms = round((time.monotonic() - start) * 1000, 2)
                     response_preview = safe_preview(response.text or "", limit=800)
                     logger.info(
@@ -1050,6 +1058,7 @@ class TaskDispatcherService:
                             "runtime_status_url": status_url,
                             "metadata": metadata,
                             "trace_context": trace_context,
+                            "agent_id": agent.id,
                         }
                         if task.task_type == "agent_async_task":
                             settings = get_settings()
@@ -1272,7 +1281,7 @@ class TaskDispatcherService:
             return AgentTaskDispatchResult(True, task.id, None, task.status, f"Runtime URL resolution failed: {error_message}", task.result_payload_json)
 
         try:
-            response = await self._get_runtime_task_status(runtime_status_url, metadata)
+            response = await self._get_runtime_task_status(runtime_status_url, metadata, agent_id=agent.id)
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             error_message = sanitize_exception_message(exc)
             stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
@@ -1514,7 +1523,7 @@ class TaskDispatcherService:
             raise RuntimeError(f"Runtime cancel URL resolution failed: {error_message}") from exc
 
         try:
-            response = await self._post_cancel_to_runtime(runtime_url, metadata)
+            response = await self._post_cancel_to_runtime(runtime_url, metadata, agent_id=agent.id)
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             error_message = sanitize_exception_message(exc)
             stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
