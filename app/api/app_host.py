@@ -197,7 +197,7 @@ def desired_state(db: Session = Depends(get_db)):
 
 @router.post("/metrics/ingest")
 def ingest_metrics(payload: Any = Body(default=None), db: Session = Depends(get_db)):
-    """Store the day's counters as sent (they are running totals, so the same post twice changes nothing)."""
+    """Store the day's counters (running totals: the same post twice changes nothing, and a smaller one lowers nothing)."""
     body = _object(payload)
     traffic = body.get("traffic")
     items = traffic[:MAX_TRAFFIC_ITEMS] if isinstance(traffic, list) else []

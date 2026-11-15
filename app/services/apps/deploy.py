@@ -14,9 +14,11 @@ page follows the row):
 then the host's own steps (``unpack`` ... ``activate``), read from its job
 until the job ends. ``steps_json`` holds both lists in order, each entry
 marked ``"source": "portal"`` or ``"source": "host"`` (both have a step
-called ``manifest``). On success the app points at the new release and takes
-its type, description and icon from the manifest; on failure the app is left
-as it was, which is also what the host does.
+called ``manifest``). A step that failed carries ``error``: the Portal's own
+error for a Portal step, ``{"code": "host_step_failed", "message": ...}`` with
+the host's reason for a host step. On success the app points at the new
+release and takes its type, description and icon from the manifest; on
+failure the app is left as it was, which is also what the host does.
 
 An app created from a template is pinned: its ``repo_ref`` is the commit of
 the template version it is on, so "deploy latest" runs that commit again, and
@@ -85,6 +87,8 @@ STEP_RUNNING = "running"
 STEP_SUCCEEDED = "succeeded"
 STEP_FAILED = "failed"
 STEP_SKIPPED = "skipped"
+# The code of the error a failed host step carries in the release's step list.
+HOST_STEP_FAILED = "host_step_failed"
 
 JOB_ENDED = ("succeeded", "failed")
 POLL_INTERVAL_SECONDS = 2.0
@@ -207,6 +211,19 @@ class _Steps:
             return False
         self.items = merged
         return True
+
+    def host_step_failed(self, name: str, message: str) -> None:
+        """Put the host's reason on the host step that failed, so a page can show it on that step.
+
+        ``name`` is the step the host's job named; without one (or with one
+        the list does not have) the reason goes on the host step marked failed.
+        """
+        host_steps = [item for item in self.items if item.get("source") == SOURCE_HOST]
+        target = next((item for item in host_steps if name and item.get("name") == name), None)
+        if target is None:
+            target = next((item for item in host_steps if item.get("status") == STEP_FAILED), None)
+        if target is not None:
+            target["error"] = {"code": HOST_STEP_FAILED, "message": message}
 
 
 class DeployService:
@@ -477,6 +494,8 @@ class DeployService:
                 step=failed_step or "unknown",
                 reason=message[:2000],
             )
+            # The host's own reason, on the step it failed at (the summary carries it too).
+            steps.host_step_failed(failed_step, message[:2000])
             self._fail(db, release, app, steps, None, exc)
             return
         self._succeed(db, app, release, steps, host, manifest=manifest, icon=icon, spec=spec)

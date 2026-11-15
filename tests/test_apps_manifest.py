@@ -147,7 +147,22 @@ def test_safe_relative_paths():
     assert not is_safe_relative_path(None)
 
 
-@pytest.mark.parametrize("value, ok", [("/", True), ("/healthz", True), ("health", True), ("/a/../b", False), ("https://evil.example/", False), ("//evil.example/", False), ("/a b", False), (5, False)])
+@pytest.mark.parametrize(
+    "value, ok",
+    [
+        ("/", True),
+        ("/healthz", True),
+        ("/api/health?deep=1", True),
+        # A path of the app's own port, whatever it looks like: the host asks 127.0.0.1 for it.
+        ("/a/../b", True),
+        ("//evil.example/", True),
+        ("health", False),
+        ("https://evil.example/", False),
+        ("/a b", False),
+        ("/a#b", False),
+        (5, False),
+    ],
+)
 def test_health_path(value, ok):
     data = {"name": "a", "type": "static", "health_path": value}
     if ok:
@@ -203,3 +218,129 @@ def test_no_owners_means_nobody_unless_the_app_comes_from_a_template():
     with pytest.raises(NotListedAsOwner):
         check_ownership(manifest, "alice")
     check_ownership(manifest, "alice", from_template=True)
+
+
+# --- the same rules as the app host -----------------------------------------------------------------
+#
+# The host validates the manifest again when it installs the app
+# (efp_app_host/manifest.py in the app repository, the reference). What passes
+# here must pass there and the reverse, so nothing is trimmed before it is
+# checked and each limit is the host's. One line per case: the keys added to a
+# minimal manifest of that type, whether the manifest is valid, and (when it
+# is) what the Portal reads from it.
+
+STATIC = {"name": "a", "type": "static"}
+FASTAPI = {"name": "a", "type": "fastapi", "entry": "main:app"}
+STREAMLIT = {"name": "a", "type": "streamlit", "entry": "app.py"}
+COMMAND = {"name": "a", "type": "command", "command": "python serve.py"}
+
+HOST_RULES = [
+    # entry of a fastapi / flask app: exactly module:attribute, spaces included in the judgement
+    ("entry with a space in front", FASTAPI, {"entry": " main:app"}, False, None),
+    ("entry with a space behind", FASTAPI, {"entry": "main:app "}, False, None),
+    ("entry as written", FASTAPI, {"entry": "pkg.web:create_app"}, True, {"entry": "pkg.web:create_app"}),
+    # entry of a script app: a relative path, tidied
+    ("script entry is tidied", STREAMLIT, {"entry": "./src//app.py"}, True, {"entry": "src/app.py"}),
+    ("script entry keeps its spaces", STREAMLIT, {"entry": " app.py"}, True, {"entry": " app.py"}),
+    ("script entry that is the directory itself", STREAMLIT, {"entry": "."}, False, None),
+    ("script entry with a backslash", STREAMLIT, {"entry": "src\\app.py"}, False, None),
+    ("script entry left empty", STREAMLIT, {"entry": ""}, False, None),
+    # entry of a static app: a directory, the entry directory itself by default
+    ("static entry left empty is the directory itself", STATIC, {"entry": ""}, True, {"entry": "."}),
+    ("static entry left out", STATIC, {}, True, {"entry": "."}),
+    ("static entry ./", STATIC, {"entry": "./"}, True, {"entry": "."}),
+    ("static entry with a trailing slash", STATIC, {"entry": "dist/"}, True, {"entry": "dist"}),
+    ("static entry outside", STATIC, {"entry": "../dist"}, False, None),
+    # health_path: a leading slash, URL characters, at most 200 of them
+    ("health_path left empty is /", STATIC, {"health_path": ""}, True, {"health_path": "/"}),
+    ("health_path //x", STATIC, {"health_path": "//x"}, True, {"health_path": "//x"}),
+    ("health_path /../x", STATIC, {"health_path": "/../x"}, True, {"health_path": "/../x"}),
+    ("health_path with a query", STATIC, {"health_path": "/health?deep=1&x=%20"}, True, {"health_path": "/health?deep=1&x=%20"}),
+    ("health_path of 200 characters", STATIC, {"health_path": "/" + "a" * 199}, True, {"health_path": "/" + "a" * 199}),
+    ("health_path of 201 characters", STATIC, {"health_path": "/" + "a" * 200}, False, None),
+    ("health_path without its slash", STATIC, {"health_path": "health"}, False, None),
+    ("health_path with a fragment", STATIC, {"health_path": "/health#top"}, False, None),
+    ("health_path with a space in front", STATIC, {"health_path": " /health"}, False, None),
+    ("health_path with a space behind", STATIC, {"health_path": "/health "}, False, None),
+    ("health_path with a space inside", STATIC, {"health_path": "/a b"}, False, None),
+    ("health_path with a backslash", STATIC, {"health_path": "/a\\b"}, False, None),
+    ("health_path with a letter that is not ASCII", STATIC, {"health_path": "/caf\u00e9"}, False, None),
+    ("health_path that is a URL", STATIC, {"health_path": "http://127.0.0.1/"}, False, None),
+    # command: one line, at most 2000 characters, kept as written
+    ("command kept as written", COMMAND, {"command": " python serve.py --port $PORT "}, True, {"command": " python serve.py --port $PORT ", "entry": None}),
+    ("command of 2000 characters", COMMAND, {"command": "x" * 2000}, True, {"command": "x" * 2000}),
+    ("command of 2001 characters", COMMAND, {"command": "x" * 2001}, False, None),
+    ("command of two lines", COMMAND, {"command": "python a.py\npython b.py"}, False, None),
+    ("command with a carriage return", COMMAND, {"command": "python a.py\r"}, False, None),
+    ("command with a NUL", COMMAND, {"command": "python a.py\x00"}, False, None),
+    ("command of spaces only", COMMAND, {"command": "   "}, False, None),
+    ("command of another type is ignored, whatever it is", STATIC, {"command": "a\nb" * 2000}, True, {"command": None}),
+    ("entry of a command app is ignored, whatever it is", COMMAND, {"entry": "../x\\y"}, True, {"entry": None}),
+    # requirements and icon: relative paths with forward slashes
+    ("requirements with a backslash", STATIC, {"requirements": "deps\\requirements.txt"}, False, None),
+    ("requirements left empty is the default", STATIC, {"requirements": ""}, True, {"requirements": "requirements.txt"}),
+    ("requirements tidied", STATIC, {"requirements": "./deps//prod.txt"}, True, {"requirements": "deps/prod.txt"}),
+    ("requirements that is the directory itself", STATIC, {"requirements": "."}, False, None),
+    ("requirements that is not text", STATIC, {"requirements": 7}, False, None),
+    ("icon with a backslash", STATIC, {"icon": "img\\icon.png"}, False, None),
+    ("icon left empty", STATIC, {"icon": ""}, False, None),
+    ("icon left out", STATIC, {"icon": None}, True, {"icon": None}),
+    ("icon tidied", STATIC, {"icon": "./img//icon.png"}, True, {"icon": "img/icon.png"}),
+    ("icon with a NUL", STATIC, {"icon": "icon\x00.png"}, False, None),
+    ("icon with a drive letter", STATIC, {"icon": "C:icon.png"}, False, None),
+    ("icon above the directory", STATIC, {"icon": "img/../../icon.png"}, False, None),
+    ("icon with two dots inside a name", STATIC, {"icon": "img..old/icon.png"}, True, {"icon": "img..old/icon.png"}),
+    # owners: usernames, none of them empty
+    ("an empty string among the owners", STATIC, {"owners": ["alice", ""]}, False, None),
+    ("owners with spaces around a name", STATIC, {"owners": [" alice ", "bob"]}, True, {"owners": ("alice", "bob")}),
+    ("no owners", STATIC, {"owners": []}, True, {"owners": ()}),
+    ("an owner that is not text", STATIC, {"owners": ["alice", None]}, False, None),
+    # description: at most 500 characters as written
+    ("description of 500 characters", STATIC, {"description": "d" * 500}, True, {"description": "d" * 500}),
+    ("description of 500 characters and a space", STATIC, {"description": "d" * 500 + " "}, False, None),
+    ("description of 498 characters and two spaces", STATIC, {"description": "d" * 498 + "  "}, True, {"description": "d" * 498}),
+    ("description of 501 spaces", STATIC, {"description": " " * 501}, False, None),
+    # name: 1 to 80 characters without the spaces around it
+    ("name of 80 characters and spaces around it", STATIC, {"name": "  " + "x" * 80 + "  "}, True, {"name": "x" * 80}),
+    ("name of 81 characters", STATIC, {"name": "x" * 81}, False, None),
+    ("name of spaces", STATIC, {"name": "   "}, False, None),
+]
+
+
+@pytest.mark.parametrize("case, base, changes, valid, reads", HOST_RULES, ids=[case[0] for case in HOST_RULES])
+def test_the_manifest_rules_are_the_hosts(case, base, changes, valid, reads):
+    data = {**base, **changes}
+
+    if not valid:
+        with pytest.raises(ManifestError):
+            validate_manifest(data)
+        # The same through the file, which is how a deployment reads it.
+        with pytest.raises(ManifestError):
+            parse_manifest(json.dumps(data).encode("utf-8"))
+        return
+
+    manifest = validate_manifest(data)
+    for field, value in (reads or {}).items():
+        assert getattr(manifest, field) == value, field
+    assert parse_manifest(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8")) == manifest, "a byte-order mark changes nothing"
+
+
+def test_a_manifest_that_is_wrong_in_the_ways_the_host_refuses_names_each_of_them():
+    problems = _problems(
+        {
+            "name": "a",
+            "type": "command",
+            "command": "a\nb",
+            "icon": "",
+            "requirements": "deps\\prod.txt",
+            "health_path": "health",
+            "owners": [""],
+            "description": "d" * 501,
+        }
+    )
+
+    assert '"command" must be a single line of at most 2000 characters.' in problems
+    assert '"icon" must be a relative path' in problems and '"requirements" must be a relative path' in problems
+    assert '"health_path" must be a path of the app' in problems
+    assert '"owners" must be a list of Portal usernames.' in problems
+    assert '"description" may be at most 500 characters.' in problems

@@ -211,15 +211,23 @@ class AppTrafficRepository:
         errors_5xx: int,
         p95_ms: int,
     ) -> AppTrafficDaily:
-        """Replace the day's row with the totals as the host sent them."""
+        """Take the day's totals as the host sent them, without ever lowering a count.
+
+        The host sends running totals for the day, so a later post normally
+        carries larger figures. Its counters start again from zero when its
+        state file is new (a new volume, a reset), and the day's totals must
+        not fall with them: each count keeps the larger of what is stored and
+        what arrived. The 95th percentile is the incoming one, unless that is
+        zero (nothing measured since the restart).
+        """
         row = self.db.scalar(select(AppTrafficDaily).where(AppTrafficDaily.day == day, AppTrafficDaily.app_id == app_id))
         if row is None:
-            row = AppTrafficDaily(day=day, app_id=app_id)
-        row.requests = requests
-        row.visitors = visitors
-        row.errors_4xx = errors_4xx
-        row.errors_5xx = errors_5xx
-        row.p95_ms = p95_ms
+            row = AppTrafficDaily(day=day, app_id=app_id, requests=0, visitors=0, errors_4xx=0, errors_5xx=0, p95_ms=0)
+        row.requests = max(int(row.requests or 0), int(requests))
+        row.visitors = max(int(row.visitors or 0), int(visitors))
+        row.errors_4xx = max(int(row.errors_4xx or 0), int(errors_4xx))
+        row.errors_5xx = max(int(row.errors_5xx or 0), int(errors_5xx))
+        row.p95_ms = int(p95_ms) if p95_ms else int(row.p95_ms or 0)
         row.updated_at = datetime.utcnow()
         self.db.add(row)
         # The session does not autoflush: the next lookup of the same key must see this row.

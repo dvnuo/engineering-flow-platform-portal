@@ -225,7 +225,11 @@ class AppExecution(Base):
 class AppTrafficDaily(Base):
     """One UTC day of an app's traffic, as the gateway counted it.
 
-    The host posts running totals for the day, so each post replaces the row.
+    The host posts running totals for the day; each post is taken into the
+    row without lowering a count (the host's counters start again from zero
+    when its state is new). ``visitors`` is the number of distinct signed-in
+    members that day; a visitor of an ``anyone`` app who is not signed in is
+    counted in ``requests`` only.
     """
 
     __tablename__ = "app_traffic_daily"

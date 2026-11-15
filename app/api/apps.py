@@ -74,7 +74,7 @@ from app.services.apps.access import (
 from app.services.apps.app_service import UNSET, AppService
 from app.services.apps.deploy import deploy_service as default_deploy_service
 from app.services.apps.errors import AppError, AppForbidden, AppHostError, AppNotFound, AppValidationError
-from app.services.apps.host_client import AppHostClient
+from app.services.apps.host_client import HOST_APP_NOT_FOUND, AppHostClient
 from app.services.apps.host_spec import current_sha
 from app.services.apps.host_state import host_state
 from app.services.apps.names import APP_CONNECTOR_TYPES, APP_TYPES, APP_VISIBILITIES, RESERVED_SLUGS, RELEASE_RUNNING
@@ -616,26 +616,41 @@ def get_logs(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """The end of the app's log on the host. An app the host has not heard of (never deployed) has no lines yet."""
     app = _service(db).get_for_manage(app_id, user)
-    return AppLogsResponse(**host_client().logs(app.id, tail))
+    try:
+        return AppLogsResponse(**host_client().logs(app.id, tail))
+    except AppHostError as exc:
+        if exc.host_code != HOST_APP_NOT_FOUND:
+            raise
+        return AppLogsResponse(lines=[], truncated=False)
 
 
 @router.get("/{app_id}/logs/stream")
 async def stream_logs(app_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """The host's live log stream, passed through as ``text/event-stream`` (``data: {"line": "..."}``)."""
+    """The host's live log stream, passed through as ``text/event-stream`` (``data: {"line": "..."}``).
+
+    For an app the host has not heard of (never deployed) the stream is empty and ends at once.
+    """
     app = await run_in_threadpool(lambda: _service(db).get_for_manage(app_id, user))
     target_id = app.id
     stack = AsyncExitStack()
+    chunks = None
     try:
         chunks = await stack.enter_async_context(host_client().stream_logs(target_id))
+    except AppHostError as exc:
+        await stack.aclose()
+        if exc.host_code != HOST_APP_NOT_FOUND:
+            raise
     except BaseException:
         await stack.aclose()
         raise
 
     async def body():
         try:
-            async for chunk in chunks:
-                yield chunk
+            if chunks is not None:
+                async for chunk in chunks:
+                    yield chunk
         finally:
             await stack.aclose()
 

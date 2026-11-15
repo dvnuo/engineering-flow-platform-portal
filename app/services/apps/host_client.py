@@ -27,6 +27,11 @@ from app.services.tls_trust import trust_context
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
+# Calls the host answers only after it stopped a process (it waits up to ten
+# seconds for one to end) or removed a directory tree (slow on a network
+# volume). With the default a slow stop read as "host unreachable" although
+# the host had done it, and the Portal kept the state it had before.
+SLOW_TIMEOUT_SECONDS = 90.0
 UPLOAD_TIMEOUT_SECONDS = 300.0
 STREAM_READ_TIMEOUT_SECONDS = 60.0
 BUNDLE_FILENAME = "bundle.tar.gz"
@@ -123,11 +128,20 @@ class AppHostClient:
     def _app_path(app_id: str, suffix: str = "") -> str:
         return f"/v1/apps/{quote(str(app_id), safe='')}{suffix}"
 
+    @staticmethod
+    def _slow() -> httpx.Timeout:
+        """The timeout of a call in which the host stops a process or removes files before it answers."""
+        return httpx.Timeout(SLOW_TIMEOUT_SECONDS, connect=5.0)
+
     # ---------------------------------------------------------------------- apps
 
     def put_app(self, app_id: str, spec: dict) -> dict:
-        """4.1: create or update the app's record; the status object."""
-        return self._json("PUT", self._app_path(app_id), json=spec)
+        """4.1: create or update the app's record; the status object.
+
+        The host stops the app when the record disables it and restarts it
+        when its environment changed, before it answers.
+        """
+        return self._json("PUT", self._app_path(app_id), json=spec, timeout=self._slow())
 
     def deploy(self, app_id: str, spec: dict, bundle: BinaryIO) -> str:
         """4.2: send the bundle; the host job's id."""
@@ -161,26 +175,31 @@ class AppHostClient:
 
     def activate(self, app_id: str, sha: str) -> dict:
         """4.4: switch to a retained release."""
-        return self._json("POST", self._app_path(app_id, "/activate"), json={"sha": sha})
+        return self._json("POST", self._app_path(app_id, "/activate"), json={"sha": sha}, timeout=self._slow())
 
     def start(self, app_id: str) -> dict:
         return self._json("POST", self._app_path(app_id, "/start"))
 
     def stop(self, app_id: str) -> dict:
-        return self._json("POST", self._app_path(app_id, "/stop"))
+        return self._json("POST", self._app_path(app_id, "/stop"), timeout=self._slow())
 
     def restart(self, app_id: str) -> dict:
-        return self._json("POST", self._app_path(app_id, "/restart"))
+        return self._json("POST", self._app_path(app_id, "/restart"), timeout=self._slow())
 
     def put_env(self, app_id: str, env: dict[str, str]) -> dict:
         """4.4: replace the environment; the app restarts when it runs."""
-        return self._json("PUT", self._app_path(app_id, "/env"), json={"env": env})
+        return self._json("PUT", self._app_path(app_id, "/env"), json={"env": env}, timeout=self._slow())
 
     def delete_data(self, app_id: str) -> dict:
-        return self._json("DELETE", self._app_path(app_id, "/data"))
+        return self._json("DELETE", self._app_path(app_id, "/data"), timeout=self._slow())
 
     def delete_app(self, app_id: str, *, purge_data: bool = False) -> dict:
-        return self._json("DELETE", self._app_path(app_id), params={"purge_data": "true" if purge_data else "false"})
+        return self._json(
+            "DELETE",
+            self._app_path(app_id),
+            params={"purge_data": "true" if purge_data else "false"},
+            timeout=self._slow(),
+        )
 
     def get_app(self, app_id: str) -> dict:
         """4.6: the app's status object."""

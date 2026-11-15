@@ -7,6 +7,12 @@ host's last word on the app's process (app/services/apps/host_state.py).
 Days are UTC days. The host reports a member's requests as one running total
 (``app_visits.visits`` is all-time), so the per-member list names the members
 who used the app within the period with their all-time request count.
+
+Visitors are signed-in members, everywhere: a day's ``visitors`` is the number
+of distinct signed-in members the gateway saw that day (docs/CONTRACTS.md,
+section 5.4; a visitor of an ``anyone`` app who is not signed in is counted in
+``requests`` only), and a period's is the number of distinct signed-in members
+seen in it, see ``members_in_period``.
 """
 
 from __future__ import annotations
@@ -49,6 +55,19 @@ def _as_day(value: Any) -> Optional[date]:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
         return None
+
+
+def members_in_period(members_seen: int, daily_visitors: Iterable[int]) -> int:
+    """How many distinct signed-in members used an app in a period.
+
+    ``members_seen`` is the count of ``app_visits`` rows whose last visit
+    falls in the period: a member is in the period exactly when their last
+    visit is. The days' own counts are of the same members, a day at a time,
+    so the busiest day can never be more than the period's figure; it is used
+    only as a floor, for a host report whose member list was cut short or
+    came without times.
+    """
+    return max(int(members_seen), max((int(value or 0) for value in daily_visitors), default=0))
 
 
 def _failed():
@@ -190,9 +209,8 @@ def app_usage(db: Session, app: App, days: int = DEFAULT_DAYS, *, today: Optiona
         "budget": app_budget.snapshot(db, app),
         "totals": {
             "requests": sum(item["requests"] for item in traffic),
-            # Members seen in the period, or the busiest day's count when that
-            # is more (visitors without a sign-in are counted per day only).
-            "visitors": max(members_seen, max((item["visitors"] for item in traffic), default=0)),
+            # Distinct signed-in members in the period.
+            "visitors": members_in_period(members_seen, (item["visitors"] for item in traffic)),
             "llm_calls": sum(item["calls"] for item in llm),
             "credits": round(sum(item["credits"] for item in llm), 6),
             "connector_calls": sum(item["calls"] for item in connectors),
@@ -234,7 +252,8 @@ def admin_metrics(db: Session, app_ids: Iterable[str], *, days: int = ADMIN_METR
         .group_by(AppVisit.app_id)
     ).all():
         if app_id in metrics:
-            metrics[app_id]["visitors_7d"] = max(metrics[app_id]["visitors_7d"], int(members))
+            # Distinct signed-in members in the week (the busiest day, taken above, is only a floor).
+            metrics[app_id]["visitors_7d"] = members_in_period(int(members), [metrics[app_id]["visitors_7d"]])
 
     for app_id, calls, credits in db.execute(
         select(AppExecution.app_id, func.count(AppExecution.id), func.coalesce(func.sum(AppExecution.credits), 0.0))

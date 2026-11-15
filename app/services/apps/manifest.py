@@ -2,8 +2,13 @@
 
 The Portal validates the manifest before it sends anything to the host, so a
 member reads what is wrong when they register or deploy rather than in the
-middle of an installation. The host validates it again for itself. Unknown
-keys are ignored; paths may not be absolute or contain ``..``.
+middle of an installation. The host validates it again for itself, and the
+two must agree on every manifest: what passes here passes there and the
+reverse. The host's ``efp_app_host/manifest.py`` (in the app repository) is
+the reference, and the rules below follow it value by value. In particular
+nothing is trimmed before it is checked: a space around an entry or a path is
+part of the value, as it is for the host. Unknown keys are ignored; paths may
+not be absolute or contain ``..``.
 
 ``owners`` is what lets a member register a directory: the platform's
 service account may read far more repositories than the member, so the
@@ -32,9 +37,13 @@ DEFAULT_HEALTH_PATH = "/"
 DEFAULT_STARTUP_TIMEOUT = 60
 MAX_STARTUP_TIMEOUT = 300
 PATH_MAX_LENGTH = 512
+HEALTH_PATH_MAX_LENGTH = 200
+COMMAND_MAX_LENGTH = 2000
 
 # module:attribute, each a dotted Python name.
 _MODULE_ATTRIBUTE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+# A URL path of the app itself: a leading slash, then URL characters only (no "#", no space).
+_HEALTH_PATH_RE = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*$")
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 Problem = tuple[str, dict]
@@ -57,7 +66,12 @@ class Manifest:
 
 
 def is_safe_relative_path(value: Any) -> bool:
-    """A relative path inside the entry directory: not absolute, no ``..`` segment, no control character."""
+    """A relative path the Portal itself reads from a repository: not absolute, no ``..`` segment, no control character.
+
+    The Portal's own, stricter rule for an app's entry directory and for the
+    files it fetches (app/services/apps/source.py). The paths inside a
+    manifest are judged by ``is_manifest_path``, which is the host's rule.
+    """
     if not isinstance(value, str):
         return False
     text = value.strip()
@@ -70,28 +84,26 @@ def is_safe_relative_path(value: Any) -> bool:
     return ".." not in re.split(r"[\\/]+", text)
 
 
-def _is_safe_health_path(value: Any) -> bool:
-    """A URL path of the app itself: no scheme or host, no ``..`` segment."""
-    if not isinstance(value, str):
+def is_manifest_path(value: Any) -> bool:
+    """A path of the manifest that stays inside the entry directory, by the host's rule.
+
+    Text as it is written (nothing trimmed), not empty, forward slashes only,
+    not absolute, no drive letter, no ``..`` segment, no NUL.
+    """
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         return False
-    text = value.strip()
-    if not text or len(text) > PATH_MAX_LENGTH:
+    if value.startswith("/") or _DRIVE_RE.match(value):
         return False
-    if "://" in text or text.startswith("//") or "\\" in text:
-        return False
-    if any(ord(char) <= 32 or ord(char) == 127 for char in text):
-        return False
-    return ".." not in text.split("?", 1)[0].split("/")
+    return all(part != ".." for part in value.split("/"))
 
 
-def _optional_path(data: dict, key: str, default: str | None, problems: list[Problem]) -> str | None:
-    value = data.get(key)
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return default
-    if not is_safe_relative_path(value):
-        problems.append((N_("\"{field}\" must be a relative path inside the entry directory, without \"..\"."), {"field": key}))
-        return default
-    return value.strip()
+def normalize_manifest_path(value: str) -> str:
+    """The path without ``.`` segments and doubled slashes; ``""`` stands for the entry directory itself."""
+    return "/".join(part for part in value.split("/") if part not in ("", "."))
+
+
+def _relative_path_problem(key: str) -> Problem:
+    return (N_("\"{field}\" must be a relative path inside the entry directory, without \"..\"."), {"field": key})
 
 
 def validate_manifest(data: Any) -> Manifest:
@@ -115,62 +127,81 @@ def validate_manifest(data: Any) -> Manifest:
     elif not isinstance(description, str):
         problems.append((N_("\"description\" must be text."), {}))
         description = ""
+    elif len(description) > DESCRIPTION_MAX_LENGTH:
+        # Counted as written, the spaces around it included, as the host counts it.
+        problems.append((N_("\"description\" may be at most {limit} characters."), {"limit": DESCRIPTION_MAX_LENGTH}))
+        description = ""
     else:
+        # Trimmed only for showing it.
         description = description.strip()
-        if len(description) > DESCRIPTION_MAX_LENGTH:
-            problems.append((N_("\"description\" may be at most {limit} characters."), {"limit": DESCRIPTION_MAX_LENGTH}))
 
     app_type = data.get("type")
     if not isinstance(app_type, str) or app_type not in APP_TYPES:
         problems.append((N_("\"type\" must be one of: {types}."), {"types": ", ".join(APP_TYPES)}))
         app_type = ""
 
-    icon = _optional_path(data, "icon", None, problems)
-    requirements = _optional_path(data, "requirements", DEFAULT_REQUIREMENTS, problems) or DEFAULT_REQUIREMENTS
+    icon = data.get("icon")
+    if icon is None:
+        pass
+    elif not is_manifest_path(icon):
+        # An empty string is not "no icon": leave the key out for that.
+        problems.append(_relative_path_problem("icon"))
+        icon = None
+    else:
+        icon = normalize_manifest_path(icon) or None
+
+    requirements = data.get("requirements")
+    if requirements is None or requirements == "":
+        requirements = DEFAULT_REQUIREMENTS
+    if not is_manifest_path(requirements) or not normalize_manifest_path(requirements):
+        problems.append(_relative_path_problem("requirements"))
+        requirements = DEFAULT_REQUIREMENTS
+    else:
+        requirements = normalize_manifest_path(requirements)
 
     entry = data.get("entry")
     command = data.get("command")
     if app_type in ("fastapi", "flask"):
-        if not isinstance(entry, str) or not _MODULE_ATTRIBUTE_RE.match(entry.strip()):
+        if not isinstance(entry, str) or not _MODULE_ATTRIBUTE_RE.match(entry):
             problems.append((N_("\"entry\" must be module:attribute for a {type} app, for example main:app."), {"type": app_type}))
             entry = None
-        else:
-            entry = entry.strip()
+        command = None
     elif app_type in ("streamlit", "gradio"):
-        if not is_safe_relative_path(entry):
+        if not is_manifest_path(entry) or not normalize_manifest_path(entry):
             problems.append((N_("\"entry\" must be the path of the script to run for a {type} app, for example app.py."), {"type": app_type}))
             entry = None
         else:
-            entry = entry.strip()
+            entry = normalize_manifest_path(entry)
+        command = None
     elif app_type == "static":
-        if entry is None:
+        if entry is None or entry == "":
             entry = "."
-        elif not is_safe_relative_path(entry):
+        if not is_manifest_path(entry):
             problems.append((N_("\"entry\" must be a directory inside the entry directory for a static app."), {}))
             entry = None
         else:
-            entry = entry.strip()
-    else:
+            entry = normalize_manifest_path(entry) or "."
+        command = None
+    elif app_type == "command":
         # Ignored for a command app.
-        entry = entry.strip() if isinstance(entry, str) and entry.strip() else None
-
-    if app_type == "command":
+        entry = None
         if not isinstance(command, str) or not command.strip():
             problems.append((N_("\"command\" is required for a command app."), {}))
             command = None
-        else:
-            command = command.strip()
+        elif len(command) > COMMAND_MAX_LENGTH or any(char in command for char in "\x00\r\n"):
+            problems.append((N_("\"command\" must be a single line of at most {limit} characters."), {"limit": COMMAND_MAX_LENGTH}))
+            command = None
     else:
-        command = command.strip() if isinstance(command, str) and command.strip() else None
+        # No valid type: nothing more can be said about the entry or the command.
+        entry = None
+        command = None
 
     health_path = data.get("health_path")
-    if health_path is None:
+    if health_path is None or health_path == "":
         health_path = DEFAULT_HEALTH_PATH
-    elif not _is_safe_health_path(health_path):
+    if not isinstance(health_path, str) or len(health_path) > HEALTH_PATH_MAX_LENGTH or not _HEALTH_PATH_RE.match(health_path):
         problems.append((N_("\"health_path\" must be a path of the app, for example /health."), {}))
         health_path = DEFAULT_HEALTH_PATH
-    else:
-        health_path = health_path.strip()
 
     startup_timeout = data.get("startup_timeout")
     if startup_timeout is None:
@@ -188,9 +219,11 @@ def validate_manifest(data: Any) -> Manifest:
     owners: tuple[str, ...] = ()
     if owners_value is None:
         owners = ()
-    elif not isinstance(owners_value, list) or not all(isinstance(item, str) for item in owners_value):
+    elif not isinstance(owners_value, list) or not all(isinstance(item, str) and item for item in owners_value):
+        # An empty string is not a username.
         problems.append((N_("\"owners\" must be a list of Portal usernames."), {}))
     else:
+        # Compared without the spaces around a name (is_listed_owner).
         owners = tuple(item.strip() for item in owners_value if item.strip())
 
     if problems:

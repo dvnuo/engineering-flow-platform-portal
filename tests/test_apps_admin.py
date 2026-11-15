@@ -509,13 +509,14 @@ def test_deleting_with_its_data_is_stamped_at_once_and_without_it_left_for_the_w
 
     assert harness.row(kept).data_purged_at is None and harness.row(never_deployed).data_purged_at is None
     assert harness.row(wiped).data_purged_at == harness.row(wiped).deleted_at
-    assert harness.host.deleted == [(kept, False), (wiped, True)]
+    # The host is told about each of them, the one nobody deployed included.
+    assert harness.host.deleted == [(kept, False), (wiped, True), (never_deployed, False)]
 
     # Thirty days on, the worker takes what was kept; what was wiped at deletion is not asked for again.
     worker = AppsPurgeWorker(harness.factory, host_factory=lambda: harness.host)
     later = datetime.utcnow() + timedelta(days=30, minutes=1)
     assert worker.run_once(now=later) == {"due": 2, "purged": 2, "failed": 0}
-    assert sorted(harness.host.deleted[2:]) == sorted([(kept, True), (never_deployed, True)])
+    assert sorted(harness.host.deleted[3:]) == sorted([(kept, True), (never_deployed, True)])
     assert harness.row(kept).data_purged_at == later and harness.row(wiped).data_purged_at != later
 
 

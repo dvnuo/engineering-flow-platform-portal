@@ -61,9 +61,10 @@ def fill(h, app_id):
     db = h.db
     app = h.row(app_id)
     app.connectors_enabled = ["jira", "splunk"]
-    db.add(AppTrafficDaily(day=date(2026, 11, 15), app_id=app_id, requests=120, visitors=7, errors_4xx=3, errors_5xx=1, p95_ms=240))
-    db.add(AppTrafficDaily(day=date(2026, 11, 13), app_id=app_id, requests=40, visitors=5, errors_4xx=0, errors_5xx=0, p95_ms=90))
-    db.add(AppTrafficDaily(day=date(2026, 10, 1), app_id=app_id, requests=999, visitors=99, errors_4xx=9, errors_5xx=9, p95_ms=999))
+    # A day's visitors are the distinct signed-in members of that day; requests count everyone.
+    db.add(AppTrafficDaily(day=date(2026, 11, 15), app_id=app_id, requests=120, visitors=1, errors_4xx=3, errors_5xx=1, p95_ms=240))
+    db.add(AppTrafficDaily(day=date(2026, 11, 14), app_id=app_id, requests=40, visitors=2, errors_4xx=0, errors_5xx=0, p95_ms=90))
+    db.add(AppTrafficDaily(day=date(2026, 10, 1), app_id=app_id, requests=999, visitors=1, errors_4xx=9, errors_5xx=9, p95_ms=999))
     db.add(AppTrafficDaily(day=date(2026, 11, 15), app_id="another-app", requests=5000, visitors=50))
 
     call(db, app, tokens=(10, 20), credits=0.5)
@@ -78,6 +79,7 @@ def fill(h, app_id):
     call(db, app, kind="connector", connector="nexus", at=datetime(2026, 10, 1, 8, 0, 0))
 
     users = h.users
+    # mate was there on the 14th and again on the 15th: one member of the period, one row.
     db.add(AppVisit(app_id=app_id, user_id=users["mate"].id, visits=40, last_visited_at=datetime(2026, 11, 15, 10, 0, 0)))
     db.add(AppVisit(app_id=app_id, user_id=users["other"].id, visits=90, last_visited_at=datetime(2026, 11, 14, 9, 30, 0)))
     db.add(AppVisit(app_id=app_id, user_id=users["gadmin"].id, visits=500, last_visited_at=datetime(2026, 10, 1, 9, 0, 0)))
@@ -138,9 +140,9 @@ def test_usage_counts_traffic_calls_visitors_and_the_budget(harness, monkeypatch
     assert [item["day"] for item in body["traffic"]] == days and [item["day"] for item in body["llm"]] == days
 
     traffic = {item["day"]: item for item in body["traffic"]}
-    assert traffic["2026-11-15"] == {"day": "2026-11-15", "requests": 120, "visitors": 7, "errors_4xx": 3, "errors_5xx": 1, "p95_ms": 240}
-    assert traffic["2026-11-13"] == {"day": "2026-11-13", "requests": 40, "visitors": 5, "errors_4xx": 0, "errors_5xx": 0, "p95_ms": 90}
-    assert all(traffic[day] == {"day": day, **ZERO_TRAFFIC} for day in days if day not in ("2026-11-15", "2026-11-13"))
+    assert traffic["2026-11-15"] == {"day": "2026-11-15", "requests": 120, "visitors": 1, "errors_4xx": 3, "errors_5xx": 1, "p95_ms": 240}
+    assert traffic["2026-11-14"] == {"day": "2026-11-14", "requests": 40, "visitors": 2, "errors_4xx": 0, "errors_5xx": 0, "p95_ms": 90}
+    assert all(traffic[day] == {"day": day, **ZERO_TRAFFIC} for day in days if day not in ("2026-11-15", "2026-11-14"))
 
     llm = {item["day"]: item for item in body["llm"]}
     # A cancelled stream is a call, not a failure; its estimated tokens count.
@@ -161,17 +163,45 @@ def test_usage_counts_traffic_calls_visitors_and_the_budget(harness, monkeypatch
         {"user": {"id": 424242, "username": "", "display_name": ""}, "requests": 3, "last_visited_at": "2026-11-09T00:00:00"},
     ]
     assert body["budget"] == {"daily_credits": 50.0, "used_credits": 0.5, "daily_tokens": 2000000, "used_tokens": 40}
-    # Three members were seen in the week, but the busiest day alone counted seven visitors.
-    assert body["totals"] == {"requests": 160, "visitors": 7, "llm_calls": 4, "credits": 0.5, "connector_calls": 4}
+    # Three distinct signed-in members in the week: not the days' counts added up (that would count mate twice).
+    assert body["totals"] == {"requests": 160, "visitors": 3, "llm_calls": 4, "credits": 0.5, "connector_calls": 4}
 
     # A longer period takes the older rows in: thirty days do not reach 1 October, ninety do.
     month = harness.as_user("owner").get(f"/api/apps/{app_id}/usage").json()
     assert month["totals"] == body["totals"] and len(month["visitors"]) == 3
     quarter = harness.as_user("owner").get(f"/api/apps/{app_id}/usage?days=90").json()
     assert len(quarter["traffic"]) == 90 and quarter["traffic"][0]["day"] == "2026-08-18"
-    assert quarter["totals"] == {"requests": 1159, "visitors": 99, "llm_calls": 5, "credits": 99.5, "connector_calls": 5}
+    assert quarter["totals"] == {"requests": 1159, "visitors": 4, "llm_calls": 5, "credits": 99.5, "connector_calls": 5}
     assert [item["user"]["username"] for item in quarter["visitors"]] == ["gadmin", "other", "mate", ""]
     assert quarter["connectors"][-2:] == [{"type": "nexus", "calls": 1, "failed": 0}, {"type": "splunk", "calls": 0, "failed": 0}]
+
+
+def test_the_periods_visitors_are_distinct_signed_in_members(harness, monkeypatch):
+    from app.services.apps.usage import members_in_period
+
+    monkeypatch.setattr(app_budget, "utcnow", lambda: NOON)
+    app_id = harness.create()["app"]["id"]
+    db = harness.db
+    # An app open to anyone: plenty of requests from visitors who are not signed in, two members among them.
+    db.add(AppTrafficDaily(day=date(2026, 11, 15), app_id=app_id, requests=900, visitors=2))
+    db.add(AppTrafficDaily(day=date(2026, 11, 14), app_id=app_id, requests=700, visitors=1))
+    db.add(AppTrafficDaily(day=date(2026, 11, 13), app_id=app_id, requests=500, visitors=0))
+    db.add(AppVisit(app_id=app_id, user_id=harness.users["mate"].id, visits=12, last_visited_at=NOON))
+    db.add(AppVisit(app_id=app_id, user_id=harness.users["other"].id, visits=3, last_visited_at=NOON - timedelta(hours=2)))
+    db.commit()
+
+    week = harness.as_user("owner").get(f"/api/apps/{app_id}/usage?days=7").json()
+    assert week["totals"]["requests"] == 2100
+    assert week["totals"]["visitors"] == 2 and len(week["visitors"]) == 2
+
+    # A report whose member list was cut short: the day's own count is the least it can be.
+    db.add(AppTrafficDaily(day=date(2026, 11, 12), app_id=app_id, requests=50, visitors=5))
+    db.commit()
+    assert harness.as_user("owner").get(f"/api/apps/{app_id}/usage?days=7").json()["totals"]["visitors"] == 5
+
+    assert members_in_period(3, [1, 2, 0]) == 3
+    assert members_in_period(0, []) == 0
+    assert members_in_period(2, [5, None]) == 5
 
 
 def test_usage_lists_at_most_fifty_members_the_busiest_first(harness, monkeypatch):

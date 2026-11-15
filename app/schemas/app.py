@@ -386,6 +386,7 @@ class AppUsageUser(BaseModel):
 class AppUsageTrafficDay(BaseModel):
     day: str
     requests: int
+    # Distinct signed-in members that day.
     visitors: int
     errors_4xx: int
     errors_5xx: int
@@ -423,6 +424,7 @@ class AppUsageBudget(BaseModel):
 
 class AppUsageTotals(BaseModel):
     requests: int
+    # Distinct signed-in members in the period.
     visitors: int
     llm_calls: int
     credits: float

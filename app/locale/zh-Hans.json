@@ -1,5 +1,6 @@
 {
   "\"command\" is required for a command app.": "command 类型的应用必须填写 \"command\"。",
+  "\"command\" must be a single line of at most {limit} characters.": "\"command\" 必须是单行，且不超过 {limit} 个字符。",
   "\"description\" may be at most {limit} characters.": "\"description\" 最多 {limit} 个字符。",
   "\"description\" must be text.": "\"description\" 必须是文本。",
   "\"entry\" must be a directory inside the entry directory for a static app.": "static 类型应用的 \"entry\" 必须是入口目录内的一个目录。",

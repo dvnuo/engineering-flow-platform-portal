@@ -544,11 +544,18 @@ def test_delete_takes_the_app_off_the_host(world):
     assert _actions(world.db, app)[-1] == "app.deleted"
     assert not can_open(world.users["owner"], app, world.db)
 
-    # One nobody deployed has nothing on the host to remove.
+    # One nobody deployed is taken off the host too: the host registers every
+    # app the Portal lists when it boots, deployed or not.
     draft = world.create(name="Draft")
     world.host.calls.clear()
+    world.host.fail["delete_app"] = AppHostUnavailable()
+    with pytest.raises(AppHostUnavailable):
+        world.service.delete(draft, world.users["owner"])
+    world.db.refresh(draft)
+    assert draft.deleted_at is None
+    world.host.fail.clear()
     world.service.delete(draft, world.users["owner"])
-    assert world.host.calls == [] and draft.deleted_at is not None
+    assert world.host.deleted[-1] == (draft.id, False) and draft.deleted_at is not None
 
 
 def test_delete_waits_for_a_running_deployment(world):

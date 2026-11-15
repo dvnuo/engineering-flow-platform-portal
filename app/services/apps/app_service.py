@@ -253,7 +253,14 @@ class AppService:
         return self.apps.list_where(None, q=q)
 
     def host_known(self, app: App) -> bool:
-        """Whether the host may hold a record of the app: a deployment was at least attempted."""
+        """Whether the host holds a record of the app that matters: a deployment was at least attempted.
+
+        The host also reads every app the Portal lists when it boots, so it
+        may hold a bare record of an app nobody deployed. Nothing is served
+        from such a record and the first deployment sends the app as it then
+        is, so changes to an undeployed app are not sent; only its deletion
+        is (``delete``), or the record would stay.
+        """
         return bool(app.current_release_id) or self.releases.has_any(app.id)
 
     # --------------------------------------------------------------- inspecting
@@ -529,16 +536,18 @@ class AppService:
         survives is removed once the app has been deleted for
         ``APPS_DELETED_RETENTION_DAYS`` (app/services/apps/purge_worker.py). A
         host that cannot be reached stops the deletion: the app would keep
-        running there.
+        running there. The host is told about an app that was never deployed
+        too: it registers every app the Portal lists when it boots, so it may
+        hold a record of one nobody deployed (and answers "ok" for an id it
+        does not know).
         """
         if self.releases.active_for_app(app.id) is not None:
             raise DeployInProgress()
-        if self.host_known(app):
-            try:
-                self.host.delete_app(app.id, purge_data=purge_data)
-            except AppHostError as exc:
-                if exc.host_code != HOST_APP_NOT_FOUND:
-                    raise
+        try:
+            self.host.delete_app(app.id, purge_data=purge_data)
+        except AppHostError as exc:
+            if exc.host_code != HOST_APP_NOT_FOUND:
+                raise
         app.deleted_at = datetime.utcnow()
         if purge_data:
             app.data_purged_at = app.deleted_at
@@ -613,8 +622,16 @@ class AppService:
         }
 
     def clear_data(self, app: App, actor: Any) -> dict:
-        """Empty the app's data on the host."""
-        status = self.host.delete_data(app.id)
+        """Empty the app's data on the host. An app that was never deployed has none (409 ``not_deployed``)."""
+        self._require_deployed(app)
+        try:
+            status = self.host.delete_data(app.id)
+        except AppHostError as exc:
+            if exc.host_code != HOST_APP_NOT_FOUND:
+                raise
+            # Deployed as far as the Portal knows, but the host has no record of it: nothing there to empty.
+            host_state.forget(app.id)
+            raise AppConflict(N_("This app has not been deployed yet. Deploy it first."), code="not_deployed") from None
         host_state.record_status(status)
         audit.record_app_event(self.db, app.id, audit.ACTION_DATA_CLEARED, actor_user_id=actor.id)
         return status
