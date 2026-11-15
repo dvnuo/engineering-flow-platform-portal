@@ -35,6 +35,13 @@ REQUIRED_PORTAL_TABLES = (
     "usage_daily_rollups",
     "error_events",
     "groups",
+    "apps",
+    "app_releases",
+    "app_template_versions",
+    "app_executions",
+    "app_traffic_daily",
+    "app_visits",
+    "app_audit_events",
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",

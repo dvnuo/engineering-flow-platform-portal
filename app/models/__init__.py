@@ -15,8 +15,24 @@ from app.models.delegation_rule import DelegationRule, DelegationRuleRun, Delega
 from app.models.user_connector import UserConnector
 from app.models.usage_daily_rollup import UsageDailyRollup
 from app.models.error_event import ErrorEvent
+from app.models.app import (
+    App,
+    AppAuditEvent,
+    AppExecution,
+    AppRelease,
+    AppTemplateVersion,
+    AppTrafficDaily,
+    AppVisit,
+)
 
 __all__ = [
+    "App",
+    "AppAuditEvent",
+    "AppExecution",
+    "AppRelease",
+    "AppTemplateVersion",
+    "AppTrafficDaily",
+    "AppVisit",
     "UserConnector",
     "Group",
     "User",

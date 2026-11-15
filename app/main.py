@@ -234,3 +234,16 @@ app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)
 app.include_router(session_shares_router)
 app.include_router(share_pages_router)
+
+# Apps (APPS_PLAN.md): the owner API, the app host's API, the launch page, and
+# the deployments the last run left unfinished. All of it answers 404 and does
+# nothing while APPS_ENABLED is off.
+from app.api.app_host import router as app_host_router  # noqa: E402
+from app.api.apps import router as apps_router  # noqa: E402
+from app.apps_pages import router as apps_pages_router  # noqa: E402
+from app.services.apps.member_hooks import apps_startup  # noqa: E402
+
+app.include_router(apps_router)
+app.include_router(app_host_router)
+app.include_router(apps_pages_router)
+app.add_event_handler("startup", apps_startup)

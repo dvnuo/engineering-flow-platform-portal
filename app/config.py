@@ -300,6 +300,35 @@ class Settings(BaseSettings):
     # has to be https when Portal is, or the browser blocks it as mixed content).
     # Empty shows the member's initials instead; so does a failed photo request.
     avatar_photo_host: str = Field(default="", validation_alias="AVATAR_PHOTO_HOST")
+
+    # Apps (app/services/apps/): members register a directory of a GitHub
+    # repository as a web app; the Portal reads it with the platform's service
+    # account and hands it to the app host, a separate service in the cluster
+    # that installs and runs it under APPS_PUBLIC_BASE_URL/{slug}/. Everything
+    # is off (every route answers 404) unless APPS_ENABLED is true.
+    # APPS_PUBLIC_BASE_URL is the app host as browsers reach it (a sibling
+    # hostname of the Portal's), APPS_HOST_INTERNAL_URL its manager API as the
+    # Portal reaches it inside the cluster, and APPS_HOST_API_TOKEN the one
+    # shared secret used as a bearer token in both directions (empty rejects
+    # every call from the host). APPS_ANYONE_ENABLED allows apps that need no
+    # sign-in, each one approved by a system administrator. The daily credits
+    # and tokens are what one app may spend of its owner's model provider
+    # unless the app carries its own figures; APPS_SDK_RATE_PER_MINUTE limits
+    # the SDK calls of one app token. APPS_GIT_AUTH_PAT reads the repositories
+    # (empty = GIT_REPO_AUTH_PAT) through the GitHub REST API at
+    # APPS_GITHUB_API_URL (https://<host>/api/v3 for GitHub Enterprise
+    # Server); a code bundle larger than APPS_MAX_BUNDLE_MB is refused.
+    apps_enabled: bool = Field(default=False, validation_alias="APPS_ENABLED")
+    apps_public_base_url: str = Field(default="", validation_alias="APPS_PUBLIC_BASE_URL")
+    apps_host_internal_url: str = Field(default="", validation_alias="APPS_HOST_INTERNAL_URL")
+    apps_host_api_token: str = Field(default="", validation_alias="APPS_HOST_API_TOKEN")
+    apps_anyone_enabled: bool = Field(default=False, validation_alias="APPS_ANYONE_ENABLED")
+    apps_default_daily_credits: float = Field(default=50.0, validation_alias="APPS_DEFAULT_DAILY_CREDITS")
+    apps_default_daily_tokens: int = Field(default=2000000, validation_alias="APPS_DEFAULT_DAILY_TOKENS")
+    apps_sdk_rate_per_minute: int = Field(default=120, validation_alias="APPS_SDK_RATE_PER_MINUTE")
+    apps_git_auth_pat: str = Field(default="", validation_alias="APPS_GIT_AUTH_PAT")
+    apps_github_api_url: str = Field(default="https://api.github.com", validation_alias="APPS_GITHUB_API_URL")
+    apps_max_bundle_mb: int = Field(default=200, validation_alias="APPS_MAX_BUNDLE_MB")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

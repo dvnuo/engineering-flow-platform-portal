@@ -2652,11 +2652,18 @@ def _login_page_context(*, password_form: bool = False) -> dict:
     }
 
 
-# Where to go after signing in, when a shared session link sent the member to
-# the login page. Only a relative /share/{token} path is ever honoured, so the
-# login flow cannot be turned into a redirect to another site.
+# Where to go after signing in, when a shared session link or an app's launch
+# page sent the member to the login page. Only two relative paths are ever
+# honoured, so the login flow cannot be turned into a redirect to another
+# site: /share/{token}, and /apps/launch/{slug} with an optional ?next= whose
+# value is one percent-encoded path under that same app (/{slug}/...), which
+# the launch page checks again before it passes it on (app/apps_pages.py).
 POST_LOGIN_NEXT_COOKIE = "portal_next"
-_SAFE_NEXT_PATH = re.compile(r"^/share/[A-Za-z0-9_-]{8,128}/?$")
+_SAFE_NEXT_PATH = re.compile(
+    r"^(?:/share/[A-Za-z0-9_-]{8,128}/?"
+    r"|(?=.{1,2048}$)/apps/launch/(?P<app>[a-z0-9][a-z0-9-]{1,38}[a-z0-9])"
+    r"(?:\?next=%2[Ff](?P=app)%2[Ff](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})*)?)$"
+)
 
 
 def _safe_next_path(value) -> str:
