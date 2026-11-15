@@ -7,7 +7,8 @@
   current standing; this makes the host act on it at once, which is what
   counts for an app open to anyone.)
 - The Portal starts: deployments the last run left unfinished are picked up
-  or failed.
+  or failed, and the worker that removes the data of long-deleted apps starts;
+  it stops when the Portal does.
 
 Everything here is best effort and off the request's path: a host that is
 down must never fail a sign-out or an administrator's change. Nothing runs
@@ -159,7 +160,7 @@ def member_access_changed(username: Any) -> None:
 
 
 def apps_startup() -> None:
-    """Called once when the Portal starts: finish or fail the deployments the last run left behind."""
+    """Called once when the Portal starts: finish or fail the deployments the last run left behind, start the purge worker."""
     try:
         if not apps_settings.apps_enabled():
             return
@@ -168,3 +169,19 @@ def apps_startup() -> None:
         deploy_service.recover_interrupted()
     except Exception:  # noqa: BLE001 - the Portal must start whatever state the releases are in
         logger.exception("apps: recovering unfinished deployments failed")
+    try:
+        from app.services.apps.purge_worker import apps_purge_worker_singleton
+
+        apps_purge_worker_singleton.start()
+    except Exception:  # noqa: BLE001
+        logger.exception("apps: the purge worker could not be started")
+
+
+def apps_shutdown() -> None:
+    """Called once when the Portal stops."""
+    try:
+        from app.services.apps.purge_worker import apps_purge_worker_singleton
+
+        apps_purge_worker_singleton.stop()
+    except Exception:  # noqa: BLE001
+        logger.warning("apps: the purge worker could not be stopped", exc_info=True)

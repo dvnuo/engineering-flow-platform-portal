@@ -239,11 +239,20 @@ app.include_router(share_pages_router)
 # the deployments the last run left unfinished. All of it answers 404 and does
 # nothing while APPS_ENABLED is off.
 from app.api.app_host import router as app_host_router  # noqa: E402
+from app.api.app_sdk import router as app_sdk_router  # noqa: E402
 from app.api.apps import router as apps_router  # noqa: E402
+from app.api.apps_templates import router as apps_templates_router  # noqa: E402
+from app.api.apps_usage import router as apps_usage_router  # noqa: E402
 from app.apps_pages import router as apps_pages_router  # noqa: E402
-from app.services.apps.member_hooks import apps_startup  # noqa: E402
+from app.services.apps.member_hooks import apps_shutdown, apps_startup  # noqa: E402
 
+# Before the owner API: "/api/apps/templates" and "/api/apps/admin/..." are not app ids.
+app.include_router(apps_templates_router)
+app.include_router(apps_usage_router)
 app.include_router(apps_router)
 app.include_router(app_host_router)
+# The SDK API (docs/CONTRACTS.md, section 9): an app's token, never a cookie.
+app.include_router(app_sdk_router)
 app.include_router(apps_pages_router)
 app.add_event_handler("startup", apps_startup)
+app.add_event_handler("shutdown", apps_shutdown)

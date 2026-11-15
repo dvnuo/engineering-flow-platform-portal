@@ -317,7 +317,9 @@ class Settings(BaseSettings):
     # the SDK calls of one app token. APPS_GIT_AUTH_PAT reads the repositories
     # (empty = GIT_REPO_AUTH_PAT) through the GitHub REST API at
     # APPS_GITHUB_API_URL (https://<host>/api/v3 for GitHub Enterprise
-    # Server); a code bundle larger than APPS_MAX_BUNDLE_MB is refused.
+    # Server); a code bundle larger than APPS_MAX_BUNDLE_MB is refused. A
+    # deleted app's data stays on the host for APPS_DELETED_RETENTION_DAYS and
+    # is then removed (0 keeps it for good).
     apps_enabled: bool = Field(default=False, validation_alias="APPS_ENABLED")
     apps_public_base_url: str = Field(default="", validation_alias="APPS_PUBLIC_BASE_URL")
     apps_host_internal_url: str = Field(default="", validation_alias="APPS_HOST_INTERNAL_URL")
@@ -329,6 +331,7 @@ class Settings(BaseSettings):
     apps_git_auth_pat: str = Field(default="", validation_alias="APPS_GIT_AUTH_PAT")
     apps_github_api_url: str = Field(default="https://api.github.com", validation_alias="APPS_GITHUB_API_URL")
     apps_max_bundle_mb: int = Field(default=200, validation_alias="APPS_MAX_BUNDLE_MB")
+    apps_deleted_retention_days: int = Field(default=30, validation_alias="APPS_DELETED_RETENTION_DAYS")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

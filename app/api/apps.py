@@ -55,6 +55,8 @@ from app.schemas.app import (
     AppResponse,
     AppSettingsResponse,
     AppStatusResponse,
+    AppTemplateInfo,
+    AppTemplateVersionRef,
     AppTokenResponse,
     AppTransferRequest,
     AppUpdateRequest,
@@ -76,7 +78,8 @@ from app.services.apps.host_client import AppHostClient
 from app.services.apps.host_spec import current_sha
 from app.services.apps.host_state import host_state
 from app.services.apps.names import APP_CONNECTOR_TYPES, APP_TYPES, APP_VISIBILITIES, RESERVED_SLUGS, RELEASE_RUNNING
-from app.services.apps.source import AppSourceService, source_for, web_host_of
+from app.services.apps.source import AppSourceService, parse_repo_url, source_for, web_host_of
+from app.services.apps.templates import template_info
 from app.services.authorization import is_system_admin
 
 SCOPE_MINE = "mine"
@@ -161,6 +164,30 @@ def _icon_url(app: App) -> Optional[str]:
     return f"/api/apps/{app.id}/icon?v={version}"
 
 
+def _repo_links(app: App) -> tuple[Optional[str], Optional[str]]:
+    """``(the repository's page, where to fork it)`` on GitHub's web pages; None when the stored address cannot be read."""
+    try:
+        repo = parse_repo_url(app.repo_url)
+    except AppError:
+        return None, None
+    return repo.web_url, f"{repo.web_url}/fork"
+
+
+def _template_info(db: Session, app: App) -> Optional[AppTemplateInfo]:
+    info = template_info(db, app)
+    if info is None:
+        return None
+    owner = db.get(User, info["owner_user_id"]) if info["owner_user_id"] is not None else None
+    return AppTemplateInfo(
+        app_id=info["app_id"],
+        app_name=info["app_name"],
+        app_slug=info["app_slug"],
+        owner=_member(db, owner),
+        version=AppTemplateVersionRef(**info["version"]) if info["version"] else None,
+        update_available=AppTemplateVersionRef(**info["update_available"]) if info["update_available"] else None,
+    )
+
+
 def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional[datetime] = None) -> AppResponse:
     owner = db.get(User, app.owner_user_id)
     manage = can_manage(user, app)
@@ -171,8 +198,11 @@ def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional
     state = (view.status or {}).get("state")
     manage_fields = None
     if manage:
+        repo_web_url, fork_url = _repo_links(app)
         manage_fields = AppManageFields(
             repo_url=app.repo_url,
+            repo_web_url=repo_web_url,
+            fork_url=fork_url,
             repo_ref=app.repo_ref,
             entry_dir=app.entry_dir or "",
             env=app.env,
@@ -208,6 +238,7 @@ def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional
         is_template=bool(app.is_template),
         template_app_id=app.template_app_id,
         template_version_id=app.template_version_id,
+        template=_template_info(db, app),
         has_icon=bool(app.icon_data),
         icon_url=_icon_url(app),
         deployed=bool(app.current_release_id),

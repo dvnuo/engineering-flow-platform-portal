@@ -12,6 +12,12 @@
 - ``audit``: ``app_audit_events``.
 - ``app_service``: create, change, delete and run apps.
 - ``deploy``: deployments and rollbacks.
+- ``templates``: versions of a template app, apps created from one, upgrades.
+- ``visitor``, ``rate_limit``, ``budget``, ``executions``: what the SDK API
+  (app/api/app_sdk.py) checks and writes down for each call of an app.
+- ``usage``: the figures of an app's usage page and of the administration's list.
+- ``error_events``: failed deployments and crashes in the Portal's error log.
+- ``purge_worker``: removes the data of apps deleted long enough ago.
 - ``member_hooks``: what the rest of the Portal tells this package.
 
 See APPS_PLAN.md and the contracts in the app repository (docs/CONTRACTS.md).

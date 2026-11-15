@@ -592,12 +592,19 @@ def test_startup_hook_does_nothing_while_apps_are_off(world, monkeypatch):
     world.db.add(AppRelease(id="rel-queued", app_id=world.app.id, kind="deploy", status="queued", ref="main", steps_json="[]"))
     world.db.commit()
     monkeypatch.setattr(deploy_module, "deploy_service", world.deploys)
+    # The worker that removes the data of long-deleted apps starts with the feature, and only with it.
+    from app.services.apps.purge_worker import apps_purge_worker_singleton
+
+    started = []
+    monkeypatch.setattr(apps_purge_worker_singleton, "start", lambda: started.append(True))
 
     enable_apps(monkeypatch, apps_enabled=False)
     apps_startup()
     assert world.db.get(AppRelease, "rel-queued").status == "queued"
+    assert started == []
 
     enable_apps(monkeypatch, apps_enabled=True)
     apps_startup()
     world.db.expire_all()
     assert world.db.get(AppRelease, "rel-queued").status == "failed"
+    assert started == [True]

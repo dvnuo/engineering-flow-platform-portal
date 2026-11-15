@@ -357,7 +357,9 @@ def make_deploy_service(session_factory, host: FakeHost, source: FakeSource, **k
 def reset_apps_state() -> None:
     """Forget what the feature keeps in memory between requests."""
     from app.services.apps.access import handoff_codes
+    from app.services.apps.error_events import reset_crash_throttle
     from app.services.apps.host_state import host_state
+    from app.services.apps.rate_limit import sdk_rate_limiter
     from app.services.apps.source import reset_account_cache
     from app.services.apps.tokens import reset_use_notes
 
@@ -365,4 +367,148 @@ def reset_apps_state() -> None:
     host_state.clear()
     reset_account_cache()
     reset_use_notes()
+    sdk_rate_limiter.reset()
+    reset_crash_throttle()
 
+
+def add_app(db, owner, *, slug: str = "mindmap", name: str = "Mind map", **fields: Any):
+    """An app row as registering one leaves it (nothing deployed), with a token and a visitor key of its own."""
+    from app.models import App
+    from app.services.apps.tokens import hash_token, new_token, new_visitor_key
+
+    token = new_token()
+    values = {
+        "slug": slug,
+        "name": name,
+        "owner_user_id": owner.id,
+        "visibility": "private",
+        "repo_url": REPO_URL,
+        "repo_ref": "main",
+        "entry_dir": "apps/mindmap",
+        "token_hash": hash_token(token),
+        "token_value": token,
+        "visitor_key": new_visitor_key(),
+    }
+    values.update(fields)
+    app = App(**values)
+    db.add(app)
+    db.commit()
+    db.refresh(app)
+    return app
+
+
+def sign_visitor(app, user, *, expires_at: Optional[int] = None, key: Optional[str] = None, app_id: Optional[str] = None) -> str:
+    """An ``X-EFP-Visitor`` value as the gateway signs it (docs/CONTRACTS.md, section 6.4)."""
+    import base64
+    import hashlib
+    import hmac
+    import time
+
+    def b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    claims = {
+        "app": app_id if app_id is not None else app.id,
+        "exp": int(time.time()) + 60 if expires_at is None else int(expires_at),
+        "group": None,
+        "group_id": getattr(user, "group_id", None),
+        "name": getattr(user, "nickname", None) or user.username,
+        "sub": int(user.id),
+        "username": user.username,
+    }
+    payload = b64(json.dumps(claims, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    key_text = (key if key is not None else app.visitor_key).rstrip("=")
+    secret = base64.urlsafe_b64decode(key_text + "=" * (-len(key_text) % 4))
+    signature = b64(hmac.new(secret, f"v1.{payload}".encode("ascii"), hashlib.sha256).digest())
+    return f"v1.{payload}.{signature}"
+
+
+def owner_api_harness(monkeypatch, *, source: Optional[Any] = None):
+    """The Portal's own app behind a test client, signed in as one of five members, with the host and GitHub faked.
+
+    A generator for a fixture: ``yield from owner_api_harness(monkeypatch)``.
+    Yields a namespace with ``client``, ``db``, ``factory``, ``users``
+    (owner and mate in the group QA, other and admin in Default, gadmin a
+    group administrator of QA), ``host``, ``source``, ``as_user(name)``,
+    ``create(**fields)`` (registers an app through the API), ``row(app_id)``
+    and ``actions(app_id)``.
+    """
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    import app.api.apps as api
+    from app.db import get_db
+    from app.deps import get_current_user
+    from app.main import app
+    from app.models import App, AppAuditEvent
+
+    enable_apps(monkeypatch)
+    reset_apps_state()
+    factory, _engine = make_database()
+    db = factory()
+    default = add_group(db, "Default", is_default=True)
+    qa = add_group(db, "QA")
+    users = {
+        "owner": add_user(db, "owner", group=qa, nickname="Olive"),
+        "mate": add_user(db, "mate", group=qa),
+        "other": add_user(db, "other", group=default),
+        "admin": add_user(db, "admin", role="admin", group=default),
+        "gadmin": add_user(db, "gadmin", role="group_admin", group=qa),
+    }
+    host = FakeHost()
+    source = source if source is not None else FakeSource()
+    current = {"user": users["owner"]}
+
+    def override_db():
+        session = factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    def current_user():
+        # A fresh copy per request, as the real dependency loads one.
+        session = factory()
+        try:
+            user = session.get(User, current["user"].id)
+            session.expunge(user)
+            return user
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = current_user
+    monkeypatch.setattr(api, "host_client", lambda: host)
+    monkeypatch.setattr(api, "source_client", lambda _db: source)
+    monkeypatch.setattr(api, "deploy_service", make_deploy_service(factory, host, source))
+    client = TestClient(app)
+    h = SimpleNamespace(client=client, db=db, factory=factory, users=users, host=host, source=source, current=current, api=api)
+
+    def as_user(name):
+        current["user"] = users[name]
+        return client
+
+    def create(**overrides):
+        body = {"repo_url": REPO_URL, "ref": "main", "entry_dir": "apps/mindmap", "name": "Mind map", "deploy": False}
+        body.update(overrides)
+        owner = body.pop("as_user", "owner")
+        response = as_user(owner).post("/api/apps", json=body)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    def row(app_id):
+        db.expire_all()
+        return db.get(App, app_id)
+
+    def actions(app_id):
+        db.expire_all()
+        return [item.action for item in db.query(AppAuditEvent).filter(AppAuditEvent.app_id == app_id).order_by(AppAuditEvent.id)]
+
+    h.as_user, h.create, h.row, h.actions = as_user, create, row, actions
+    try:
+        yield h
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+        reset_apps_state()

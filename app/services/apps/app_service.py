@@ -70,6 +70,7 @@ from app.services.apps.names import (
     slugify,
 )
 from app.services.apps.source import AppSourceService, RepoRef, ResolvedRef, check_ref, normalize_entry_dir, source_for
+from app.services.apps.templates import is_from_template, template_pinned_error
 from app.services.apps.tokens import hash_token, new_token, new_visitor_key
 from app.services.authorization import is_system_admin
 from app.services.work_visibility import VISIBILITY_PRIVATE
@@ -431,6 +432,9 @@ class AppService:
             new["env"] = check_env(env)
         if repo_ref is not UNSET:
             new["repo_ref"] = check_ref(repo_ref)
+            if is_from_template(app) and new["repo_ref"] != app.repo_ref:
+                # Pinned to its template version's commit: only an upgrade moves it.
+                raise template_pinned_error()
         if llm_enabled is not UNSET:
             new["llm_enabled"] = bool(llm_enabled)
         enabled_connectors = list(app.connectors_enabled or [])
@@ -521,7 +525,9 @@ class AppService:
     def delete(self, app: App, actor: Any, *, purge_data: bool = False) -> None:
         """Take the app off the host and mark it deleted; its slug stays taken for good.
 
-        The app's data survives on the host unless ``purge_data`` is set. A
+        The app's data survives on the host unless ``purge_data`` is set; what
+        survives is removed once the app has been deleted for
+        ``APPS_DELETED_RETENTION_DAYS`` (app/services/apps/purge_worker.py). A
         host that cannot be reached stops the deletion: the app would keep
         running there.
         """
@@ -534,6 +540,8 @@ class AppService:
                 if exc.host_code != HOST_APP_NOT_FOUND:
                     raise
         app.deleted_at = datetime.utcnow()
+        if purge_data:
+            app.data_purged_at = app.deleted_at
         app.desired_state = DESIRED_STOPPED
         self.db.add(app)
         self.db.commit()

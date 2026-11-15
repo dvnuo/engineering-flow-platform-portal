@@ -35,6 +35,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.apps import settings as apps_settings
 from app.services.apps.access import app_enabled, can_open, handoff_codes, is_member_active, user_payload
 from app.services.apps.audit import record_host_event
+from app.services.apps.error_events import record_host_crash
 from app.services.apps.host_spec import desired_app
 from app.services.apps.host_state import host_state
 
@@ -272,5 +273,8 @@ def post_event(payload: Any = Body(default=None), db: Session = Depends(get_db))
     app = AppRepository(db).get_by_id(app_id.strip(), include_deleted=True)
     if app is None:
         raise HostApiError(REASON_APP_NOT_FOUND, "No app has this id.", 404)
-    record_host_event(db, app.id, kind, _bounded_detail(body.get("detail")), body.get("at"))
+    detail = _bounded_detail(body.get("detail"))
+    record_host_event(db, app.id, kind, detail, body.get("at"))
+    # A crash also shows in Administration > Errors, thinned out to one entry per app in ten minutes.
+    record_host_crash(db, app, kind, detail, body.get("at"))
     return {"ok": True}

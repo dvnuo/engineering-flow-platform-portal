@@ -48,6 +48,12 @@ COPILOT_APP_DEFAULT_MODEL = "gpt-6-sol"
 
 ROLES = ("user", "assistant")
 MAX_TEMPERATURE = 2.0
+# The thinking levels an app may ask for, and the one a call without one gets.
+# An app call never inherits the level its owner chose for their assistants
+# (``llm.reasoning_effort``): that one is tuned for long agent runs and would
+# make every visitor's request slow and dear.
+APP_REASONING_EFFORTS = ("low", "medium", "high")
+DEFAULT_APP_REASONING_EFFORT = "low"
 
 
 # ---------------------------------------------------------------- models
@@ -149,10 +155,15 @@ async def complete(
     system: str | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    reasoning_effort: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> LlmResult:
-    """One completion, whole. Raises ``LlmGatewayError``."""
-    request = _request(config, model, messages, system, max_output_tokens, temperature)
+    """One completion, whole. Raises ``LlmGatewayError``.
+
+    ``reasoning_effort`` is ``low``, ``medium`` or ``high``; left out it is
+    ``low``, and either way it is lowered to what the model takes.
+    """
+    request = _request(config, model, messages, system, max_output_tokens, temperature, reasoning_effort)
     parts: list[str] = []
     async with aclosing(_events(config, request, client, streaming=False)) as events:
         async for item in events:
@@ -175,6 +186,7 @@ async def stream(
     system: str | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    reasoning_effort: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[dict]:
     """One completion as it arrives.
@@ -187,7 +199,7 @@ async def stream(
     "error", "error": {"code": ..., "message": ...}}`` and ends the stream.
     Closing the iterator early closes the provider's stream with it.
     """
-    request = _request(config, model, messages, system, max_output_tokens, temperature)
+    request = _request(config, model, messages, system, max_output_tokens, temperature, reasoning_effort)
     sent = False
     try:
         async with aclosing(_events(config, request, client, streaming=True)) as events:
@@ -231,6 +243,7 @@ def _request(
     system: Any,
     max_output_tokens: Any,
     temperature: Any,
+    reasoning_effort: Any = None,
 ) -> LlmRequest:
     """The request, validated; ``invalid_request`` or ``model_not_allowed`` otherwise."""
     if not isinstance(messages, list) or not messages:
@@ -259,6 +272,11 @@ def _request(
         or not 0 <= temperature <= MAX_TEMPERATURE
     ):
         raise LlmGatewayError("invalid_request", "temperature must be a number from 0 to 2.")
+    if reasoning_effort is not None and (
+        not isinstance(reasoning_effort, str) or reasoning_effort.strip().lower() not in APP_REASONING_EFFORTS
+    ):
+        raise LlmGatewayError("invalid_request", "reasoning_effort must be low, medium or high.")
+    wanted_effort = reasoning_effort.strip().lower() if reasoning_effort is not None else DEFAULT_APP_REASONING_EFFORT
     resolved = resolve_model(config, model)
     return LlmRequest(
         model=resolved,
@@ -266,11 +284,10 @@ def _request(
         system=system if system and system.strip() else None,
         max_output_tokens=max_output_tokens,
         temperature=float(temperature) if temperature is not None else None,
-        # The owner's thinking level, clamped to what the model takes, as for
-        # their assistants.
-        reasoning_effort=effective_reasoning_effort(
-            provider_id(config), resolved, _llm_section(config).get("reasoning_effort")
-        ),
+        # The level the app asked for (low when it asked for none), clamped to
+        # what the model takes the way an assistant's is. Never the owner's own
+        # ``llm.reasoning_effort``.
+        reasoning_effort=effective_reasoning_effort(provider_id(config), resolved, wanted_effort),
     )
 
 
@@ -297,7 +314,9 @@ async def _events(
 
 
 __all__ = [
+    "APP_REASONING_EFFORTS",
     "COPILOT_APP_DEFAULT_MODEL",
+    "DEFAULT_APP_REASONING_EFFORT",
     "ERROR_STATUS",
     "LlmGatewayError",
     "LlmResult",

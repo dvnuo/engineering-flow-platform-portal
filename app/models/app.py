@@ -118,6 +118,8 @@ class App(Base):
     daily_credits: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     daily_tokens: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # When the data of a deleted app was removed from the host; None while it is still kept there.
+    data_purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -157,6 +159,9 @@ class AppRelease(Base):
     steps_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     host_job_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # The template version this deployment moves the app to (an upgrade of an
+    # app created from a template); the app takes it when the release succeeds.
+    template_version_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     # The end of the host job's log as it was when the job finished.
     log_tail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

@@ -65,3 +65,12 @@ def default_daily_tokens() -> int:
 
 def sdk_rate_per_minute() -> int:
     return int(getattr(get_settings(), "apps_sdk_rate_per_minute", 120) or 0)
+
+
+def deleted_retention_days() -> int:
+    """How long a deleted app's data stays on the host before it is removed; 0 keeps it for good."""
+    try:
+        days = int(getattr(get_settings(), "apps_deleted_retention_days", 30) or 0)
+    except (TypeError, ValueError):
+        days = 30
+    return max(0, days)

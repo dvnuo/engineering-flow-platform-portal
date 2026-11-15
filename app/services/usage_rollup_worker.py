@@ -5,8 +5,9 @@ recomputes the last ``usage_rollup_window_days`` days of
 ``usage_daily_rollups`` from ``agent_executions`` and then deletes terminal
 executions older than ``execution_retention_days`` (365; 0 keeps them all)
 after rolling their days up, so the Usage panel's sums survive the rows. The
-panel also refreshes today and yesterday on demand, so a run that finished a
-minute ago shows without waiting for this loop.
+SDK calls of apps (``app_executions``) are pruned the same way in the same
+pass. The panel also refreshes today and yesterday on demand, so a run that
+finished a minute ago shows without waiting for this loop.
 """
 
 from __future__ import annotations
@@ -72,8 +73,14 @@ class UsageRollupWorker:
             service = UsageRollupService(db)
             rolled = service.rollup_recent(window)
             pruned = service.prune_executions(retention)
-            logger.info("usage rollups: refreshed %s days, pruned %s executions", len(rolled), pruned.get("deleted", 0))
-            return {"rolled_up": rolled, **pruned}
+            app_pruned = service.prune_app_executions(retention)
+            logger.info(
+                "usage rollups: refreshed %s days, pruned %s executions and %s app SDK calls",
+                len(rolled),
+                pruned.get("deleted", 0),
+                app_pruned.get("deleted", 0),
+            )
+            return {"rolled_up": rolled, **pruned, "app_executions": app_pruned}
         finally:
             db.close()
 

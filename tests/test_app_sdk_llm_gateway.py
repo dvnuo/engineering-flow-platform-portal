@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from app.services import model_catalog_service
-from app.services.app_sdk import _outbound, llm_ai_platform, llm_copilot, llm_gateway
+from app.services.app_sdk import _outbound, llm_ai_platform, llm_copilot, llm_gateway, llm_wire
 from app.services.app_sdk.llm_gateway import LlmGatewayError, LlmResult, LlmUsage
 from app.services.app_sdk.llm_wire import CHAT_BODY_KEYS, RESPONSES_BODY_KEYS
 from app.services.tls_trust import trust_context
@@ -48,11 +48,13 @@ def ai_settings(**overrides):
 def _clean_state(monkeypatch):
     llm_copilot.reset_token_cache()
     llm_ai_platform.reset_token_cache()
+    llm_wire.reset_cap_state()
     model_catalog_service.reset_catalog_state()
     monkeypatch.setattr(llm_gateway, "get_settings", lambda: ai_settings())
     yield
     llm_copilot.reset_token_cache()
     llm_ai_platform.reset_token_cache()
+    llm_wire.reset_cap_state()
     model_catalog_service.reset_catalog_state()
 
 
@@ -372,7 +374,7 @@ def test_copilot_completion_exchanges_the_token_and_posts_a_whitelisted_response
     upstream = copilot_upstream(lambda request: sse_response(*responses_events("Hel", "lo", charge=4_000_000)))
 
     result = complete(
-        copilot_config(reasoning_effort="high"),
+        copilot_config(reasoning_effort="xhigh"),
         upstream,
         messages=[
             {"role": "user", "content": "Hello"},
@@ -382,6 +384,7 @@ def test_copilot_completion_exchanges_the_token_and_posts_a_whitelisted_response
         system="You are concise.",
         max_output_tokens=256,
         temperature=0.2,
+        reasoning_effort="high",
     )
 
     assert result == LlmResult(
@@ -441,7 +444,7 @@ def test_copilot_request_without_optional_values_carries_only_the_core_keys():
         "model": "gpt-6-sol",
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hello"}]}],
         "stream": True,
-        "reasoning": {"effort": "medium"},
+        "reasoning": {"effort": "low"},
     }
 
 
@@ -899,7 +902,7 @@ def test_ai_platform_completion_exchanges_a_jwt_and_posts_chat_completions():
     upstream = ai_upstream(lambda request: httpx.Response(200, json=chat_answer()))
 
     result = complete(
-        ai_config(reasoning_effort="low"),
+        ai_config(reasoning_effort="high"),
         upstream,
         messages=[{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi."}, {"role": "user", "content": "Again"}],
         system="You are concise.",
@@ -990,7 +993,7 @@ def test_ai_platform_responses_endpoint_puts_the_usercase_in_the_url_and_adds_a_
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hello"}]}],
         "stream": True,
         "instructions": "Short.",
-        "reasoning": {"effort": "medium"},
+        "reasoning": {"effort": "low"},
         "max_output_tokens": 32,
     }
 
@@ -1262,3 +1265,247 @@ def test_the_requests_carry_the_timeouts_of_a_completion():
     exchange_timeout, completion_timeout = seen
     assert (exchange_timeout["connect"], exchange_timeout["read"]) == (10.0, 30.0)
     assert (completion_timeout["connect"], completion_timeout["read"]) == (10.0, 120.0)
+
+
+# ---------------------------------------------------------------- thinking level
+
+
+def _effort_sent(upstream) -> str:
+    body = json.loads(upstream.requests[-1].content)
+    return body["reasoning"]["effort"] if "reasoning" in body else body["reasoning_effort"]
+
+
+@pytest.mark.parametrize("owner_level", ["low", "medium", "high", "xhigh", "max", "", None])
+def test_an_app_call_without_a_level_thinks_low_whatever_its_owner_chose(owner_level):
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+
+    complete(copilot_config(reasoning_effort=owner_level), upstream)
+    assert _effort_sent(upstream) == "low"
+
+    assert stream(copilot_config(reasoning_effort=owner_level), upstream)[-1]["type"] == "done"
+    assert _effort_sent(upstream) == "low"
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high", " High ", "MEDIUM"])
+def test_an_app_call_may_ask_for_low_medium_or_high(level):
+    copilot = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+    complete(copilot_config(reasoning_effort="xhigh"), copilot, reasoning_effort=level)
+    assert _effort_sent(copilot) == level.strip().lower()
+
+    ai = ai_upstream(lambda request: httpx.Response(200, json=chat_answer()))
+    complete(ai_config(reasoning_effort="max"), ai, reasoning_effort=level)
+    assert _effort_sent(ai) == level.strip().lower()
+
+
+@pytest.mark.parametrize("level", ["xhigh", "max", "minimal", "none", "", 3, True, ["low"]])
+def test_any_other_level_is_refused_before_anything_is_sent(level):
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("never")))
+
+    for call in (complete, stream):
+        error = failure(call, copilot_config(), upstream, reasoning_effort=level)
+        assert (error.code, error.status) == ("invalid_request", 400)
+        assert "reasoning_effort" in error.message
+    assert upstream.requests == []
+
+
+def test_the_level_is_clamped_to_what_the_model_takes():
+    from app.contracts.llm_catalog import register_catalog_models
+
+    register_catalog_models(
+        ("gpt-6-sol", "thinker", "plain"),
+        None,
+        {"gpt-6-sol": ["low", "medium"], "thinker": ["medium", "high", "xhigh"], "plain": ["minimal"]},
+    )
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+
+    # Asked for more than the model takes: the nearest lower level.
+    complete(copilot_config(), upstream, model="gpt-6-sol", reasoning_effort="high")
+    assert _effort_sent(upstream) == "medium"
+    # The default (low) on a model that starts at medium: the nearest higher one.
+    complete(copilot_config(), upstream, model="thinker")
+    assert _effort_sent(upstream) == "medium"
+    complete(copilot_config(), upstream, model="thinker", reasoning_effort="high")
+    assert _effort_sent(upstream) == "high"
+    # A row that lists no level the runtimes know leaves all of them open.
+    complete(copilot_config(), upstream, model="plain", reasoning_effort="medium")
+    assert _effort_sent(upstream) == "medium"
+
+
+# ---------------------------------------------------------------- the output cap a provider refuses
+
+
+def refusal(message, status=400, **error):
+    return httpx.Response(status, json={"error": {"message": message, **error}})
+
+
+@pytest.mark.parametrize(
+    "message, error",
+    [
+        ("Unsupported parameter: 'max_output_tokens' is not supported with this model.", {}),
+        ("Unknown parameter: 'max_output_tokens'.", {"code": "unknown_parameter"}),
+        ("Unrecognized request argument supplied: max_output_tokens", {"type": "invalid_request_error"}),
+        ("The request body is invalid.", {"param": "max_output_tokens", "code": "unsupported_parameter"}),
+    ],
+)
+def test_copilot_refusing_the_cap_is_asked_again_without_it_and_never_sent_it_again(message, error, caplog):
+    def answer(request):
+        if "max_output_tokens" in json.loads(request.content):
+            return refusal(message, **error)
+        return sse_response(*responses_events("Hel", "lo"))
+
+    upstream = copilot_upstream(answer)
+    with caplog.at_level("WARNING", logger="app.services.app_sdk.llm_wire"):
+        result = complete(copilot_config(), upstream, max_output_tokens=64)
+        assert result.text == "Hello"
+        first, second = [json.loads(request.content) for request in upstream.to("api.business.githubcopilot.com")]
+        assert first["max_output_tokens"] == 64
+        assert "max_output_tokens" not in second
+        assert {key: value for key, value in first.items() if key != "max_output_tokens"} == second
+
+        # From now on the cap is left out from the start: one request, no refusal.
+        assert complete(copilot_config(), upstream, max_output_tokens=128).text == "Hello"
+        assert [event["type"] for event in stream(copilot_config(), upstream, max_output_tokens=128)] == ["delta", "delta", "done"]
+        calls = upstream.to("api.business.githubcopilot.com")
+        assert len(calls) == 4
+        assert all("max_output_tokens" not in json.loads(request.content) for request in calls[1:])
+
+    warnings = [record for record in caplog.records if "max_output_tokens" in record.getMessage()]
+    assert len(warnings) == 1, "one warning, the first time"
+    assert "github_copilot" in warnings[0].getMessage()
+    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is False
+    # AI Platform is another provider: it is still sent its own.
+    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is True
+    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is True
+
+
+def test_a_stream_refused_for_the_cap_starts_again_without_it():
+    def answer(request):
+        if "max_output_tokens" in json.loads(request.content):
+            return refusal("Unsupported parameter: max_output_tokens")
+        return sse_response(*responses_events("Hel", "lo"))
+
+    upstream = copilot_upstream(answer)
+
+    events = stream(copilot_config(), upstream, max_output_tokens=64)
+
+    assert [event["type"] for event in events] == ["delta", "delta", "done"]
+    assert len(upstream.to("api.business.githubcopilot.com")) == 2
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        # The cap is known, its value is not liked: the app's to fix.
+        refusal("Invalid 'max_output_tokens': integer below minimum value. Expected a value >= 16."),
+        # Something else is unsupported.
+        refusal("Unsupported parameter: 'temperature' is not supported with this model."),
+        # A body that only echoes the request back names the cap without saying anything about it.
+        httpx.Response(400, json={"request": {"max_output_tokens": 64, "note": "unsupported"}}),
+        # Not a 400.
+        refusal("Unsupported parameter: max_output_tokens", status=422),
+        refusal("Unsupported parameter: max_output_tokens", status=500),
+    ],
+)
+def test_other_refusals_are_not_taken_for_an_unsupported_cap(response):
+    upstream = copilot_upstream(lambda request: response)
+
+    error = failure(complete, copilot_config(), upstream, max_output_tokens=64)
+
+    assert error.code == "provider_error"
+    assert len(upstream.to("api.business.githubcopilot.com")) == 1, "not tried again"
+    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+
+
+def test_a_request_without_a_cap_is_never_repeated_for_it():
+    upstream = copilot_upstream(lambda request: refusal("Unsupported parameter: max_output_tokens"))
+
+    error = failure(complete, copilot_config(), upstream)
+
+    assert error.code == "provider_error"
+    assert len(upstream.to("api.business.githubcopilot.com")) == 1
+    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+
+
+def test_a_second_refusal_after_the_cap_was_dropped_is_the_callers_error():
+    upstream = copilot_upstream(lambda request: refusal("Unsupported parameter: max_output_tokens"))
+
+    error = failure(complete, copilot_config(), upstream, max_output_tokens=64)
+
+    assert (error.code, error.status) == ("provider_error", 502)
+    assert len(upstream.to("api.business.githubcopilot.com")) == 2, "once with the cap, once without, then it stops"
+
+
+def test_an_expired_token_and_a_refused_cap_are_each_retried_once():
+    seen = []
+
+    def answer(request):
+        body = json.loads(request.content)
+        seen.append("max_output_tokens" in body)
+        if len(seen) == 1:
+            return httpx.Response(401, text="token expired")
+        if "max_output_tokens" in body:
+            return refusal("Unknown parameter: 'max_output_tokens'.")
+        return sse_response(*responses_events("ok"))
+
+    upstream = copilot_upstream(answer)
+
+    assert complete(copilot_config(), upstream, max_output_tokens=64).text == "ok"
+    assert seen == [True, True, False]
+    assert len(upstream.to("api.github.com")) == 2, "the token was exchanged again once"
+
+
+def test_ai_platform_chat_refusing_its_cap_is_asked_again_without_it(caplog):
+    def answer(request):
+        if "max_completion_tokens" in json.loads(request.content):
+            return refusal("Unrecognized request argument supplied: max_completion_tokens")
+        return httpx.Response(200, json=chat_answer())
+
+    upstream = ai_upstream(answer)
+    with caplog.at_level("WARNING", logger="app.services.app_sdk.llm_wire"):
+        assert complete(ai_config(), upstream, max_output_tokens=64).text == "Hello"
+        first, second = [json.loads(request.content) for request in upstream.to("ai.example.test")]
+        assert first["max_completion_tokens"] == 64 and "max_completion_tokens" not in second
+
+        assert complete(ai_config(), upstream, max_output_tokens=64).text == "Hello"
+        assert len(upstream.to("ai.example.test")) == 3
+
+    assert len([record for record in caplog.records if "max_completion_tokens" in record.getMessage()]) == 1
+    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is False
+    # The Responses endpoint names its cap differently and has not been asked yet; Copilot neither.
+    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is True
+    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+
+
+def test_ai_platform_responses_refusing_its_cap_is_asked_again_without_it(monkeypatch):
+    monkeypatch.setattr(llm_gateway, "get_settings", lambda: ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses"))
+
+    def answer(request):
+        if "max_output_tokens" in json.loads(request.content):
+            return refusal("max_output_tokens is not supported")
+        return sse_response(*responses_events("Hel", "lo"))
+
+    upstream = ai_upstream(answer)
+
+    assert complete(ai_config(), upstream, max_output_tokens=32).text == "Hello"
+    assert len(upstream.to("ai.example.test")) == 2
+    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is False
+    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is True
+    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+
+
+def test_a_refused_jwt_and_a_refused_cap_are_each_retried_once_on_ai_platform():
+    seen = []
+
+    def answer(request):
+        body = json.loads(request.content)
+        seen.append("max_completion_tokens" in body)
+        if len(seen) == 1:
+            return httpx.Response(401, json={"message": "jwt expired"})
+        if "max_completion_tokens" in body:
+            return refusal("Unsupported parameter: max_completion_tokens")
+        return httpx.Response(200, json=chat_answer())
+
+    upstream = ai_upstream(answer)
+
+    assert complete(ai_config(), upstream, max_output_tokens=64).text == "Hello"
+    assert seen == [True, True, False]

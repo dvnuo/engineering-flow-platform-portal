@@ -31,6 +31,10 @@ import httpx
 from app.services.app_sdk._outbound import CONNECT_TIMEOUT_SECONDS, OutboundClients, exchange_lock
 from app.services.app_sdk.llm_types import LlmGatewayError, LlmRequest, WireDone
 from app.services.app_sdk.llm_wire import (
+    CHAT_CAP_PARAMETER,
+    RESPONSES_CAP_PARAMETER,
+    cap_accepted,
+    cap_refused,
     chat_body,
     error_body,
     read_chat,
@@ -42,6 +46,8 @@ from app.services.app_sdk.llm_wire import (
 from app.services.proxy_plan import hostname_of
 
 LABEL = "AI Platform"
+# The provider's id, as the Portal names it and as the refused-cap memory keys it.
+PROVIDER = "ai_platform"
 DEFAULT_CHAT_URI = "/v1/api/v1/chat/completions"
 DEFAULT_TRUST_TOKEN_HEADER = "X-XXXX-E2E-Trust-Token"
 DEFAULT_TRACKING_PREFIX = "EFP"
@@ -50,8 +56,11 @@ TOKEN_REFRESH_MARGIN_SECONDS = 5
 
 # The Portal's Test button caps its chat/completions probe with
 # max_completion_tokens, so the gateway is known to take that key; the
-# Responses name for it (max_output_tokens) is not proven there. A temperature
-# is sent by neither runtime, and the gpt-5 line refuses one.
+# Responses name for it (max_output_tokens) is not proven there. Either is
+# sent until the gateway refuses it by name: the request is then repeated once
+# without it and it is left out for the rest of the process
+# (llm_wire.cap_refused). A temperature is sent by neither runtime, and the
+# gpt-5 line refuses one.
 FORWARD_MAX_OUTPUT_TOKENS = True
 FORWARD_TEMPERATURE = False
 # A streamed chat completion reports usage only when asked to. Neither runtime
@@ -157,12 +166,18 @@ def request_headers(target: AiPlatformTarget, token: str, *, stream: bool) -> di
     return headers
 
 
+def cap_parameter(target: AiPlatformTarget) -> str:
+    """The name the endpoint gives the cap on the answer's length."""
+    return RESPONSES_CAP_PARAMETER if target.is_responses else CHAT_CAP_PARAMETER
+
+
 def request_body(target: AiPlatformTarget, request: LlmRequest, *, stream: bool) -> dict:
+    forward_cap = FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(PROVIDER, cap_parameter(target))
     if target.is_responses:
         # Streamed like Copilot's; the use case is in the URL, never a ``user`` field.
         return responses_body(
             request,
-            forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS,
+            forward_max_output_tokens=forward_cap,
             forward_temperature=FORWARD_TEMPERATURE,
         )
     return chat_body(
@@ -170,7 +185,7 @@ def request_body(target: AiPlatformTarget, request: LlmRequest, *, stream: bool)
         stream=stream,
         user=target.usercase,
         include_usage=CHAT_STREAM_INCLUDE_USAGE,
-        forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS,
+        forward_max_output_tokens=forward_cap,
         forward_temperature=FORWARD_TEMPERATURE,
     )
 
@@ -194,8 +209,12 @@ async def run(
     body = request_body(target, request, stream=stream)
     token = await _token(target, clients)
     secrets = [target.password, token]
+    cap = cap_parameter(target)
+    token_renewed = False
 
-    for attempt in range(2):
+    # At most three requests: the first, one more with a new JWT, one more
+    # without the output cap.
+    while True:
         failure: LlmGatewayError | None = None
         try:
             async with clients.for_url(target.endpoint).stream(
@@ -210,10 +229,15 @@ async def run(
                     text = await error_body(response)
                     if response.status_code in (401, 403):
                         _forget(target, token)
-                        if attempt == 0:
+                        if not token_renewed:
+                            token_renewed = True
                             token = await _token(target, clients)
                             secrets.append(token)
                             continue
+                    if cap in body and cap_refused(PROVIDER, cap, response.status_code, text):
+                        # The gateway does not take the cap: once more without it.
+                        body = {key: value for key, value in body.items() if key != cap}
+                        continue
                     raise status_error(LABEL, response.status_code, text, response.headers, secrets)
                 reader = read_responses if target.is_responses else read_chat
                 async for item in reader(response, LABEL):
@@ -328,8 +352,10 @@ __all__ = [
     "FORWARD_MAX_OUTPUT_TOKENS",
     "FORWARD_TEMPERATURE",
     "LABEL",
+    "PROVIDER",
     "TOKEN_REFRESH_MARGIN_SECONDS",
     "TOKEN_TTL_SECONDS",
+    "cap_parameter",
     "endpoint_is_responses",
     "join_url",
     "request_body",

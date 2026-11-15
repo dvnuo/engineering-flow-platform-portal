@@ -10,6 +10,7 @@ streaming. Every reader yields the text deltas as ``str`` and ends with one
 from __future__ import annotations
 
 import json
+import logging
 import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -19,6 +20,8 @@ import httpx
 
 from app.services.app_sdk._outbound import failure_text, scrub
 from app.services.app_sdk.llm_types import LlmGatewayError, LlmRequest, LlmUsage, WireDone
+
+logger = logging.getLogger(__name__)
 
 FINISH_STOP = "stop"
 FINISH_LENGTH = "length"
@@ -57,6 +60,27 @@ _CONTEXT_OVERFLOW_MARKERS = (
 )
 _CONTEXT_OVERFLOW_CODES = ("context_length_exceeded",)
 _ERROR_BODY_LIMIT = 4096
+
+# The cap on the answer's length, under the name each wire format gives it.
+# Neither runtime ever sends it, so nobody knows whether a provider takes it:
+# it is sent until a provider refuses it by name, and then left out for that
+# provider and endpoint for the rest of the process (see cap_refused).
+RESPONSES_CAP_PARAMETER = "max_output_tokens"
+CHAT_CAP_PARAMETER = "max_completion_tokens"
+# What a provider says about a parameter it does not take.
+_UNSUPPORTED_PARAMETER_MARKERS = (
+    "unsupported",
+    "not supported",
+    "unknown",
+    "unrecognized",
+    "unrecognised",
+    "unexpected",
+    "not permitted",
+    "not allowed",
+)
+_UNSUPPORTED_PARAMETER_CODES = ("unsupported_parameter", "unknown_parameter", "unrecognized_parameter")
+# (provider, parameter) pairs that were refused once.
+_caps_refused: set[tuple[str, str]] = set()
 
 
 # ---------------------------------------------------------------- request bodies
@@ -123,6 +147,59 @@ def chat_body(
     if forward_temperature and request.temperature is not None:
         body["temperature"] = request.temperature
     return {key: body[key] for key in CHAT_BODY_KEYS if key in body}
+
+
+# ---------------------------------------------------------------- the output cap
+
+
+def cap_accepted(provider: str, parameter: str) -> bool:
+    """Whether ``parameter`` is still sent to ``provider``: true until the provider refused it once."""
+    return (provider, parameter) not in _caps_refused
+
+
+def cap_refused(provider: str, parameter: str, status: int, body_text: str) -> bool:
+    """Whether a provider's error answer says it does not take ``parameter``; remembers it when it does.
+
+    Only an HTTP 400 whose message names the parameter together with a word
+    like "unsupported", "unknown" or "unrecognized" (or an error object that
+    points at it as an unsupported parameter) counts: a cap the provider
+    merely finds too small or too large is the caller's to fix. The caller
+    sends the request once more without the parameter; later requests leave
+    it out from the start. One warning is logged, the first time.
+    """
+    if status != 400 or not names_unsupported_parameter(body_text, parameter):
+        return False
+    key = (provider, parameter)
+    if key not in _caps_refused:
+        _caps_refused.add(key)
+        logger.warning(
+            "app sdk: %s does not accept %s; requests are sent without it from now on",
+            provider,
+            parameter,
+        )
+    return True
+
+
+def names_unsupported_parameter(body_text: str, parameter: str) -> bool:
+    """Whether an error body says ``parameter`` is one the provider does not know or support."""
+    body = _json_mapping(body_text)
+    said = _json_error_message(body)
+    # A JSON body without a message may echo the request back, and the
+    # request's own text must not decide this; only a non-JSON body is read whole.
+    text = (said if said is not None else (body_text if body is None else "")).lower()
+    name = parameter.lower()
+    error = body.get("error") if body is not None else None
+    pointed_at = isinstance(error, Mapping) and str(error.get("param") or "").strip().lower() == name
+    if name not in text and not pointed_at:
+        return False
+    if any(marker in text for marker in _UNSUPPORTED_PARAMETER_MARKERS):
+        return True
+    return pointed_at and (_json_error_code(body) or "").lower() in _UNSUPPORTED_PARAMETER_CODES
+
+
+def reset_cap_state() -> None:
+    """Send the cap to every provider again (tests)."""
+    _caps_refused.clear()
 
 
 # ---------------------------------------------------------------- reading answers
@@ -491,14 +568,20 @@ def _first_count(counts: Mapping[str, Any], *keys: str) -> int:
 
 __all__ = [
     "CHAT_BODY_KEYS",
+    "CHAT_CAP_PARAMETER",
     "FINISH_LENGTH",
     "FINISH_STOP",
     "RESPONSES_BODY_KEYS",
+    "RESPONSES_CAP_PARAMETER",
+    "cap_accepted",
+    "cap_refused",
     "chat_body",
     "chat_done",
     "error_body",
+    "names_unsupported_parameter",
     "read_chat",
     "read_responses",
+    "reset_cap_state",
     "responses_body",
     "responses_done",
     "retry_after_seconds",

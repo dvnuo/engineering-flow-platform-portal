@@ -18,6 +18,11 @@ called ``manifest``). On success the app points at the new release and takes
 its type, description and icon from the manifest; on failure the app is left
 as it was, which is also what the host does.
 
+An app created from a template is pinned: its ``repo_ref`` is the commit of
+the template version it is on, so "deploy latest" runs that commit again, and
+only an upgrade (``template_version_id``) moves it to another commit. A
+template's tag is never resolved again after it was published.
+
 One deployment per app at a time. A rollback asks the host to switch back to
 the release it kept (``POST /v1/apps/{id}/activate``) and is recorded as a
 release of kind ``rollback``. A Portal that restarts in the middle picks the
@@ -42,6 +47,7 @@ from app.models.app import App, AppRelease
 from app.models.user import User
 from app.repositories.app_repo import AppReleaseRepository
 from app.services.apps import audit
+from app.services.apps.error_events import record_deploy_failure
 from app.services.apps.errors import (
     AppConflict,
     AppError,
@@ -66,6 +72,7 @@ from app.services.apps.names import (
     RELEASE_SUCCEEDED,
 )
 from app.services.apps.source import AppSourceService, check_ref, normalize_entry_dir, source_for
+from app.services.apps.templates import is_from_template, template_pinned_error
 
 logger = logging.getLogger(__name__)
 
@@ -255,17 +262,30 @@ class DeployService:
 
     # ----------------------------------------------------------------- starting
 
-    def start_deploy(self, app: App, ref: Optional[str] = None, requested_by: Any = None) -> AppRelease:
+    def start_deploy(
+        self,
+        app: App,
+        ref: Optional[str] = None,
+        requested_by: Any = None,
+        *,
+        template_version_id: Optional[str] = None,
+    ) -> AppRelease:
         """Record a deployment of ``app`` and start it in the background; the new release row.
 
         ``ref`` deploys another branch or tag than the app's own, which the
-        app then follows once the deployment succeeded. DeployInProgress when
-        one is already running for this app.
+        app then follows once the deployment succeeded. An app created from a
+        template takes no other ref than the commit it is pinned to, unless
+        the deployment is an upgrade: ``template_version_id`` names the
+        version whose commit ``ref`` is, and the app is on that version once
+        the deployment succeeded. DeployInProgress when one is already
+        running for this app.
         """
         db = object_session(app)
         if db is None:
             raise RuntimeError("start_deploy needs an app that belongs to a session")
         wanted_ref = check_ref(ref) if str(ref or "").strip() else app.repo_ref
+        if is_from_template(app) and wanted_ref != app.repo_ref and not template_version_id:
+            raise template_pinned_error()
         actor_id = self._actor_id(requested_by)
         releases = AppReleaseRepository(db)
         with _start_lock:
@@ -278,10 +298,19 @@ class DeployService:
                 requested_by_user_id=actor_id,
                 status=RELEASE_QUEUED,
                 steps_json=json.dumps(initial_steps(), ensure_ascii=True),
+                template_version_id=template_version_id or None,
                 started_at=datetime.utcnow(),
             )
         audit.record_app_event(
-            db, app.id, audit.ACTION_DEPLOY_REQUESTED, actor_user_id=actor_id, detail={"release_id": release.id, "ref": wanted_ref}
+            db,
+            app.id,
+            audit.ACTION_DEPLOY_REQUESTED,
+            actor_user_id=actor_id,
+            detail={
+                "release_id": release.id,
+                "ref": wanted_ref,
+                **({"template_version_id": template_version_id} if template_version_id else {}),
+            },
         )
         release_id = release.id
         self._spawn(lambda: self.run_release(release_id), f"app-deploy-{release_id[:8]}")
@@ -289,7 +318,7 @@ class DeployService:
         return release
 
     def deploy_latest(self, app: App, requested_by: Any = None) -> AppRelease:
-        """Deploy the head of the branch or tag the app follows."""
+        """Deploy the head of the branch or tag the app follows; for an app created from a template, its pinned commit again."""
         return self.start_deploy(app, None, requested_by)
 
     # ------------------------------------------------------------------ running
@@ -471,6 +500,9 @@ class DeployService:
         app.desired_state = DESIRED_RUNNING
         if release.ref and release.ref != app.repo_ref:
             app.repo_ref = release.ref
+        if release.template_version_id:
+            # An upgrade: the app is on the version whose commit now runs.
+            app.template_version_id = release.template_version_id
         if manifest is not None:
             app.type = manifest.type
             if manifest.description:
@@ -536,6 +568,8 @@ class DeployService:
             detail={"release_id": release.id, "sha": release.commit_sha, "code": exc.code, "error": exc.message[:500]},
         )
         logger.info("apps: release failed app_id=%s release_id=%s code=%s", release.app_id, release.id, exc.code)
+        # One entry in Administration > Errors per failed release.
+        record_deploy_failure(db, release, app, exc)
 
     def _fail_unexpected(self, db: Session, release_id: str) -> None:
         try:
@@ -627,9 +661,11 @@ class DeployService:
         """How many commits the app's branch or tag is ahead of what runs; None when that cannot be told.
 
         Asked of GitHub at most once a minute per app and deployed commit.
+        An app created from a template follows no branch: what it is behind
+        is the template's newer version, which its payload names.
         """
         sha = current_sha(db, app)
-        if not sha or not app.repo_ref:
+        if not sha or not app.repo_ref or is_from_template(app):
             return None
         key = (app.id, sha, app.repo_ref)
         now = time.monotonic()

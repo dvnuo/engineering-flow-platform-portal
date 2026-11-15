@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.agent_execution import AgentExecution
 from app.models.agent_task import AgentTask
+from app.models.app import App, AppExecution
 from app.models.delegation_rule import DelegationRule
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
 from app.models.usage_daily_rollup import UsageDailyRollup
@@ -36,8 +37,10 @@ class MemberManagementService:
     own tables; the consumption columns (executions, chats, credits, tokens,
     active days) are summed over the last ``days`` days from
     ``agent_executions``, which keeps what each run cost as the runtime
-    reported it (app/services/agent_execution_registry.py). Nothing here
-    needs an assistant to be running.
+    reported it (app/services/agent_execution_registry.py). What a member's
+    apps spent of their model provider (``app_executions``) is part of their
+    credits and tokens, as it is in the daily rollups; it is not one of their
+    runs. Nothing here needs an assistant to be running.
     """
 
     def __init__(self, db: Session) -> None:
@@ -125,6 +128,15 @@ class MemberManagementService:
         period_input_tokens = self._sum_by(AgentExecution.created_by_user_id, AgentExecution.input_tokens, in_period)
         period_output_tokens = self._sum_by(AgentExecution.created_by_user_id, AgentExecution.output_tokens, in_period)
         period_active_days = self._distinct_days_by(AgentExecution.created_by_user_id, AgentExecution.created_at, in_period)
+        # What the member's apps spent of their model provider in the period.
+        app_calls = (AppExecution.kind == "llm", AppExecution.created_at >= period_start)
+        for totals, column in (
+            (period_credits, AppExecution.credits),
+            (period_input_tokens, AppExecution.input_tokens),
+            (period_output_tokens, AppExecution.output_tokens),
+        ):
+            for owner_id, amount in self._sum_by(AppExecution.owner_user_id, column, *app_calls).items():
+                totals[owner_id] = totals.get(owner_id, 0.0) + amount
         latest_agent_activity = self._latest_by(Agent.owner_user_id, Agent.last_activity_at)
         latest_task_activity = self._latest_by(AgentTask.owner_user_id, AgentTask.updated_at)
         latest_execution_activity = self._latest_by(
@@ -348,7 +360,23 @@ class MemberManagementService:
             .order_by(func.sum(R.credits).desc(), func.sum(R.executions).desc())
             .limit(limit)
         ).all()
-        return [
-            {"agent_id": agent_id, "name": name or agent_id, "executions": int(executions), "credits": round(float(credits), 2)}
+        found = [
+            {"agent_id": agent_id, "app_id": "", "name": name or agent_id, "executions": int(executions), "credits": round(float(credits), 2)}
             for agent_id, name, executions, credits in rows
         ]
+        # The member's apps stand in the same list, under their own names.
+        app_rows = self.db.execute(
+            select(R.app_id, App.name, func.coalesce(func.sum(R.executions), 0), func.coalesce(func.sum(R.credits), 0.0))
+            .select_from(R)
+            .outerjoin(App, App.id == R.app_id)
+            .where(R.user_id == int(user_id), R.day >= start, R.day <= today, R.app_id != "")
+            .group_by(R.app_id, App.name)
+            .order_by(func.sum(R.credits).desc(), func.sum(R.executions).desc())
+            .limit(limit)
+        ).all()
+        found += [
+            {"agent_id": "", "app_id": app_id, "name": name or app_id, "executions": int(executions), "credits": round(float(credits), 2)}
+            for app_id, name, executions, credits in app_rows
+        ]
+        found.sort(key=lambda item: (-item["credits"], -item["executions"]))
+        return found[:limit]

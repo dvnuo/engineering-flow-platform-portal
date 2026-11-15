@@ -31,10 +31,21 @@ import httpx
 
 from app.services.app_sdk._outbound import CONNECT_TIMEOUT_SECONDS, OutboundClients, exchange_lock, scrub
 from app.services.app_sdk.llm_types import LlmGatewayError, LlmRequest, WireDone
-from app.services.app_sdk.llm_wire import error_body, read_responses, responses_body, status_error, transport_error
+from app.services.app_sdk.llm_wire import (
+    RESPONSES_CAP_PARAMETER,
+    cap_accepted,
+    cap_refused,
+    error_body,
+    read_responses,
+    responses_body,
+    status_error,
+    transport_error,
+)
 from app.services.proxy_plan import hostname_of
 
 LABEL = "GitHub Copilot"
+# The provider's id, as the Portal names it and as the refused-cap memory keys it.
+PROVIDER = "github_copilot"
 DEFAULT_API_BASE_URL = "https://api.githubcopilot.com"
 # Copilot's sign-in is always public github.com (copilot_auth_service.py).
 GITHUB_API_BASE_URL = "https://api.github.com"
@@ -59,7 +70,9 @@ SOURCE_TOKEN_PREFIXES = ("ghp_", "ghu_", "gho_", "ghs_", "ghr_", "github_pat_")
 
 # The runtimes never send either of these to Copilot, so neither is proven
 # against it. max_output_tokens is the Responses API's own name for the cap
-# an app asks for and is sent. temperature is not: the GPT-5 and GPT-6 lines
+# an app asks for and is sent until Copilot refuses it by name: the request is
+# then repeated once without it and it is left out for the rest of the process
+# (llm_wire.cap_refused). temperature is not sent: the GPT-5 and GPT-6 lines
 # Copilot serves are reasoning models, which refuse a temperature, and the
 # Portal treats it as "not a Copilot-managed knob" (schemas/runtime_profile.py).
 FORWARD_MAX_OUTPUT_TOKENS = True
@@ -141,7 +154,7 @@ def request_headers(token: str) -> dict[str, str]:
 def request_body(request: LlmRequest) -> dict:
     return responses_body(
         request,
-        forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS,
+        forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(PROVIDER, RESPONSES_CAP_PARAMETER),
         forward_temperature=FORWARD_TEMPERATURE,
     )
 
@@ -160,7 +173,10 @@ async def run(llm: Mapping[str, Any], request: LlmRequest, clients: OutboundClie
     body = request_body(request)
     explicit = explicit_api_base_url(llm)
 
-    for attempt in range(2):
+    token_renewed = False
+    # At most three requests: the first, one more with a renewed token, one
+    # more without the output cap.
+    while True:
         base_url = explicit or (exchanged.api_base_url if exchanged is not None else None) or DEFAULT_API_BASE_URL
         url = base_url + RESPONSES_PATH
         failure: LlmGatewayError | None = None
@@ -179,11 +195,18 @@ async def run(llm: Mapping[str, Any], request: LlmRequest, clients: OutboundClie
                         # The token Copilot just refused is not offered again.
                         _forget(source, exchanged)
                         said = f"{response.reason_phrase} {text}".lower()
-                        if attempt == 0 and "expired" in said:
+                        if not token_renewed and "expired" in said:
+                            token_renewed = True
                             exchanged = await _copilot_token(source, clients)
                             bearer = exchanged.token
                             secrets.append(bearer)
                             continue
+                    if RESPONSES_CAP_PARAMETER in body and cap_refused(
+                        PROVIDER, RESPONSES_CAP_PARAMETER, response.status_code, text
+                    ):
+                        # Copilot does not take the cap: once more without it.
+                        body = {key: value for key, value in body.items() if key != RESPONSES_CAP_PARAMETER}
+                        continue
                     raise status_error(LABEL, response.status_code, text, response.headers, secrets)
                 async for item in read_responses(response, LABEL):
                     yield item
@@ -289,6 +312,7 @@ __all__ = [
     "FORWARD_TEMPERATURE",
     "GITHUB_API_BASE_URL",
     "LABEL",
+    "PROVIDER",
     "TOKEN_REFRESH_MARGIN_SECONDS",
     "credential",
     "explicit_api_base_url",

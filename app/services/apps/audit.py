@@ -39,6 +39,10 @@ ACTION_ROLLBACK_SUCCEEDED = "rollback.succeeded"
 ACTION_ROLLBACK_FAILED = "rollback.failed"
 ACTION_TOKEN_VIEWED = "token.viewed"
 ACTION_TOKEN_RESET = "token.reset"
+ACTION_TEMPLATE_CHANGED = "template.changed"
+ACTION_TEMPLATE_VERSION_PUBLISHED = "template.version_published"
+ACTION_TEMPLATE_VERSION_REMOVED = "template.version_removed"
+ACTION_DATA_PURGED = "app.data_purged"
 HOST_EVENT_PREFIX = "host."
 
 

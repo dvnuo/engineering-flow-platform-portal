@@ -1,6 +1,6 @@
 """The error log: failures the Portal saw, kept for Administration > Errors.
 
-Five things write to ``error_events`` through :func:`record_error`:
+Six things write to ``error_events`` through :func:`record_error`:
 
 * a run that ends ``failed`` or ``stale``
   (``AgentExecutionRepository.mark_status``), with the runtime's error code and
@@ -12,7 +12,9 @@ Five things write to ``error_events`` through :func:`record_error`:
 * a Portal response of 500 or more, or an unhandled exception
   (:class:`ErrorCaptureMiddleware`);
 * a warning or error from the Portal's own loggers (``app.*``), through
-  :class:`ErrorLogHandler`, with the traceback when there is one.
+  :class:`ErrorLogHandler`, with the traceback when there is one;
+* an app whose deployment failed, or that crashed or was killed on the app
+  host (``app/services/apps/error_events.py``).
 
 Messages and details pass through ``app.redaction`` before they are stored and
 are cut to a few kilobytes. ``fingerprint`` hashes the source, the code and
@@ -56,7 +58,8 @@ SOURCE_ASSISTANT = "assistant"
 SOURCE_CONNECTOR_TEST = "connector_test"
 SOURCE_PORTAL = "portal"
 SOURCE_LOG = "log"
-SOURCES = (SOURCE_EXECUTION, SOURCE_ASSISTANT, SOURCE_CONNECTOR_TEST, SOURCE_PORTAL, SOURCE_LOG)
+SOURCE_APP = "app"
+SOURCES = (SOURCE_EXECUTION, SOURCE_ASSISTANT, SOURCE_CONNECTOR_TEST, SOURCE_PORTAL, SOURCE_LOG, SOURCE_APP)
 
 SEVERITY_ERROR = "error"
 SEVERITY_WARNING = "warning"
