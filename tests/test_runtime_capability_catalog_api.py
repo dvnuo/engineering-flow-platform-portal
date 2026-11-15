@@ -144,7 +144,11 @@ def test_sync_api_persists_snapshot_and_latest_reads_it(monkeypatch):
         assert sync_resp.status_code == 200
         assert sync_resp.json()["catalog_version"] == "v-sync-1"
         assert sync_resp.json()["source_agent_id"] == agent.id
-        assert "headers" not in captured or captured["headers"] == {}
+        # No member identity on a catalogue sync; only the assistant's trust
+        # token, which its runtime requires on every Portal request.
+        from app.services.agent_trust import agent_trust_token
+
+        assert captured["headers"] == {"X-Portal-Trust-Token": agent_trust_token(agent.id)}
 
         set_user(admin_user)
         latest = client.get("/api/runtime-capability-catalog/latest")

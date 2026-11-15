@@ -19,6 +19,7 @@ from _apps_helpers import (
     reset_apps_state,
 )
 from app.db import get_db
+from app.security.session_cookie import session_cookie_name
 from app.deps import get_current_user
 from app.models import AppAuditEvent, UserAllowlistEntry
 from app.services.apps import member_hooks
@@ -76,7 +77,7 @@ def _sign_out(monkeypatch, world, *, cookie="session-token", user_id=None, revok
     if cookie:
         from app.config import get_settings
 
-        client.cookies.set(get_settings().session_cookie_name, cookie)
+        client.cookies.set(session_cookie_name(), cookie)
     response = client.post("/api/auth/logout")
     return response, calls
 

@@ -7,7 +7,10 @@ from urllib.parse import parse_qs, quote, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
+from app.security.sso_state import sso_state_cookie_name
 from _apps_helpers import REPO_URL, FakeHost, FakeSource, add_group, add_user, enable_apps, make_database, reset_apps_state
+
+SSO_STATE = "state-issued-to-this-browser"
 from app.services.apps.access import handoff_codes
 from app.services.apps.app_service import AppService
 
@@ -36,7 +39,7 @@ def harness(monkeypatch):
     viewer = {"value": (None, "missing_session")}
     monkeypatch.setattr(web_module, "_session_user_access", lambda _request: viewer["value"])
     monkeypatch.setattr(web_module, "sso_enabled", lambda: True)
-    monkeypatch.setattr(web_module, "sso_authorize_url", lambda: "https://idp.example.com/authorize")
+    monkeypatch.setattr(web_module, "sso_authorize_url", lambda state="": "https://idp.example.com/authorize")
 
     client = TestClient(app)
     try:
@@ -97,7 +100,9 @@ def test_after_sign_in_the_member_lands_on_the_launch_page_again(harness, monkey
     monkeypatch.setattr(harness.web, "sso_redirect_uri", lambda: "https://portal.example.com/auth")
     launch = "/apps/launch/mindmap?next=%2Fmindmap%2Fboard%3Fid%3D3"
     harness.client.cookies.set(harness.web.POST_LOGIN_NEXT_COOKIE, launch)
-    response = harness.client.get("/auth?code=abc", follow_redirects=False)
+    # The callback is only accepted with the state this browser was given at /login/sso.
+    harness.client.cookies.set(sso_state_cookie_name(), SSO_STATE)
+    response = harness.client.get(f"/auth?code=abc&state={SSO_STATE}", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == launch
 

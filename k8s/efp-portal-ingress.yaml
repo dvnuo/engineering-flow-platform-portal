@@ -21,7 +21,15 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - http:
+    # The Portal answers on its own host name only; replace the placeholder
+    # with the host in BASE_URI. Without a host the rule would also catch
+    # every other name that resolves to this ingress controller, a sibling
+    # subdomain that serves member apps included.
+    # /api/internal/ and /api/app-host/ are for callers inside the cluster:
+    # the Portal answers 404 to any request for them that arrives through
+    # this ingress (INTERNAL_API_BLOCK_FORWARDED, see k8s/README.md).
+    - host: portal.example.com
+      http:
         paths:
           - path: /
             pathType: Prefix

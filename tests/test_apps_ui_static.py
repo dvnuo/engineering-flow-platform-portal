@@ -22,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 
 from _js_extract_helpers import _extract_js_function, _extract_js_set_values
 from app.db import Base
+from app.security.session_cookie import session_cookie_name
 from app.models import User, UserAllowlistEntry
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -177,7 +178,7 @@ def _client(monkeypatch, *, role: str, apps_enabled: bool):
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     monkeypatch.setattr(get_settings(), "apps_enabled", apps_enabled)
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+    client.cookies.set(session_cookie_name(), issue_session_token(user.id))
     return client, db
 
 

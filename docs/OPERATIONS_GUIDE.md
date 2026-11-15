@@ -129,7 +129,7 @@ What these settings mean:
 | Setting | Explanation |
 | --- | --- |
 | `DATABASE_URL` | `sqlite:///./portal.db` creates the file relative to the working directory. Starting from another directory can accidentally select another database. |
-| `SECRET_KEY` | Signs login sessions. Keep it stable across restarts. Changing it invalidates existing session signatures. |
+| `SECRET_KEY` | Signs login sessions and derives each assistant's trust token. Keep it stable across restarts. Changing it invalidates existing session signatures and requires restarting the assistants. Outside `DEBUG` the Portal does not start with the built-in default. |
 | `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` | Create the initial administrator after schema migration. The configured administrator is also added to the allowlist. |
 | `K8S_ENABLED=false` | Runs the control plane without provisioning real assistant pods. |
 | `SSO_ISSUER_URL=` | Leaves company SSO disabled for this local exercise. |
@@ -354,7 +354,7 @@ Do not commit live credentials in the sample YAML. Secret existence and Secret r
 
 Before applying the Deployment, explicitly configure:
 
-- A non-default `SECRET_KEY` supplied to the Portal container from a private Secret. The supplied examples do not automatically wire this key for you.
+- A non-default `SECRET_KEY` in `efp-portal-secret`. The supplied examples pass it to the Portal container, and the Portal does not start without it (`ALLOW_INSECURE_SECRET_KEY=true` is the temporary way out for an installation that never set one).
 - `BOOTSTRAP_ADMIN_PASSWORD` and, if needed, `BOOTSTRAP_ADMIN_USERNAME`.
 - `DATABASE_URL=sqlite:////app/data/portal.db` and the correct persistent mount.
 - `K8S_ENABLED=true`, `K8S_INCLUSTER=true`, and the correct `AGENTS_NAMESPACE`.
@@ -465,7 +465,7 @@ Every authenticated request checks the active allowlist. Removing access invalid
 
 Entries in `PORTAL_USER_ALLOWLIST` are reseeded/reactivated on startup. If you permanently revoke a name that is also configured there, remove it from deployment configuration too. The bootstrap administrator is also re-established in the allowlist on startup.
 
-The current session cookie is signed, HTTP-only, SameSite Lax, and long-lived. Logging out clears the browser cookie; allowlist removal and changing `SECRET_KEY` are separate access controls. Protect public access with the intended HTTPS and trusted-network deployment.
+The current session cookie is signed, HTTP-only, SameSite Lax, and long-lived. When `BASE_URI` is an `https://` address and `SESSION_COOKIE_NAME` is left at its default, it is named `__Host-portal_session` and carries `Secure`, so another subdomain can neither read nor replace it; otherwise it keeps the plain name and the Portal warns at startup. Logging out clears the browser cookie; allowlist removal and changing `SECRET_KEY` are separate access controls. State-changing requests that carry the cookie are accepted only from the Portal's own pages (`ORIGIN_GUARD_ENABLED`). Protect public access with the intended HTTPS and trusted-network deployment. The [Kubernetes guide](../k8s/README.md#8-trust-between-portal-assistants-and-other-sites) lists these checks and the upgrade order for the assistant trust token.
 
 ## 10. Configure engines, connectors, repositories, and resources
 

@@ -728,6 +728,7 @@
   "Cron schedule": "Cron 排程",
   "Cron schedule ({timezone})": "Cron 排程（{timezone}）",
   "Cron {expression} ({timezone})": "Cron {expression}（{timezone}）",
+  "Cross-site request blocked": "已攔截跨網站請求",
   "current session estimate": "目前對話估算",
   "Current task": "目前任務",
   "Custom command": "自訂指令",

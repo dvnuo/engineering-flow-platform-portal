@@ -65,10 +65,12 @@ def end_app_sessions_on_sign_out(request: Request) -> None:
     try:
         if not apps_settings.apps_enabled():
             return
-        from app.config import get_settings
+        from app.security.session_cookie import read_session_token
         from app.services.auth_service import parse_session_token
 
-        token = request.cookies.get(get_settings().session_cookie_name)
+        # The cookie's name depends on the deployment (host-bound over https):
+        # the one helper knows it.
+        token = read_session_token(request.cookies)
         user_id = parse_session_token(token) if token else None
         if not user_id:
             return

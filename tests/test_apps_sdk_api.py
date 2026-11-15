@@ -29,6 +29,7 @@ from _apps_helpers import (
 )
 from app.config import get_settings
 from app.db import get_db
+from app.security.session_cookie import session_cookie_name
 from app.models import App, AppExecution, RuntimeProfile
 from app.services import model_catalog_service
 from app.services.app_sdk import llm_copilot, llm_wire
@@ -268,7 +269,7 @@ def test_a_deleted_apps_token_and_a_replaced_token_stop_working(sdk):
 
 
 def test_a_portal_session_is_never_consulted(sdk):
-    cookie = {get_settings().session_cookie_name: issue_session_token(sdk.owner.id)}
+    cookie = {session_cookie_name(): issue_session_token(sdk.owner.id)}
 
     # The owner's own browser session opens nothing here.
     signed_in = TestClient(sdk.asgi, cookies=cookie)
@@ -277,7 +278,7 @@ def test_a_portal_session_is_never_consulted(sdk):
     assert signed_in.post(PREFIX + "/llm/complete", json={"messages": HELLO}).status_code == 401
 
     # And a session next to the token changes nothing about who is calling.
-    other = TestClient(sdk.asgi, cookies={get_settings().session_cookie_name: issue_session_token(sdk.visitor.id)})
+    other = TestClient(sdk.asgi, cookies={session_cookie_name(): issue_session_token(sdk.visitor.id)})
     answer = other.get(PREFIX + "/app", headers=sdk.auth())
     assert answer.status_code == 200 and answer.json()["owner"]["username"] == "owner"
     assert "set-cookie" not in answer.headers
