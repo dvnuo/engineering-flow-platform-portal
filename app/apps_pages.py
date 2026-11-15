@@ -10,6 +10,9 @@ credentialed cross-origin endpoint for this.
 
 ``next`` is where the visitor was going inside the app. Only a path under
 ``/{slug}/`` is ever passed on; the app host checks the same rule again.
+
+Also here: ``/app/admin/apps/panel``, the frame of Administration > Apps (the
+rows come from the API, drawn by ``static/js/apps.js``).
 """
 
 from __future__ import annotations
@@ -17,16 +20,17 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import web as portal_web
 from app.db import SessionLocal
-from app.i18n import t
+from app.i18n import N_, t
 from app.models.user import User
 from app.repositories.app_repo import AppRepository
 from app.services.apps import settings as apps_settings
 from app.services.apps.access import can_open, display_name_of, handoff_codes, safe_app_next
+from app.services.authorization import is_system_admin
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,23 @@ def _page(request: Request, kind: str, status_code: int, **context) -> Response:
 
 def _redirect(url: str) -> RedirectResponse:
     return RedirectResponse(url=url, status_code=302, headers=dict(NO_STORE))
+
+
+@router.get("/app/admin/apps/panel", response_class=HTMLResponse)
+def admin_apps_panel(request: Request):
+    """Administration > Apps: the frame of the panel, for system administrators.
+
+    Only markup: the page fills it from ``GET /api/apps/admin/overview``
+    (app/static/js/apps.js), which checks the role again for the data.
+    """
+    if not apps_settings.apps_enabled():
+        raise HTTPException(status_code=404, detail=N_("Not found"))
+    user = portal_web._current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
+    if not is_system_admin(user):
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
+    return portal_web.templates.TemplateResponse("partials/admin_apps_panel.html", {"request": request})
 
 
 @router.get("/apps/launch/{slug}", response_class=HTMLResponse)

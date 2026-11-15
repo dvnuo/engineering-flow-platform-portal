@@ -53,6 +53,11 @@ def test_app_template_contains_new_portal_shell():
     rail_top_end = html.index('<div class="portal-rail-bottom">', rail_top_start)
     rail_top = html[rail_top_start:rail_top_end]
     assert "connectors-menu-btn" not in rail_top
+    # Apps sits in the top group, right under Assistants, and only while the
+    # feature is on; the bottom group stays Connectors and the account button.
+    assert rail_top.index('id="rail-assistants-btn"') < rail_top.index('id="apps-menu-btn"') < rail_top.index('id="tasks-menu-btn"')
+    apps_button = rail_top[rail_top.index("{% if apps_enabled %}") : rail_top.index("{% endif %}")]
+    assert 'id="apps-menu-btn" class="portal-rail-btn"' in apps_button
 
     rail_bottom_start = html.index('<div class="portal-rail-bottom">')
     rail_bottom_end = html.index('</nav>', rail_bottom_start)
@@ -61,6 +66,7 @@ def test_app_template_contains_new_portal_shell():
     # Help, Theme and Sign out are not sections: they live in the account menu
     # behind the avatar, so the rail's bottom is two targets, not four.
     assert rail_bottom.count('class="portal-rail-btn') == 2
+    assert "apps-menu-btn" not in rail_bottom
     assert 'id="account-menu-btn"' in rail_bottom
     assert 'id="account-menu"' in rail_bottom
     assert 'id="help-btn"' in rail_bottom

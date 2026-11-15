@@ -8733,3 +8733,1207 @@ body.efp-workspace-open { overflow: hidden; }
    the "Open window" button whether the button is there or not, and of two
    lines of text when the text wraps beside it. */
 .composer-browser-window-state { min-height: 30px; }
+
+/* 1. New app (partials/app_create_dialog.html): four fields and a result box
+   that is first a hint, then a spinner, then what was found or what to fix,
+   and a second source (a template) with the same frame. The part between the
+   source switch and the buttons scrolls; nothing resizes the card. */
+#app-create-modal > .modal-card {
+  display: flex;
+  flex-direction: column;
+  height: min(700px, calc(100vh - 2rem));
+}
+
+#app-create-modal > .modal-card > * { flex: 0 0 auto; }
+
+#app-create-modal > .modal-card > form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#app-create-modal > .modal-card > form > * { flex: 0 0 auto; }
+
+#app-create-modal > .modal-card > form > .portal-app-create-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -3px;
+  padding: 3px;
+}
+
+/* The fields keep their place and their width: the result box takes the room
+   that is left and scrolls on its own when what it says is longer. Only a
+   window too short for the fields themselves makes the part above scroll. */
+#app-create-modal .portal-app-create-panel {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#app-create-modal .portal-app-create-panel > * { flex: 0 0 auto; }
+
+#app-create-modal .portal-app-create-panel > .portal-app-inspect {
+  flex: 1 1 96px;
+  min-height: 96px;
+  overflow-y: auto;
+}
+
+/* -- Apps -------------------------------------------------------------------
+   The app center, an app's own page and Administration > Apps
+   (app/static/js/apps.js). Built from the Portal's own parts: panel sections,
+   data tables, status badges, usage cards and bars, the User Management table.
+   What is new here is the app card, the page's tab strip, the facts list, the
+   deployment's step list and the log box.
+
+   Tailwind's runtime sheet lands after this file, so every rule below names a
+   class of its own (an element selector alone would lose to the preflight)
+   and sets its own line-height where it matters. */
+
+/* The count beside each of the app center's lists in the side pane. */
+.portal-apps-nav-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--portal-surface-soft);
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-apps-nav-count:empty { visibility: hidden; }
+
+.portal-admin-nav-row.is-active .portal-apps-nav-count {
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+}
+
+/* The app center: one toolbar line, then the cards. */
+.portal-apps-center { gap: 14px; }
+
+.portal-apps-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.portal-apps-heading {
+  margin: 0;
+  color: var(--portal-text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.portal-apps-count {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.portal-search-field.portal-apps-search {
+  flex: 1 1 200px;
+  max-width: 340px;
+  margin-left: auto;
+}
+
+.portal-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.portal-app-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface);
+  transition: border-color var(--portal-transition), box-shadow var(--portal-transition);
+}
+
+.portal-app-card:hover {
+  border-color: var(--portal-border-strong);
+  box-shadow: var(--portal-shadow);
+}
+
+/* An app of mine that needs something from me: the border says so before the badge is read. */
+.portal-app-card.needs-attention {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 55%);
+}
+
+.portal-app-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+div.portal-app-card-main { cursor: default; }
+
+.portal-app-card-main:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 4px;
+}
+
+.portal-app-card-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.portal-app-card-copy strong {
+  overflow: hidden;
+  color: var(--portal-text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.portal-app-card-main:hover .portal-app-card-copy strong,
+button.portal-app-card-main:hover .portal-app-card-copy strong {
+  color: var(--portal-accent-strong);
+}
+
+/* Two lines of description on every card, so the rows of a grid line up. */
+.portal-app-card-copy small {
+  display: -webkit-box;
+  min-height: 35px;
+  overflow: hidden;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 17.5px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.portal-app-card-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 8px;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.portal-app-card-state .portal-status-badge {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.portal-app-card-state > span:last-child {
+  min-width: 0;
+  padding-top: 3px;
+}
+
+.portal-app-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-app-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.portal-app-card-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.portal-app-card-meta > span > svg { flex: 0 0 auto; }
+
+.portal-app-card-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.portal-app-card-actions .portal-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.portal-btn.portal-app-icon-btn {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 9px;
+}
+
+.portal-btn.portal-apps-inline-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* An app's icon, or the first letter of its name. */
+.portal-app-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 11px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.portal-app-icon.is-large {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  font-size: 22px;
+}
+
+.portal-app-icon > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A list with nothing in it says what belongs there and what to do next. */
+.portal-apps-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 40px 20px;
+  border: 1px dashed var(--portal-border-strong);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface-soft);
+  text-align: center;
+}
+
+.portal-apps-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+.portal-apps-empty h3 {
+  margin: 4px 0 0;
+  color: var(--portal-text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.portal-apps-empty p {
+  max-width: 54ch;
+  margin: 0;
+  color: var(--portal-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.portal-apps-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.portal-apps-empty a.portal-btn,
+.portal-app-page a.portal-btn {
+  color: var(--portal-text-secondary);
+  text-decoration: none;
+}
+
+.portal-apps-empty a.portal-btn.is-primary,
+.portal-app-page a.portal-btn.is-primary {
+  color: var(--portal-cta-text);
+}
+
+.portal-inline-state.portal-apps-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* New app: the fields and the result box. */
+.portal-app-create-source { align-self: flex-start; }
+
+.portal-app-field {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+
+.portal-app-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.portal-app-inspect {
+  padding: 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface-muted);
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.portal-app-inspect p { margin: 0; }
+
+.portal-app-inspect p + p { margin-top: 6px; }
+
+.portal-app-inspect ul,
+.portal-app-inspect ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.portal-app-inspect ul { list-style: disc; }
+
+.portal-app-inspect ol { list-style: decimal; }
+
+.portal-app-inspect-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--portal-text-muted);
+}
+
+.portal-app-inspect-note > svg,
+.portal-app-inspect-note > .portal-app-spinner {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.portal-app-inspect-found,
+.portal-app-inspect-problem {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-app-inspect-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--portal-success);
+}
+
+.portal-app-inspect-title.is-error { color: var(--portal-danger); }
+
+.portal-app-inspect-title > svg { flex: 0 0 auto; }
+
+.portal-app-inspect-title strong {
+  color: var(--portal-text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* A line to copy: the manifest line to add, or the account to invite. */
+.portal-app-snippet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 10px;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  background: var(--portal-surface);
+}
+
+.portal-app-snippet code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--portal-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.portal-app-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--portal-border-strong);
+  border-top-color: var(--portal-accent);
+  border-radius: 999px;
+  animation: portal-spin 900ms linear infinite;
+}
+
+/* Label and value pairs: an app's address, audience, release, code. */
+.portal-app-facts {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-app-facts.is-compact {
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.portal-app-facts > dt { color: var(--portal-text-muted); }
+
+.portal-app-facts > dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--portal-text);
+  overflow-wrap: anywhere;
+}
+
+.portal-app-facts a,
+.portal-app-page .portal-panel-note a {
+  color: var(--portal-accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.portal-app-facts code,
+.portal-app-history-table code,
+.portal-app-release-head code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--portal-code-inline-bg);
+  color: var(--portal-code-inline-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.portal-app-facts .portal-btn.portal-app-icon-btn {
+  width: 26px;
+  height: 26px;
+  vertical-align: middle;
+}
+
+/* An app's own page: a way back, its parts, and the open part. */
+.portal-app-page { gap: 14px; }
+
+.portal-app-page-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.portal-btn.portal-app-back {
+  flex: 0 0 auto;
+  height: 34px;
+  white-space: nowrap;
+}
+
+.portal-app-tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface-soft);
+  scrollbar-width: none;
+}
+
+.portal-app-tabs::-webkit-scrollbar { display: none; }
+
+.portal-app-tabs > button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--portal-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.portal-app-tabs > button:hover { color: var(--portal-text); }
+
+.portal-app-tabs > button[aria-selected="true"] {
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .1);
+}
+
+.portal-app-tabs > button:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: -2px;
+}
+
+/* One column that may be narrower than what is in it: a wide table then
+   scrolls in its own box instead of widening the page. */
+.portal-app-page,
+.portal-apps-center,
+.portal-app-page .portal-panel-section {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.portal-app-tab-body,
+.portal-app-overview,
+.portal-app-deployments,
+.portal-app-usage,
+.portal-app-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.portal-app-page .portal-panel-note {
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* Overview: what the app is doing, and the three things to do about it. */
+.portal-app-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.portal-app-status-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.portal-app-status-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-app-status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-app-status-title .portal-row-status-dot { margin-top: 0; }
+
+.portal-app-status-title strong {
+  color: var(--portal-text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.portal-app-status-copy p {
+  margin: 0;
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-app-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.portal-app-note {
+  margin: 0;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.portal-app-note.is-warning { color: var(--portal-warning); }
+
+.portal-app-note.is-error { color: var(--portal-danger); }
+
+.portal-app-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--portal-accent-strong);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Something worth doing now: deploy, deploy latest, upgrade. */
+.portal-app-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-app-visitor-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.portal-app-visitor-head strong {
+  color: var(--portal-text);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.portal-app-visitor-head p {
+  margin: 2px 0 0;
+  color: var(--portal-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Deployments: the field and its two buttons, the followed release, the history. */
+.portal-app-deploy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.portal-app-deploy-bar .portal-app-field {
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+
+.portal-app-deploy-bar .portal-form-input,
+.portal-app-template-publish .portal-form-input,
+.portal-app-template-publish .portal-form-select,
+.portal-app-usage .portal-admin-usage-toolbar .portal-form-select {
+  height: 36px;
+  min-height: 36px;
+  padding-block: 0;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+/* A panel section is a grid, which the hidden attribute alone would not hide. */
+.portal-app-release[hidden],
+.portal-app-release .portal-inline-state[hidden],
+.portal-app-release-message[hidden],
+.portal-app-log-empty[hidden] {
+  display: none;
+}
+
+.portal-app-release-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.portal-app-release-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-app-release-head strong {
+  color: var(--portal-text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.portal-app-release-head small {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.portal-app-release-message {
+  margin: 0;
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-app-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.portal-app-step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--portal-text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.portal-app-step.is-running {
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+  font-weight: 600;
+}
+
+.portal-app-step.is-running > svg {
+  color: var(--portal-accent-strong);
+  animation: portal-spin 900ms linear infinite;
+}
+
+.portal-app-step.is-succeeded { color: var(--portal-text-secondary); }
+
+.portal-app-step.is-succeeded > svg { color: var(--portal-success); }
+
+.portal-app-step.is-failed {
+  color: var(--portal-danger);
+  font-weight: 600;
+}
+
+.portal-app-step.is-skipped { opacity: .6; }
+
+.portal-app-step-time {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-app-step-note {
+  grid-column: 2 / -1;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.portal-app-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* What a deployment or the app itself printed, as it was printed. */
+.portal-app-log {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--portal-codeblock-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-codeblock-bg);
+  color: var(--portal-codeblock-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.portal-app-log.is-release { height: 260px; }
+
+.portal-app-log.is-release.is-compact {
+  height: auto;
+  color: var(--portal-text-muted);
+}
+
+/* The track of a meter shows against a panel section's own background too. */
+.portal-app-page .portal-quota-meter,
+.portal-admin-host .portal-quota-meter {
+  background: var(--portal-border);
+}
+
+/* The figures on one line where they fit (the Portal's summary grid is three wide). */
+.portal-app-usage .portal-admin-usage-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.portal-admin-apps .portal-admin-host {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.portal-data-table.portal-app-history-table { min-width: 560px; }
+
+.portal-app-history-table th,
+.portal-app-history-table td {
+  vertical-align: middle;
+}
+
+.portal-app-history-table tr.is-selected > td {
+  background: color-mix(in srgb, var(--portal-accent) 7%, var(--portal-surface));
+}
+
+.portal-app-history-table .portal-app-row-action {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Logs fill the pane, as User Management's table does: the bar stays where it
+   is and the log scrolls in its own box, so its newest line is always on
+   screen however long the log is. */
+.portal-workspace-detail:has(> .portal-workspace-detail-content > .portal-app-page[data-app-part="logs"]) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.portal-workspace-detail-content:has(> .portal-app-page[data-app-part="logs"]) {
+  flex: 1;
+  min-height: 0;
+}
+
+.portal-workspace-detail-content > .portal-app-page[data-app-part="logs"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.portal-app-page[data-app-part="logs"] > .portal-app-tab-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.portal-app-logs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.portal-app-logs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-app-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-right: auto;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.portal-app-live::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--portal-text-muted);
+}
+
+.portal-app-live[data-state="live"]::before {
+  background: var(--portal-success);
+  animation: portal-status-pulse 1.4s ease-in-out infinite;
+}
+
+.portal-app-live[data-state="paused"]::before { background: var(--portal-warning); }
+
+.portal-app-live[data-state="ended"]::before,
+.portal-app-live[data-state="error"]::before {
+  background: var(--portal-danger);
+}
+
+.portal-app-log-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 160px;
+}
+
+.portal-app-log-wrap > .portal-app-log {
+  flex: 1;
+  min-height: 0;
+}
+
+.portal-app-log-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* A control that is held down (Pause, Reveal, a shown value) is tinted; its label stays. */
+.portal-app-page .portal-btn.is-active {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 50%);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+/* Usage: today's spend against the daily limit. */
+.portal-app-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.portal-app-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.portal-app-meter-head strong {
+  color: var(--portal-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-app-meter.is-high .portal-quota-meter > span { background: var(--portal-warning); }
+
+/* Settings: a switch with what it switches, the variables, the token. */
+.portal-app-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.portal-app-switch-row + .portal-app-switch-row { border-top: 1px solid var(--portal-border); }
+
+.portal-app-switch-copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-app-switch-copy strong {
+  color: var(--portal-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.portal-app-switch-copy small {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.portal-app-switch-row .toggle-switch,
+.portal-app-switch-row .portal-checkbox-row {
+  flex: 0 0 auto;
+}
+
+.portal-app-switch-row .portal-checkbox-row { font-size: 12px; }
+
+.portal-app-switch-group { display: grid; }
+
+.portal-share-options.portal-app-audience { margin: 0; }
+
+.portal-app-env-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.portal-app-env-rows:empty { display: none; }
+
+.portal-app-env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.portal-app-env-row .portal-form-input,
+.portal-app-token-row .portal-form-input {
+  height: 36px;
+  padding-block: 0;
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* A value shows as dots until its eye is pressed. */
+.portal-form-input.portal-app-masked { -webkit-text-security: disc; }
+
+.portal-app-env-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-app-env-actions .portal-modal-feedback {
+  flex: 1 1 200px;
+  min-height: 16px;
+}
+
+.portal-app-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.portal-app-token-row .portal-app-token {
+  flex: 1 1 260px;
+  width: auto;
+  min-width: 0;
+}
+
+.portal-app-template-publish {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.portal-app-template-publish .portal-app-field { flex: 0 1 200px; }
+
+.portal-app-template-publish .portal-app-field.is-wide { flex: 1 1 260px; }
+
+.portal-panel-section.portal-app-danger {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 65%);
+}
+
+/* Data: one figure. */
+.portal-app-data-size {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.portal-app-data-size strong {
+  color: var(--portal-text);
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-app-data-size span {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Administration > Apps: the host's health over the User Management table. */
+.portal-admin-apps [data-admin-apps-host]:empty { display: none; }
+
+.portal-admin-host .portal-quota-meter { margin-top: 6px; }
+
+.portal-admin-apps-table .portal-status-badge { white-space: nowrap; }
+
+/* In a narrow or short window the host's figures would take the table's
+   room: there the table keeps its rows (up to most of the screen) and the
+   pane scrolls instead. */
+@media (max-width: 768px), (max-height: 720px) {
+  .portal-workspace-detail:has(> .portal-workspace-detail-content > .portal-admin-apps) { overflow: auto; }
+
+  .portal-admin-apps .portal-admin-member-table-wrap {
+    flex-shrink: 0;
+    max-height: 70vh;
+  }
+}
+
+@media (max-width: 560px) {
+  /* The way back on a line of its own, so the parts get the whole width to scroll in. */
+  .portal-app-page-bar { flex-wrap: wrap; }
+
+  .portal-app-tabs { flex: 1 1 100%; }
+
+  .portal-app-field-row { grid-template-columns: 1fr; }
+
+  .portal-app-facts { grid-template-columns: 1fr; gap: 2px; }
+
+  .portal-app-facts > dd { margin-bottom: 8px; }
+
+  .portal-app-env-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+  .portal-app-env-row > [data-env-name] { grid-column: 1 / -1; }
+
+  .portal-search-field.portal-apps-search { max-width: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-app-spinner,
+  .portal-app-step.is-running > svg,
+  .portal-app-live[data-state="live"]::before {
+    animation: none;
+  }
+}

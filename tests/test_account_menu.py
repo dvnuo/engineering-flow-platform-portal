@@ -138,6 +138,8 @@ def test_rail_bottom_is_connectors_plus_the_account_button():
     rail_bottom = APP_HTML[start:APP_HTML.index("</nav>", start)]
     assert rail_bottom.count('class="portal-rail-btn') == 2
     assert 'id="connectors-menu-btn"' in rail_bottom
+    # Apps is a section of its own and lives in the top group.
+    assert 'id="apps-menu-btn"' not in rail_bottom
     for marker in (
         'id="account-menu-btn"',
         'aria-haspopup="menu"',

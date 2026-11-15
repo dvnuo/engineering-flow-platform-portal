@@ -343,6 +343,8 @@ def test_task_and_delegation_overviews_replace_dashboard_navigation():
     assert 'id="dashboard-menu-btn"' not in template
     assert 'id="bundles-menu-btn"' not in template
     assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' in template
+    # Apps is a section beside them, with a rail button of its own.
+    assert 'id="apps-menu-btn" class="portal-rail-btn"' in template
 
     assert 'const DEFAULT_PORTAL_ROUTE_SECTION = "assistants"' in js
     assert "#/dashboard" not in js

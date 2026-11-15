@@ -1,0 +1,48 @@
+{# Administration > Apps (system administrators): the app host's health and
+   every app with its owner, audience, state and last week's use. The frame
+   is drawn here; apps.js reads /api/apps/admin/overview and fills the host
+   cards, the filter's counts and the rows, and acts on the row menus.
+
+   The list follows User Management (app.css): one toolbar line, then the
+   table in its own scrolling box with the header row, the app and the row
+   actions pinned; the classes are that panel's, so the same rules apply. #}
+<div id="admin-apps-panel" class="portal-panel-stack portal-admin-users portal-admin-apps" data-admin-apps-panel>
+  <div data-admin-apps-host></div>
+
+  <section class="portal-admin-members-section" aria-label="{{ t('Apps') }}">
+    <div class="portal-admin-member-toolbar">
+      <input class="portal-form-input portal-admin-member-search" type="search" aria-label="{{ t('Search apps') }}" placeholder="{{ t('Search apps') }}" autocomplete="off" data-admin-apps-search />
+      <select class="portal-form-select" aria-label="{{ t('Show apps') }}" data-admin-apps-filter>
+        <option value="all">{{ t("All apps ({n})", n=0) }}</option>
+        <option value="attention">{{ t("Needs attention ({n})", n=0) }}</option>
+        <option value="disabled">{{ t("Taken down ({n})", n=0) }}</option>
+        <option value="pending">{{ t("Waiting for approval ({n})", n=0) }}</option>
+        <option value="templates">{{ t("Templates ({n})", n=0) }}</option>
+      </select>
+      <span class="portal-admin-member-count" data-admin-apps-count aria-live="polite"></span>
+      <button class="portal-btn is-secondary" type="button" data-admin-apps-refresh>{{ t("Refresh") }}</button>
+    </div>
+
+    <div class="portal-inline-state is-visible" data-admin-apps-state>{{ t("Loading apps\u2026") }}</div>
+
+    <div class="portal-data-table-wrap portal-admin-member-table-wrap" data-admin-apps-table-wrap hidden>
+      <table class="portal-data-table portal-admin-member-table portal-admin-apps-table">
+        <thead>
+          <tr>
+            <th data-sort-key="name" data-sort-type="text" aria-sort="ascending">{{ t("App") }}</th>
+            <th data-sort-key="owner" data-sort-type="text" aria-sort="none">{{ t("Owner") }}</th>
+            <th data-sort-key="audience" data-sort-type="text" aria-sort="none">{{ t("Who may open it") }}</th>
+            <th data-sort-key="state" data-sort-type="text" aria-sort="none">{{ t("State") }}</th>
+            <th class="is-number" data-sort-key="requests" data-sort-type="number" aria-sort="none" title="{{ t('Requests in the last 7 days') }}">{{ t("Requests") }}</th>
+            <th class="is-number" data-sort-key="credits" data-sort-type="number" aria-sort="none" title="{{ t("Credits of the owner's model provider spent in the last 7 days") }}">{{ t("Credits") }}</th>
+            <th class="is-number" data-sort-key="memory" data-sort-type="number" aria-sort="none">{{ t("Memory") }}</th>
+            <th class="is-number" data-sort-key="data" data-sort-type="number" aria-sort="none">{{ t("Data") }}</th>
+            <th class="portal-admin-actions-cell"><span class="sr-only">{{ t("Actions") }}</span></th>
+          </tr>
+        </thead>
+        <tbody data-admin-apps-rows></tbody>
+      </table>
+    </div>
+    <div class="portal-panel-empty" data-admin-apps-empty hidden></div>
+  </section>
+</div>

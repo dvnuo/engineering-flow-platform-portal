@@ -2900,6 +2900,9 @@ def app_page(request: Request):
             "connectors_enabled": bool(get_settings().connectors_enabled),
             # Whether the share dialog may offer "anyone with the link".
             "share_anyone_enabled": bool(get_settings().session_share_anyone_enabled),
+            # Apps (APPS_ENABLED): the rail entry, its section and apps.js are
+            # in the page only while the feature is on.
+            "apps_enabled": bool(getattr(get_settings(), "apps_enabled", False)),
             "create_runtime_type_options": _create_runtime_type_options(),
             # What the composer may attach (EFP_CHAT_UPLOAD_EXTENSIONS /
             # EFP_MAX_UPLOAD_MB): the file picker's accept list and the JSON

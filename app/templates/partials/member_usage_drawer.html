@@ -1,6 +1,7 @@
 {# One member's consumption over the period: a daily credits chart, the models and the kinds of run. Opens under the member's row in User Management. #}
 {% macro num(value) %}{{ "{:,}".format(value|int) }}{% endmacro %}
 {% macro pct(value) %}{% if value is none %}-{% else %}{{ '%.0f'|format(value * 100) }}%{% endif %}{% endmacro %}
+{% from "partials/usage_macros.html" import kind_label %}
 <div class="portal-member-usage" data-member-usage="{{ member.id }}" data-period-days="{{ usage.period_days }}">
   <div class="portal-member-usage-head">
     <div>
@@ -43,7 +44,7 @@
         <thead><tr><th>{{ t("Kind") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
         <tbody>
         {% for row in usage.by_kind %}
-          <tr><td>{{ tv(row.kind) if row.kind else t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
+          <tr><td>{{ kind_label(row.kind) }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
         {% else %}
           <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
         {% endfor %}

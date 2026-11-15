@@ -1,12 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" data-share-anyone-enabled="{{ 'true' if share_anyone_enabled else 'false' }}" class="portal-app-root">
+<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" data-share-anyone-enabled="{{ 'true' if share_anyone_enabled else 'false' }}" data-apps-enabled="{{ 'true' if apps_enabled else 'false' }}" class="portal-app-root">
   <div class="portal-shell">
     <nav class="portal-rail" aria-label="{{ t('Workspace navigation') }}">
       <div class="portal-rail-top">
         <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="{{ t('Assistants') }}">
           <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
+        {# Apps (APPS_ENABLED): members' small web apps, which open in a new
+           tab. In the top group, under Assistants: the bottom group stays
+           Connectors and the account button. #}
+        {% if apps_enabled %}
+        <button id="apps-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Apps') }}">
+          <i data-lucide="blocks" class="w-5 h-5"></i>
+        </button>
+        {% endif %}
         <button id="tasks-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Tasks') }}">
           <i data-lucide="list-checks" class="w-5 h-5"></i>
         </button>
@@ -141,6 +149,38 @@
           </div>
           <div id="mine-list" class="portal-agent-list"></div>
         </section>
+        {% if apps_enabled %}
+        {# The app center's three lists. apps.js fills the counts and marks
+           the open one; an app's own page keeps "My apps" marked. #}
+        <section id="apps-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-secondary-list-body">
+            <button class="portal-list-row portal-admin-nav-row" type="button" data-apps-view-nav="mine">
+              <i data-lucide="blocks" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("My apps") }}</strong>
+                <small>{{ t("Apps you publish and look after") }}</small>
+              </span>
+              <span class="portal-apps-nav-count" data-apps-view-count="mine"></span>
+            </button>
+            <button class="portal-list-row portal-admin-nav-row" type="button" data-apps-view-nav="available">
+              <i data-lucide="users" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Available to me") }}</strong>
+                <small>{{ t("Apps other members opened to you") }}</small>
+              </span>
+              <span class="portal-apps-nav-count" data-apps-view-count="available"></span>
+            </button>
+            <button class="portal-list-row portal-admin-nav-row" type="button" data-apps-view-nav="templates">
+              <i data-lucide="layout-template" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Templates") }}</strong>
+                <small>{{ t("Published apps to start your own from") }}</small>
+              </span>
+              <span class="portal-apps-nav-count" data-apps-view-count="templates"></span>
+            </button>
+          </div>
+        </section>
+        {% endif %}
         <section id="tasks-nav-section" class="portal-secondary-section hidden">
           <div class="portal-list-tools" aria-label="{{ t('Task filters') }}">
             <div class="portal-list-tool-row portal-task-filter-row">
@@ -200,6 +240,8 @@
             <div class="portal-help-nav-group">
               <h4 class="portal-help-nav-heading">{{ help_group_labels.get(group_name, group_name) }}</h4>
               {% for topic in topics %}
+              {# The two guides about Apps are listed only where Apps is on. #}
+              {% if apps_enabled or topic.id not in ("using-apps", "building-apps") %}
               <button class="portal-list-row portal-help-nav-row" type="button"
                       data-help-topic-nav="{{ topic.id }}">
                 <i data-lucide="{{ topic.icon }}" class="w-5 h-5"></i>
@@ -209,6 +251,7 @@
                 </span>
                 <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
               </button>
+              {% endif %}
               {% endfor %}
             </div>
             {% endfor %}
@@ -283,6 +326,19 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            {% if apps_enabled %}
+            <button id="admin-apps-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="apps"
+                    data-admin-panel-url="/app/admin/apps/panel"
+                    data-admin-panel-title="Apps">
+              <i data-lucide="blocks" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Apps") }}</strong>
+                <small>{{ t("Every app, who owns it, and the app host") }}</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
+            {% endif %}
             {% endif %}
           </div>
         </section>
@@ -370,6 +426,27 @@
               <span class="portal-header-action-label">{{ t("Create Delegation") }}</span>
             </button>
           </div>
+
+          {% if apps_enabled %}
+          {# Apps: New app over the app center; Copy link and Open over one
+             app's page (apps.js acts on both, chat_ui.js shows the right one). #}
+          <div id="header-apps-actions" class="portal-header-group hidden">
+            <button id="header-create-app" class="portal-header-action is-primary" type="button" aria-label="{{ t('New app') }}" data-app-create-open>
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">{{ t("New app") }}</span>
+            </button>
+          </div>
+          <div id="header-app-actions" class="portal-header-group hidden">
+            <button id="header-app-copy-link" class="portal-header-action" type="button" aria-label="{{ t('Copy link') }}" data-app-copy-current>
+              <i data-lucide="link" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">{{ t("Copy link") }}</span>
+            </button>
+            <button id="header-app-open" class="portal-header-action is-primary" type="button" aria-label="{{ t('Open app') }}" data-app-open-current>
+              <i data-lucide="external-link" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">{{ t("Open") }}</span>
+            </button>
+          </div>
+          {% endif %}
         </div>
       </header>
 
@@ -908,8 +985,15 @@
   </div>
 </div>
 
+{% if apps_enabled %}
+{% include "partials/app_create_dialog.html" %}
+{% endif %}
+
 <script src="{{ static_url('js/efp_cards.js') }}"></script>
 <script src="{{ static_url('js/chat_ui.js') }}"></script>
+{% if apps_enabled %}
+<script src="{{ static_url('js/apps.js') }}"></script>
+{% endif %}
 <script src="{{ static_url('js/admin_users.js') }}"></script>
 <script src="{{ static_url('js/admin_errors.js') }}"></script>
 <script src="{{ static_url('js/assistant_setup.js') }}"></script>

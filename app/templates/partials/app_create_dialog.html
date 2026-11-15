@@ -1,0 +1,91 @@
+{# New app (app/static/js/apps.js). In the page only while Apps is enabled.
+
+   The member fills four things: the repository, a branch or tag, the entry
+   directory and a name. Everything else comes from efp-app.json and the
+   platform's defaults, so there is nothing else to set here. As soon as the
+   first three are plausible the Portal reads the repository and the result
+   box says what it found or what to fix.
+
+   A steady layer (tests/test_steady_layers.py): the card has one height and
+   the part between the source switch and the buttons scrolls inside it, so
+   a result, an error or a spinner never resizes the dialog. The branch field
+   offers the repository's branches and tags through a datalist, which the
+   browser opens on a click, typing or an arrow key and never on focus. #}
+<div id="app-create-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="app-create-title" aria-hidden="true">
+  <div class="modal-card panel portal-app-create-card">
+    <div class="portal-modal-titlebar">
+      <div>
+        <h3 id="app-create-title">{{ t("New app") }}</h3>
+        <p class="portal-modal-copy">{{ t("Publish a small web app from a GitHub repository. It gets its own address and opens in a new tab.") }}</p>
+      </div>
+      <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}" data-app-create-close>&#10005;</button>
+    </div>
+
+    <form id="app-create-form" class="portal-app-create-form" novalidate autocomplete="off">
+      <div class="portal-role-toggle portal-app-create-source" role="radiogroup" aria-label="{{ t('Where the app comes from') }}">
+        <label class="portal-role-option">
+          <input type="radio" name="app_source" value="repository" checked />
+          <span>{{ t("From a repository") }}</span>
+        </label>
+        <label class="portal-role-option">
+          <input type="radio" name="app_source" value="template" />
+          <span>{{ t("From a template") }}</span>
+        </label>
+      </div>
+
+      <div class="portal-app-create-body">
+        <section class="portal-app-create-panel" data-app-create-panel="repository">
+          <div class="portal-app-field">
+            <label class="portal-form-label" for="app-create-repo">{{ t("Repository") }}</label>
+            <input id="app-create-repo" name="repo_url" class="portal-form-input" type="text" inputmode="url" spellcheck="false"
+                   placeholder="https://github.com/owner/repository" />
+          </div>
+          <div class="portal-app-field-row">
+            <div class="portal-app-field">
+              <label class="portal-form-label" for="app-create-ref">{{ t("Branch or tag") }}</label>
+              <input id="app-create-ref" name="ref" class="portal-form-input" type="text" spellcheck="false" list="app-create-refs" placeholder="main" />
+              <datalist id="app-create-refs"></datalist>
+            </div>
+            <div class="portal-app-field">
+              <label class="portal-form-label" for="app-create-dir">{{ t("Entry directory") }}</label>
+              <input id="app-create-dir" name="entry_dir" class="portal-form-input" type="text" spellcheck="false"
+                     placeholder="{{ t('Empty for the top of the repository') }}" />
+            </div>
+          </div>
+          <div class="portal-app-field">
+            <label class="portal-form-label" for="app-create-name">{{ t("Name") }}</label>
+            <input id="app-create-name" name="name" class="portal-form-input" type="text" maxlength="80"
+                   placeholder="{{ t('The name in efp-app.json when left empty') }}" />
+          </div>
+          <div class="portal-app-inspect" data-app-inspect aria-live="polite"></div>
+        </section>
+
+        <section class="portal-app-create-panel hidden" data-app-create-panel="template">
+          <div class="portal-app-field">
+            <label class="portal-form-label" for="app-create-template">{{ t("Template") }}</label>
+            <select id="app-create-template" name="template_app_id" class="portal-form-select">
+              <option value="">{{ t("Choose a template") }}</option>
+            </select>
+          </div>
+          <div class="portal-app-field">
+            <label class="portal-form-label" for="app-create-version">{{ t("Version") }}</label>
+            <select id="app-create-version" name="version_id" class="portal-form-select" disabled>
+              <option value="">{{ t("Choose a template first") }}</option>
+            </select>
+          </div>
+          <div class="portal-app-field">
+            <label class="portal-form-label" for="app-create-template-name">{{ t("Name") }}</label>
+            <input id="app-create-template-name" name="template_name" class="portal-form-input" type="text" maxlength="80" />
+          </div>
+          <div class="portal-app-inspect" data-app-template-info aria-live="polite"></div>
+        </section>
+      </div>
+
+      <p id="app-create-msg" class="portal-modal-feedback" aria-live="polite"></p>
+      <div class="portal-modal-actions">
+        <button type="button" class="portal-btn is-secondary" data-app-create-close>{{ t("Cancel") }}</button>
+        <button type="submit" class="portal-btn is-primary" data-app-create-submit disabled>{{ t("Create and deploy") }}</button>
+      </div>
+    </form>
+  </div>
+</div>

@@ -67,6 +67,7 @@
   var HINTS = [
     // --- rail: what each section of the product actually is ---
     ["#rail-assistants-btn", t("Assistants — each one is a running workspace you chat with")],
+    ["#apps-menu-btn", t("Apps \u2014 small web apps members publish; each opens in a new tab")],
     ["#tasks-menu-btn", t("Tasks — work an assistant runs on its own, tracked to completion")],
     ["#delegations-menu-btn", t("Delegations — rules that start work automatically from GitHub, Jira, or a timer")],
     ["#users-menu-btn", t("Administration — members, roles, and who is allowed to sign in")],
@@ -85,6 +86,9 @@
     ["[data-sf-row-menu]", t("Rename, move, download, copy the path, or delete")],
     ["#detail-toggle", t("Assistant status, configuration, and start/stop actions")],
     ["#header-add-allowlist-btn", t("Let more usernames register and sign in")],
+    ["#header-create-app", t("Publish a directory of a GitHub repository as a web app")],
+    ["#header-app-open", t("Open this app in a new tab")],
+    ["#header-app-copy-link", t("Copy this app's address to share it")],
 
     // --- workspace list ---
     ["#add-agent-btn", t("Create a new assistant")],

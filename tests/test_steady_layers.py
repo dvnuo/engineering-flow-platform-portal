@@ -41,6 +41,7 @@ LAYERS = [
     ("app/templates/app.html", 'id="file-preview-modal"', VIEWER, "one image or one link"),
     ("app/templates/app.html", 'id="onboarding-overlay"', FRAME, "three steps"),
     ("app/templates/app.html", 'id="create-simple-modal"', FRAME, "the kinds of assistant load after it opens"),
+    ("app/templates/partials/app_create_dialog.html", 'id="app-create-modal"', FRAME, "four fields, then what the repository holds or what to fix; a second source with its own fields"),
     ("app/templates/partials/assistant_types_panel.html", 'id="assistant-type-create-modal"', STILL, "a form drawn by the server"),
     ("app/templates/partials/task_create_panel.html", "create-task-modal-title", FRAME, "four steps"),
     ("app/templates/partials/task_detail_panel.html", 'id="task-followup-modal"', FRAME, "two steps"),
@@ -140,6 +141,7 @@ FRAMES = {
     ".portal-dialog-card.portal-picker-dialog.has-list": ".portal-dialog-card.portal-picker-dialog.has-list > .portal-picker-list",
     ".portal-onboarding-card": ".portal-onboarding-card > .portal-onboarding-step",
     "#create-simple-modal > .modal-card": "#create-simple-modal > .modal-card > form > .portal-assistant-type-grid",
+    "#app-create-modal > .modal-card": "#app-create-modal > .modal-card > form > .portal-app-create-body",
     "[data-recording-dialog] > .portal-dialog-card": "[data-recording-dialog] > .portal-dialog-card > .efp-replay-body",
 }
 

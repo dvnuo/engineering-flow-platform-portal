@@ -5,6 +5,9 @@
 {% macro pct(value) %}{% if value is none %}-{% else %}{{ '%.0f'|format(value * 100) }}%{% endif %}{% endmacro %}
 {% macro secs(value) %}{% if value is none %}-{% elif value >= 90 %}{{ '%.1f'|format(value / 60) }} min{% else %}{{ '%.0f'|format(value) }} s{% endif %}{% endmacro %}
 {% macro num(value) %}{{ "{:,}".format(value|int) }}{% endmacro %}
+{% from "partials/usage_macros.html" import kind_label, runtime_label %}
+{# Apps spend their owners' model provider and stand in the same list as assistants, each marked as an app. #}
+{% set has_app_rows = overview.top_assistants|selectattr("app_id")|list|length > 0 %}
 <div id="admin-usage-panel" class="portal-panel-stack portal-admin-usage" data-period-days="{{ days }}">
   <div class="portal-panel-header">
     <div>
@@ -66,10 +69,10 @@
         <thead><tr><th>{{ t("Kind") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Avg duration") }}</th></tr></thead>
         <tbody>
         {% for row in overview.by_kind %}
-          <tr><td>{{ tv(row.kind) if row.kind else t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
+          <tr><td>{{ kind_label(row.kind) }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
         {% endfor %}
         {% for row in overview.by_runtime %}
-          <tr><td>{{ t("Runtime {name}", name=(row.runtime_type or t("(unknown)"))) }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
+          <tr><td>{% if row.runtime_type == "app" %}{{ runtime_label(row.runtime_type) }}{% else %}{{ t("Runtime {name}", name=(row.runtime_type or t("(unknown)"))) }}{% endif %}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
         {% endfor %}
         {% if not overview.by_kind and not overview.by_runtime %}
           <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
@@ -94,12 +97,12 @@
       </table></div>
     </article>
     <article class="portal-panel-section">
-      <div class="portal-overview-panel-head"><h3>{{ t("Top assistants") }}</h3><span>{{ t("by credits") }}</span></div>
+      <div class="portal-overview-panel-head"><h3>{% if has_app_rows %}{{ t("Top assistants and apps") }}{% else %}{{ t("Top assistants") }}{% endif %}</h3><span>{{ t("by credits") }}</span></div>
       <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
-        <thead><tr><th>{{ t("Assistant") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <thead><tr><th>{% if has_app_rows %}{{ t("Assistant or app") }}{% else %}{{ t("Assistant") }}{% endif %}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
         <tbody>
         {% for row in overview.top_assistants %}
-          <tr><td><strong>{{ row.name }}</strong>{% if row.agent_type %} <small class="is-muted">{{ row.agent_type }}</small>{% endif %}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failed / row.executions if row.executions else none) }}</td></tr>
+          <tr{% if row.app_id %} data-usage-app="{{ row.app_id }}"{% endif %}><td><strong>{{ row.name }}</strong>{% if row.app_id %} <span class="portal-admin-role-badge">{{ t("App") }}</span>{% elif row.agent_type %} <small class="is-muted">{{ row.agent_type }}</small>{% endif %}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failed / row.executions if row.executions else none) }}</td></tr>
         {% else %}
           <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
         {% endfor %}
@@ -112,7 +115,7 @@
     <div class="portal-overview-panel-head"><h3 id="admin-usage-quality-title">{{ t("Quality") }}</h3><span>{{ t("where runs go wrong and how long they take") }}</span></div>
     <div class="portal-admin-summary-grid">
       {% for kind, stats in quality.durations.items() %}
-      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("{kind} duration (p50 / p90)", kind=tv(kind)) }}</span><strong class="portal-usage-v">{{ secs(stats.p50_seconds) }} / {{ secs(stats.p90_seconds) }}</strong><small class="portal-usage-sub">{{ tn(stats.samples, "{n} successful run", "{n} successful runs") }}</small></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("{kind} duration (p50 / p90)", kind=kind_label(kind)|trim) }}</span><strong class="portal-usage-v">{{ secs(stats.p50_seconds) }} / {{ secs(stats.p90_seconds) }}</strong><small class="portal-usage-sub">{{ tn(stats.samples, "{n} successful run", "{n} successful runs") }}</small></div>
       {% endfor %}
       {% for status, count in quality.by_status.items() %}
       <div class="portal-usage-card"><span class="portal-usage-k">{{ tv(status) }}</span><strong class="portal-usage-v">{{ num(count) }}</strong></div>
@@ -133,7 +136,7 @@
         <thead><tr><th>{{ t("Failures by runtime") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Failed") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
         <tbody>
         {% for row in quality.by_runtime %}
-          <tr><td>{{ row.runtime_type or t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ num(row.failed) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
+          <tr><td>{{ runtime_label(row.runtime_type) }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ num(row.failed) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
         {% else %}
           <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
         {% endfor %}
