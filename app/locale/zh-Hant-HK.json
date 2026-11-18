@@ -1091,6 +1091,7 @@
   "JSON payload must be an object": "JSON 數據必須是一個物件",
   "Jump to latest": "跳到最新",
   "Keep both": "保留兩者",
+  "Keep it to one short sentence: the create card shows only two lines.": "請控制在一句話以內：建立卡片只顯示兩行。",
   "Keep SSL mode on require unless the servers offer a CA the runtime can verify; the statement timeout and max rows bound every query.": "除非伺服器提供執行環境能驗證的 CA，否則 SSL 模式保持 require；語句逾時和最大行數限制每一次查詢。",
   "Keep the stopped message; send this as a new message instead": "保留已停止的訊息，這則改為作為新訊息送出",
   "Keep this panel open beside the conversation instead of over it": "把這個面板固定在對話旁邊，而不是覆蓋在上面",
