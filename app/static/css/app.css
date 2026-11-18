@@ -6981,9 +6981,20 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-assistant-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* Three across in the create dialog, which is wide enough for it (its frame
+   is with the other layers at the end of this file). The first-run tour's
+   card is narrower and stays at two. */
+@media (min-width: 900px) {
+  #create-simple-modal .portal-assistant-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 /* The scroll margin leaves room for the focus ring when a card is scrolled
    into view. */
 .portal-assistant-type-option { display: block; cursor: pointer; scroll-margin: 4px; }
+
+/* A card is a label, and a label in a .stack form has a bottom margin: without
+   this the rows of the create dialog sit further apart than its columns. */
+.portal-assistant-type-grid > label.portal-assistant-type-option { margin: 0; }
 
 /* The radio keeps its place in the accessibility tree and its keyboard
    behaviour; only the default presentation is replaced by the card. */
@@ -8679,12 +8690,14 @@ body.efp-workspace-open { overflow: hidden; }
 }
 
 /* 1. Create assistant: the kinds of assistant arrive after the dialog opens,
-   and there are as many as an administrator has set up. They scroll in the
-   room the dialog gave them. */
+   and there are as many as an administrator has set up. The frame is the
+   size of the wizard that Advanced setup opens (900 x 600) and shows three
+   rows of three; any more scroll in the room the dialog gave them. */
 #create-simple-modal > .modal-card {
   display: flex;
   flex-direction: column;
-  height: min(520px, calc(100vh - 2rem));
+  width: min(900px, calc(100vw - 2rem));
+  height: min(600px, calc(100vh - 2rem));
 }
 
 #create-simple-modal > .modal-card > * { flex: 0 0 auto; }
