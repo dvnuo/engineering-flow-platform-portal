@@ -6981,7 +6981,9 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-assistant-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.portal-assistant-type-option { display: block; cursor: pointer; }
+/* The scroll margin leaves room for the focus ring when a card is scrolled
+   into view. */
+.portal-assistant-type-option { display: block; cursor: pointer; scroll-margin: 4px; }
 
 /* The radio keeps its place in the accessibility tree and its keyboard
    behaviour; only the default presentation is replaced by the card. */
@@ -7036,10 +7038,17 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 .portal-assistant-type-copy strong { font-size: 0.92rem; color: var(--portal-text); }
 
+/* Two lines, so every card is the same height however much an administrator
+   wrote; assistant_setup.js offers the rest as a tooltip. */
 .portal-assistant-type-copy small {
   font-size: 0.82rem;
   color: var(--portal-text-muted);
   line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 /* -- connector setup guides ------------------------------------------------ */
