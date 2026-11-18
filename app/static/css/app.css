@@ -6875,7 +6875,7 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-onboarding.hidden { display: none; }
 
 .portal-onboarding-card {
-  width: min(560px, 100%);
+  width: min(900px, 100%);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   background: var(--portal-surface);
@@ -6927,6 +6927,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-onboarding-muted { color: var(--portal-text-muted); }
 
 .portal-onboarding-art {
+  /* Not squashed when the step is taller than its room and scrolls. */
+  flex: 0 0 auto;
   width: 44px;
   height: 44px;
   border-radius: var(--portal-radius-md);
@@ -6981,11 +6983,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-assistant-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* Three across in the create dialog, which is wide enough for it (its frame
-   is with the other layers at the end of this file). The first-run tour's
-   card is narrower and stays at two. */
+/* Three across where the window leaves the two layers that show the list, the
+   create dialog and the first-run tour, their 900px (their frames are with
+   the other layers at the end of this file). */
 @media (min-width: 900px) {
-  #create-simple-modal .portal-assistant-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .portal-assistant-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* The scroll margin leaves room for the focus ring when a card is scrolled
@@ -8672,9 +8674,12 @@ body.efp-workspace-open { overflow: hidden; }
 
 .portal-picker-pop > .portal-picker-list:empty + .portal-picker-note { border-top: 0; }
 
-/* 1. The first-run tour: three steps in one card. */
+/* 1. The first-run tour: three steps in one card. It is as wide as the create
+   dialog and as tall as the tall wizard (900 x 720), which is what its last
+   step needs to show three rows of three kinds of assistant under its
+   heading and the name field. */
 .portal-onboarding-card {
-  height: min(480px, calc(100vh - 48px));
+  height: min(720px, calc(100vh - 48px));
   max-height: none;
   overflow: hidden;
 }
@@ -8688,6 +8693,16 @@ body.efp-workspace-open { overflow: hidden; }
   margin: -3px;
   padding: 3px;
 }
+
+/* The two steps that are a few lines of text keep the column they were
+   written for, about 500px, in the middle of the card. The step with the form
+   starts at the top and takes the width: its list arrives after it shows. */
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) {
+  padding-inline: max(3px, calc(50% - 250px));
+}
+
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) > :first-child { margin-top: auto; }
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) > :last-child { margin-bottom: auto; }
 
 /* 1. Create assistant: the kinds of assistant arrive after the dialog opens,
    and there are as many as an administrator has set up. The frame is the
