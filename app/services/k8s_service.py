@@ -11,11 +11,27 @@ from app.config import get_settings
 from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type
 from app.redaction import sanitize_exception_message
 from app.utils.git_urls import normalize_git_repo_url
+from app.utils.k8s_quantity import cpu_millicores, format_cpu, format_memory, memory_bytes, percent_of
 
 
 OPENCODE_INTERNAL_HTTP_PORT = 4096
 MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json"
+# (connect, read) seconds for each attempt of the two cluster calls behind an
+# assistant's resource reading. The client retries a read three times, so a
+# call that is never answered is given up after about 20 seconds. The reading
+# is extra information for the details panel: a cluster or metrics API that
+# does not answer costs that request that long and one empty part of the
+# panel, and never a worker for as long as it hangs.
+RESOURCE_READING_TIMEOUT = (3, 5)
+# How long after a pod starts the metrics API may simply not have measured it
+# yet: the image pull and the init steps come first, and metrics-server then
+# needs two looks about a minute apart.
+METRICS_SETTLE_SECONDS = 300
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -34,6 +50,10 @@ class K8sService:
         self.enabled = self.settings.k8s_enabled
         self.apps_api = None
         self.core_api = None
+        # The metrics API client, created on first use (see _metrics_api): only
+        # the resource reading needs it, and a cluster without metrics-server
+        # must not affect anything else.
+        self.custom_api = None
 
         if self.enabled:
             try:
@@ -649,6 +669,323 @@ class K8sService:
     def _pending_rollout_status(self, agent) -> str:
         return "restarting" if str(getattr(agent, "status", "") or "").lower() == "restarting" else "creating"
 
+    def get_agent_resource_reading(self, agent) -> dict:
+        """What the assistant's pod is allowed, what it is using, and why it last stopped.
+
+        The assistant panel used to show only the configured requests, which are
+        neither the ceiling a pod can reach nor what it is using, and a pod that
+        was killed for running out of memory looked like an unexplained restart.
+        This reads the pod itself: its requests and limits, its container's
+        restart count and last termination, an eviction left behind by an
+        earlier pod, and the live usage from the metrics API when the cluster
+        has one.
+
+        Read-only and best-effort. A part that cannot be read is left empty
+        (``usage_status`` says why for the usage); nothing here touches the
+        assistant's status, and a failure never reaches the caller.
+        """
+        requests, limits = self._configured_agent_resources(agent)
+        reading = {
+            "source": "configured",
+            "requests": requests,
+            "limits": limits,
+            "usage": None,
+            "usage_status": "kubernetes_disabled",
+            "pod_name": None,
+            "pod_started_at": None,
+            "restart_count": 0,
+            "last_termination": None,
+            "last_eviction": None,
+        }
+        if not self.enabled:
+            return reading
+
+        try:
+            response = self.core_api.list_namespaced_pod(
+                namespace=agent.namespace,
+                label_selector=f"app=agent,agent-id={agent.id}",
+                _request_timeout=RESOURCE_READING_TIMEOUT,
+            )
+            pods = list(self._get_k8s_attr(response, "items") or [])
+        except Exception as exc:
+            logger.warning(
+                "Could not list pods for the resource reading agent_id=%s error=%s",
+                getattr(agent, "id", "-"),
+                sanitize_exception_message(exc),
+            )
+            reading["usage_status"] = "error"
+            return reading
+
+        try:
+            reading["last_eviction"] = self._latest_pod_eviction(pods)
+            pod = self._current_agent_pod(pods)
+            if pod is None:
+                reading["usage_status"] = "no_pod"
+                return reading
+
+            metadata = self._get_k8s_attr(pod, "metadata")
+            pod_status = self._get_k8s_attr(pod, "status")
+            pod_started = self._get_k8s_attr(pod_status, "start_time", "startTime")
+            reading["pod_name"] = self._text_or_none(self._get_k8s_attr(metadata, "name"))
+            reading["pod_started_at"] = self._iso_timestamp(pod_started)
+
+            pod_requests, pod_limits = self._pod_agent_resources(pod)
+            if pod_requests is not None or pod_limits is not None:
+                reading["source"] = "pod"
+                reading["requests"] = pod_requests or self._resource_map(None)
+                reading["limits"] = pod_limits or self._resource_map(None)
+
+            container_status = self._agent_container_status(pod)
+            if container_status is not None:
+                reading["restart_count"] = int(
+                    self._get_k8s_attr(container_status, "restart_count", "restartCount") or 0
+                )
+                reading["last_termination"] = self._last_container_termination(container_status)
+        except Exception as exc:
+            logger.warning(
+                "Could not read pod details for the resource reading agent_id=%s error=%s",
+                getattr(agent, "id", "-"),
+                sanitize_exception_message(exc),
+            )
+            reading["usage_status"] = "error"
+            return reading
+
+        usage, usage_status = self._read_pod_usage(
+            agent, reading["pod_name"], reading["limits"], pod_started=pod_started
+        )
+        reading["usage"] = usage
+        reading["usage_status"] = usage_status
+        return reading
+
+    def _resource_map(self, raw) -> dict:
+        values = dict(raw) if isinstance(raw, dict) else {}
+        return {
+            "cpu": self._text_or_none(values.get("cpu")),
+            "memory": self._text_or_none(values.get("memory")),
+            "ephemeral_storage": self._text_or_none(values.get("ephemeral-storage")),
+        }
+
+    @staticmethod
+    def _text_or_none(value) -> Optional[str]:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    def _configured_agent_resources(self, agent) -> tuple[dict, dict]:
+        """The requests and limits the Portal puts on this assistant's pod template."""
+        try:
+            resources = self._build_agent_container_resources(agent)
+        except Exception:
+            resources = None
+        return (
+            self._resource_map(self._get_k8s_attr(resources, "requests")),
+            self._resource_map(self._get_k8s_attr(resources, "limits")),
+        )
+
+    def _pod_timestamp(self, pod) -> float:
+        metadata = self._get_k8s_attr(pod, "metadata")
+        created = self._get_k8s_attr(metadata, "creation_timestamp", "creationTimestamp")
+        try:
+            return float(created.timestamp())
+        except Exception:
+            return 0.0
+
+    def _current_agent_pod(self, pods):
+        """The pod serving the assistant now: the newest one that is not finished or going away."""
+        candidates = []
+        for pod in pods:
+            metadata = self._get_k8s_attr(pod, "metadata")
+            if self._get_k8s_attr(metadata, "deletion_timestamp", "deletionTimestamp") is not None:
+                continue
+            phase = str(self._get_k8s_attr(self._get_k8s_attr(pod, "status"), "phase") or "")
+            if phase in ("Succeeded", "Failed"):
+                continue
+            candidates.append(pod)
+        if not candidates:
+            return None
+        return max(candidates, key=self._pod_timestamp)
+
+    def _latest_pod_eviction(self, pods) -> Optional[dict]:
+        """The most recent eviction among the assistant's pods, if a record of one is still there.
+
+        An evicted pod is replaced by a new one that starts with a clean restart
+        count, so the eviction is only visible on the pod left behind.
+        """
+        evicted = [
+            pod
+            for pod in pods
+            if str(self._get_k8s_attr(self._get_k8s_attr(pod, "status"), "reason") or "") == "Evicted"
+        ]
+        if not evicted:
+            return None
+        pod = max(evicted, key=self._pod_timestamp)
+        pod_status = self._get_k8s_attr(pod, "status")
+        message = self._text_or_none(self._get_k8s_attr(pod_status, "message"))
+        return {
+            "reason": "Evicted",
+            "message": sanitize_exception_message(message) if message else None,
+            "at": self._iso_timestamp(self._pod_eviction_time(pod_status)),
+        }
+
+    def _pod_eviction_time(self, pod_status):
+        """When an evicted pod stopped, or None when the pod does not say.
+
+        The pod's own start time would be when the evicted run began, not when
+        it ended, so it is not used: an eviction with no time is shown without
+        one rather than with a misleading one. The creation time of a later pod
+        is not used either: the pod that replaced the evicted one is gone after
+        the next restart, and the one found then would date the eviction to
+        that restart.
+        """
+        finished = []
+        statuses = self._get_k8s_attr(pod_status, "container_statuses", "containerStatuses") or []
+        for container_status in statuses:
+            terminated = self._get_k8s_attr(self._get_k8s_attr(container_status, "state"), "terminated")
+            finished_at = self._get_k8s_attr(terminated, "finished_at", "finishedAt")
+            if finished_at is not None:
+                finished.append(finished_at)
+        if finished:
+            try:
+                return max(finished)
+            except TypeError:
+                return finished[-1]
+        for condition in self._get_k8s_attr(pod_status, "conditions") or []:
+            if self._get_k8s_attr(condition, "type") == "DisruptionTarget":
+                return self._get_k8s_attr(condition, "last_transition_time", "lastTransitionTime")
+        return None
+
+    def _pod_agent_resources(self, pod) -> tuple[Optional[dict], Optional[dict]]:
+        spec = self._get_k8s_attr(pod, "spec")
+        for container in self._get_k8s_attr(spec, "containers") or []:
+            if self._get_k8s_attr(container, "name") != "agent":
+                continue
+            resources = self._get_k8s_attr(container, "resources")
+            if resources is None:
+                return None, None
+            return (
+                self._resource_map(self._get_k8s_attr(resources, "requests")),
+                self._resource_map(self._get_k8s_attr(resources, "limits")),
+            )
+        return None, None
+
+    def _agent_container_status(self, pod):
+        pod_status = self._get_k8s_attr(pod, "status")
+        statuses = self._get_k8s_attr(pod_status, "container_statuses", "containerStatuses") or []
+        for container_status in statuses:
+            if self._get_k8s_attr(container_status, "name") == "agent":
+                return container_status
+        return None
+
+    def _last_container_termination(self, container_status) -> Optional[dict]:
+        last_state = self._get_k8s_attr(container_status, "last_state", "lastState")
+        terminated = self._get_k8s_attr(last_state, "terminated")
+        if terminated is None:
+            return None
+        exit_code = self._get_k8s_attr(terminated, "exit_code", "exitCode")
+        return {
+            "reason": self._text_or_none(self._get_k8s_attr(terminated, "reason")),
+            "exit_code": exit_code if isinstance(exit_code, int) and not isinstance(exit_code, bool) else None,
+            "finished_at": self._iso_timestamp(self._get_k8s_attr(terminated, "finished_at", "finishedAt")),
+        }
+
+    @staticmethod
+    def _iso_timestamp(value) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.isoformat()
+        text = str(value).strip()
+        return text or None
+
+    def _metrics_api(self):
+        if self.custom_api is None:
+            from kubernetes import client
+
+            self.custom_api = client.CustomObjectsApi()
+        return self.custom_api
+
+    def _read_pod_usage(
+        self,
+        agent,
+        pod_name: Optional[str],
+        limits: dict,
+        *,
+        pod_started=None,
+    ) -> tuple[Optional[dict], str]:
+        """Live CPU and memory of the agent container from the metrics API.
+
+        The metrics API is optional in a cluster (it needs metrics-server) and
+        the Portal's role may not include it; both are reported as a status
+        rather than an error, and the rest of the reading stands without it.
+        A pod the metrics API does not know yet because it only just started
+        is ``metrics_pending``: that says nothing about the cluster.
+        """
+        if not pod_name:
+            return None, "no_pod"
+        try:
+            metrics = self._metrics_api().get_namespaced_custom_object(
+                group="metrics.k8s.io",
+                version="v1beta1",
+                namespace=agent.namespace,
+                plural="pods",
+                name=pod_name,
+                _request_timeout=RESOURCE_READING_TIMEOUT,
+            )
+        except Exception as exc:
+            status_code = getattr(exc, "status", None)
+            if status_code == 403:
+                return None, "metrics_forbidden"
+            if status_code == 404 and self._started_recently(pod_started):
+                return None, "metrics_pending"
+            logger.info(
+                "Pod metrics unavailable agent_id=%s error=%s",
+                getattr(agent, "id", "-"),
+                sanitize_exception_message(exc),
+            )
+            return None, "metrics_unavailable"
+
+        try:
+            containers = metrics.get("containers") if isinstance(metrics, dict) else None
+            usage_raw = None
+            for container in containers or []:
+                if isinstance(container, dict) and container.get("name") == "agent":
+                    usage_raw = container.get("usage")
+                    break
+            if not isinstance(usage_raw, dict):
+                return None, "metrics_unavailable"
+            used_cpu = cpu_millicores(usage_raw.get("cpu"))
+            used_memory = memory_bytes(usage_raw.get("memory"))
+            if used_cpu is None and used_memory is None:
+                return None, "metrics_unavailable"
+            return (
+                {
+                    "cpu": format_cpu(used_cpu) if used_cpu is not None else None,
+                    "memory": format_memory(used_memory) if used_memory is not None else None,
+                    "cpu_millicores": used_cpu,
+                    "memory_bytes": used_memory,
+                    "cpu_percent_of_limit": percent_of(used_cpu, cpu_millicores(limits.get("cpu"))),
+                    "memory_percent_of_limit": percent_of(used_memory, memory_bytes(limits.get("memory"))),
+                },
+                "ok",
+            )
+        except Exception:
+            return None, "metrics_unavailable"
+
+    @staticmethod
+    def _started_recently(started) -> bool:
+        """Whether a pod began so recently that the metrics API may not have measured it.
+
+        A pod with no start time has not started its containers at all.
+        """
+        if started is None:
+            return True
+        if not isinstance(started, datetime):
+            return False
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        return (_utcnow() - started).total_seconds() < METRICS_SETTLE_SECONDS
+
     def _get_k8s_attr(self, obj, *names):
         if obj is None:
             return None
@@ -996,6 +1333,17 @@ class K8sService:
             )
             env.append(client.V1EnvVar(name="EFP_MAX_UPLOAD_MB", value=str(upload_policy.max_upload_mb)))
             env.append(client.V1EnvVar(name="EFP_CHAT_UPLOAD_EXTENSIONS", value=upload_policy.env_value))
+            # Operator overrides for the runtime's shell tool (how full the
+            # container may get before a command is stopped, and how much of a
+            # command's output is held). Passed only when set, so the runtime's
+            # own defaults apply and the pod template is unchanged otherwise.
+            for env_name, setting_name in (
+                ("EFP_SHELL_MEMORY_GUARD_PERCENT", "shell_memory_guard_percent"),
+                ("EFP_SHELL_CAPTURE_MAX_BYTES", "shell_capture_max_bytes"),
+            ):
+                override = str(getattr(self.settings, setting_name, "") or "").strip()
+                if override:
+                    env.append(client.V1EnvVar(name=env_name, value=override))
             env.append(client.V1EnvVar(name="MOBILE_AUTO_STATE_DIR", value=self._mobile_state_dir(agent)))
             env.append(client.V1EnvVar(name="MOBILE_AUTO_ARTIFACTS_DIR", value=self._mobile_artifacts_dir(agent)))
             env.append(client.V1EnvVar(name="BROWSERSTACK_LOCAL_BINARY", value="/usr/local/bin/BrowserStackLocal"))
@@ -1096,6 +1444,15 @@ class K8sService:
         memory_limit = str(getattr(self.settings, "default_agent_memory_limit", "") or "").strip()
         if memory_limit:
             limits["memory"] = memory_limit
+
+        # Local disk outside the workspace volume. Both unset by default, so the
+        # template only changes for an operator who opts in.
+        ephemeral_request = str(getattr(self.settings, "default_agent_ephemeral_storage", "") or "").strip()
+        if ephemeral_request:
+            requests["ephemeral-storage"] = ephemeral_request
+        ephemeral_limit = str(getattr(self.settings, "default_agent_ephemeral_storage_limit", "") or "").strip()
+        if ephemeral_limit:
+            limits["ephemeral-storage"] = ephemeral_limit
 
         if not requests and not limits:
             return None

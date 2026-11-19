@@ -57,3 +57,7 @@ class RuntimeStatusCache:
 
 
 runtime_status_cache = RuntimeStatusCache()
+# Resource readings (limits, usage, last termination) for the assistant panel.
+# Each one costs a pod list and a metrics call, and several tabs can have the
+# same assistant's details open.
+resource_reading_cache = RuntimeStatusCache()

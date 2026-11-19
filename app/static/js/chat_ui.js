@@ -8400,6 +8400,7 @@ function renderAgentMeta(agent) {
             ${disk}Gi
           </span>
         </div>
+        <div id="agent-resource-reading" class="portal-resource-reading" data-agent-id="${escapeHtmlAttr(agent.id)}" hidden></div>
       </div>
     </div>
   `;
@@ -8415,6 +8416,15 @@ function renderAgentMeta(agent) {
   // Fetch git info if repo is configured
   if (effectiveSkillRepoUrl) {
     fetchSkillGitInfo(agent.id);
+  }
+
+  // The limit, live usage and last restart reason, drawn under the pills by
+  // assistant_resources.js; without it the pills stand as they always have.
+  // The status goes along so a reading taken while the assistant was running
+  // is not shown again once it has stopped. Closing the panel only hides it,
+  // and this function goes on redrawing it; a hidden panel asks for nothing.
+  if (state.toolPanelOpen && state.activeUtilityPanel === "details") {
+    window.AssistantResources?.show(agent.id, state.agentStatus?.get?.(agent.id)?.status || agent.status);
   }
 }
 
