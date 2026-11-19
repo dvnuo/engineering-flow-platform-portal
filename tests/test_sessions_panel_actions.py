@@ -88,6 +88,11 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
             {"session_id": "delegation:rule-1:event-1", "name": "Legacy Delegation Task", "last_message": "legacy task chat"},
             {"session_id": "delegation-rule-2-event-2", "name": "Safe Delegation Task", "last_message": "safe delegation task chat"},
             {"session_id": "task-task-4", "name": "Fallback Task", "last_message": "fallback task chat"},
+            {
+                "session_id": "subagent-s-human-task_5",
+                "name": '<task_prompt description="Analyze logs">',
+                "last_message": "subagent child chat",
+            },
         ],
     )
 
@@ -114,6 +119,9 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
     assert "Fallback Task" not in response.text
     assert "fallback task chat" not in response.text
     assert "task-task-4" not in response.text
+    assert "task_prompt" not in response.text
+    assert "subagent child chat" not in response.text
+    assert "subagent-s-human-task_5" not in response.text
 
 
 def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
