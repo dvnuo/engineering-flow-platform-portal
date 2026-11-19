@@ -105,7 +105,8 @@
   }
 
   // The lines to draw for one reading, as plain data: { label, text, tone, detail }.
-  function describe(reading, now) {
+  // `state` is the assistant's status as the page knows it, when it knows.
+  function describe(reading, now, state) {
     const lines = [];
     if (!reading || typeof reading !== "object") return lines;
     const moment = typeof now === "number" ? now : Date.now();
@@ -116,7 +117,10 @@
     if (limit.length) lines.push({ label: t("Limit"), text: limit.join(" · ") });
 
     const usage = reading.usage;
-    if (reading.usage_status === "ok" && usage) {
+    if (state === "stopped") {
+      // A stopped assistant uses nothing, whatever a pod on its way out or a
+      // reading a few seconds old still reports.
+    } else if (reading.usage_status === "ok" && usage) {
       const used = amounts(
         { cpu: usage.cpu, memory: usage.memory },
         { cpu: usage.cpu_percent_of_limit, memory: usage.memory_percent_of_limit },
@@ -137,8 +141,8 @@
     return lines;
   }
 
-  function draw(host, reading) {
-    const html = describe(reading).map((line) => {
+  function draw(host, reading, state) {
+    const html = describe(reading, undefined, state).map((line) => {
       const label = line.label ? `<span class="portal-resource-line-label">${esc(line.label)}</span> ` : "";
       const detail = line.detail ? `<span class="portal-resource-line-detail">${esc(line.detail)}</span>` : "";
       return `<div class="portal-resource-line${line.tone ? ` is-${esc(line.tone)}` : ""}">${label}${esc(line.text)}${detail}</div>`;
@@ -163,31 +167,41 @@
     }
   }
 
-  function show(agentId, status) {
-    if (!agentId) return Promise.resolve();
+  function request(agentId, status) {
+    if (!agentId) return null;
     const host = hostFor(agentId);
-    // Nobody is looking: the details are closed, or show another assistant.
-    if (!host) return Promise.resolve();
+    // Nothing to draw into: the panel shows something else.
+    if (!host) return null;
     const state = status == null ? "" : String(status).toLowerCase();
     const cached = readings.get(agentId);
     const known = cached && cached.state === state ? cached : null;
-    if (known) draw(host, known.reading);
-    if (known && Date.now() - known.at < FRESH_MS) return Promise.resolve();
+    if (known) draw(host, known.reading, state);
+    if (known && Date.now() - known.at < FRESH_MS) return null;
     const running = pending.get(agentId);
     if (running && running.state === state) return running.done;
 
-    const request = { state, done: null };
-    pending.set(agentId, request);
-    request.done = fetchReading(agentId).then((reading) => {
+    const asked = { state, done: null };
+    pending.set(agentId, asked);
+    asked.done = fetchReading(agentId).then((reading) => {
       // The assistant changed state meanwhile and a newer request took over.
-      if (pending.get(agentId) !== request) return;
+      if (pending.get(agentId) !== asked) return;
       pending.delete(agentId);
       if (!reading) return;
       readings.set(agentId, { reading, at: Date.now(), state });
       const current = hostFor(agentId);
-      if (current) draw(current, reading);
-    });
-    return request.done;
+      if (current) draw(current, reading, state);
+    }).catch(() => {});
+    return asked.done;
+  }
+
+  // Never throws and never rejects: the caller is the code that draws the rest
+  // of the details, and a reading is the one part of them that may be missing.
+  function show(agentId, status) {
+    try {
+      return request(agentId, status) || Promise.resolve();
+    } catch (error) {
+      return Promise.resolve();
+    }
   }
 
   window.AssistantResources = { show, describe };

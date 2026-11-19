@@ -223,8 +223,9 @@ def test_a_pod_killed_for_memory_says_so_with_its_own_limits_and_live_usage():
     reading = service.get_agent_resource_reading(AGENT)
 
     assert service.core_api.calls == [("efp-agents", "app=agent,agent-id=agent-1")]
-    # Both cluster calls give up after a few seconds: a cluster or metrics API
-    # that hangs must not hold the request, its worker and its database session.
+    # Both cluster calls are bounded (3 s to connect and 5 s to answer, per
+    # attempt): a cluster or metrics API that hangs must not hold the request,
+    # its worker and its database session for as long as it hangs.
     assert service.core_api.timeouts == [(3, 5)]
     assert metrics.calls == [
         {
@@ -294,8 +295,8 @@ def test_a_cluster_without_usage_still_reports_limits_and_restarts(error, expect
         # only just started says nothing about the cluster.
         (30, _ApiError(404), "metrics_pending"),
         (None, _ApiError(404), "metrics_pending"),  # not started at all yet
-        (119, _ApiError(404), "metrics_pending"),
-        (121, _ApiError(404), "metrics_unavailable"),
+        (299, _ApiError(404), "metrics_pending"),
+        (301, _ApiError(404), "metrics_unavailable"),
         (3600, _ApiError(404), "metrics_unavailable"),
         # Any other answer means the same for a new pod as for an old one.
         (30, _ApiError(503), "metrics_unavailable"),
@@ -418,39 +419,16 @@ def test_an_eviction_time_falls_back_to_the_disruption_condition_or_stays_unknow
     assert reading["last_eviction"] == {"reason": "Evicted", "message": None, "at": None}
 
 
-def test_an_eviction_that_carries_no_time_gets_the_time_its_replacement_was_created():
-    # Without a time the panel could not tell an old eviction from a new one
-    # and would warn about it for as long as the cluster keeps the pod.
-    evicted = _pod("evicted", created=T0 - timedelta(days=9), phase="Failed", reason="Evicted")
-    older = _pod("before-it", created=T0 - timedelta(days=20), phase="Failed", reason="Error")
-    replacement = _pod("replacement", created=T0 - timedelta(days=8), phase="Failed", reason="Error")
-    current = _pod("current", created=T0 - timedelta(days=1))
+def test_an_eviction_that_carries_no_time_is_never_dated_by_a_later_pod():
+    # The pod that replaced an evicted one is gone after the next restart, so
+    # the earliest pod still around would date the eviction to that restart.
+    evicted = _pod("evicted", created=T0 - timedelta(days=30), phase="Failed", reason="Evicted")
+    restarted_today = _pod("current", created=T0 - timedelta(minutes=10))
 
-    reading = _service([current, older, evicted, replacement]).get_agent_resource_reading(AGENT)
+    reading = _service([restarted_today, evicted]).get_agent_resource_reading(AGENT)
 
     assert reading["pod_name"] == "current"
-    assert reading["last_eviction"] == {
-        "reason": "Evicted",
-        "message": None,
-        "at": (T0 - timedelta(days=8)).isoformat(),
-    }
-
-    # The pod's own times still win when it has them.
-    timed = _pod(
-        "evicted",
-        created=T0 - timedelta(days=9),
-        phase="Failed",
-        reason="Evicted",
-        state_terminated_at=T0 - timedelta(days=8, hours=3),
-    )
-    reading = _service([current, timed, replacement]).get_agent_resource_reading(AGENT)
-    assert reading["last_eviction"]["at"] == (T0 - timedelta(days=8, hours=3)).isoformat()
-
-    # A pod with no creation time is not placed before anything.
-    undated = _pod("evicted", phase="Failed", reason="Evicted")
-    undated.metadata.creation_timestamp = None
-    reading = _service([current, undated]).get_agent_resource_reading(AGENT)
-    assert reading["last_eviction"]["at"] is None
+    assert reading["last_eviction"] == {"reason": "Evicted", "message": None, "at": None}
 
 
 def test_a_cluster_that_cannot_list_pods_returns_the_configured_reading():
@@ -753,8 +731,14 @@ def test_the_panel_asks_for_the_reading_only_when_details_are_drawn():
     assert 'id="agent-resource-reading"' in render
     assert 'data-agent-id="${escapeHtmlAttr(agent.id)}" hidden' in render
     # Optional call: without the module the pills stand as they always have.
-    # The live status goes along, so a reading taken in another state is not reused.
-    assert "window.AssistantResources?.show(agent.id, state.agentStatus?.get?.(agent.id)?.status || agent.status);" in render
+    # The live status goes along, so a reading taken in another state is not
+    # reused, and a panel that was closed (it is only hidden, and still
+    # redrawn) asks for nothing.
+    assert (
+        'if (state.toolPanelOpen && state.activeUtilityPanel === "details") {\n'
+        "    window.AssistantResources?.show(agent.id, state.agentStatus?.get?.(agent.id)?.status || agent.status);\n"
+        "  }"
+    ) in render
     assert CHAT_JS.count("AssistantResources") == 1
     # The three pills are still drawn from the assistant row itself.
     assert 'portal-resource-pill is-cpu' in render
@@ -773,13 +757,16 @@ def test_the_module_leaves_the_panel_alone_when_the_request_fails():
     # A reading for another assistant never lands in the open panel.
     assert "host.dataset.agentId === String(agentId)" in RESOURCES_JS
     # Everything drawn goes through the escaper.
-    draw = RESOURCES_JS.split("function draw(host, reading) {", 1)[1].split("\n  }\n", 1)[0]
+    draw = RESOURCES_JS.split("function draw(host, reading, state) {", 1)[1].split("\n  }\n", 1)[0]
     assert "esc(line.text)" in draw and "esc(line.label)" in draw and "esc(line.detail)" in draw
     # With the details closed nothing is asked for, and a reading is only
     # reused for the status it was taken in.
+    request = RESOURCES_JS.split("function request(agentId, status) {", 1)[1].split("\n  }\n", 1)[0]
+    assert request.index("if (!host) return null;") < request.index("fetchReading(agentId)")
+    assert "cached.state === state" in request
+    # show() itself can neither throw nor reject into the code that draws the details.
     show = RESOURCES_JS.split("function show(agentId, status) {", 1)[1].split("\n  }\n", 1)[0]
-    assert show.index("if (!host) return Promise.resolve();") < show.index("fetchReading(agentId)")
-    assert "cached.state === state" in show
+    assert "try {" in show and "catch (error)" in show and "Promise.resolve()" in show
 
 
 # What show() does with the panel, the cache and the network, run for real.
@@ -844,6 +831,17 @@ answer = async () => ({ ok: true, json: async () => running });
 await show("a4", "running");
 out.askedForAnAssistantNotShown = asked.length;
 out.otherPanelTouched = sandbox.host.innerHTML !== "";
+
+sandbox.host = fresh("a5");
+await show("a5", "stopped");
+out.askedForAStoppedAssistant = asked.length;
+out.usageShownForAStoppedAssistant = sandbox.host.innerHTML.includes("717Mi");
+out.limitShownForAStoppedAssistant = sandbox.host.innerHTML.includes("2Gi");
+
+sandbox.host = { get dataset() { throw new Error("broken panel"); } };
+let escaped = false;
+try { await show("a6", "running"); } catch (error) { escaped = true; }
+out.errorEscaped = escaped;
 """
 
 _SHOW_EXPECTED = {
@@ -862,6 +860,11 @@ _SHOW_EXPECTED = {
     "askedAfterFailures": 7,
     "askedForAnAssistantNotShown": 7,
     "otherPanelTouched": False,
+    # A pod on its way out can still report usage; a stopped assistant shows none.
+    "askedForAStoppedAssistant": 8,
+    "usageShownForAStoppedAssistant": False,
+    "limitShownForAStoppedAssistant": True,
+    "errorEscaped": False,
 }
 
 

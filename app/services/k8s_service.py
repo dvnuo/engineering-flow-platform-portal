@@ -16,14 +16,17 @@ from app.utils.k8s_quantity import cpu_millicores, format_cpu, format_memory, me
 
 OPENCODE_INTERNAL_HTTP_PORT = 4096
 MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json"
-# (connect, read) seconds for the two cluster calls behind an assistant's
-# resource reading. The reading is extra information for the details panel: a
-# cluster or metrics API that does not answer costs that request a few seconds
-# and one empty part of the panel, and never a worker for as long as it hangs.
+# (connect, read) seconds for each attempt of the two cluster calls behind an
+# assistant's resource reading. The client retries a read three times, so a
+# call that is never answered is given up after about 20 seconds. The reading
+# is extra information for the details panel: a cluster or metrics API that
+# does not answer costs that request that long and one empty part of the
+# panel, and never a worker for as long as it hangs.
 RESOURCE_READING_TIMEOUT = (3, 5)
 # How long after a pod starts the metrics API may simply not have measured it
-# yet (metrics-server looks about once a minute).
-METRICS_SETTLE_SECONDS = 120
+# yet: the image pull and the init steps come first, and metrics-server then
+# needs two looks about a minute apart.
+METRICS_SETTLE_SECONDS = 300
 logger = logging.getLogger(__name__)
 
 
@@ -817,40 +820,21 @@ class K8sService:
         pod = max(evicted, key=self._pod_timestamp)
         pod_status = self._get_k8s_attr(pod, "status")
         message = self._text_or_none(self._get_k8s_attr(pod_status, "message"))
-        at = self._pod_eviction_time(pod_status)
-        if at is None:
-            at = self._replacement_created_at(pod, pods)
         return {
             "reason": "Evicted",
             "message": sanitize_exception_message(message) if message else None,
-            "at": self._iso_timestamp(at),
+            "at": self._iso_timestamp(self._pod_eviction_time(pod_status)),
         }
-
-    def _replacement_created_at(self, evicted_pod, pods):
-        """When the pod that took an evicted pod's place was created, or None.
-
-        The cluster replaces an evicted pod at once, so for a pod that carries
-        no time of its own this is when the eviction happened, to within
-        seconds. Without it the panel could not tell a week-old eviction from
-        one that just happened, and would show it for as long as the cluster
-        keeps the evicted pod.
-        """
-        evicted_created = self._pod_timestamp(evicted_pod)
-        if evicted_created <= 0:
-            return None
-        later = [pod for pod in pods if self._pod_timestamp(pod) > evicted_created]
-        if not later:
-            return None
-        metadata = self._get_k8s_attr(min(later, key=self._pod_timestamp), "metadata")
-        return self._get_k8s_attr(metadata, "creation_timestamp", "creationTimestamp")
 
     def _pod_eviction_time(self, pod_status):
         """When an evicted pod stopped, or None when the pod does not say.
 
         The pod's own start time would be when the evicted run began, not when
-        it ended, so it is never used. A pod that says nothing gets the time
-        its replacement was created (see ``_replacement_created_at``), and an
-        eviction with no replacement yet is shown without a time.
+        it ended, so it is not used: an eviction with no time is shown without
+        one rather than with a misleading one. The creation time of a later pod
+        is not used either: the pod that replaced the evicted one is gone after
+        the next restart, and the one found then would date the eviction to
+        that restart.
         """
         finished = []
         statuses = self._get_k8s_attr(pod_status, "container_statuses", "containerStatuses") or []
