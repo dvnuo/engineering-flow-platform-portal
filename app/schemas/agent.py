@@ -127,6 +127,61 @@ class AgentStatusResponse(BaseModel):
     startup: Optional[dict] = None
 
 
+class AgentResourceAmounts(BaseModel):
+    """One set of Kubernetes quantities, as written on the pod (``250m``, ``2Gi``)."""
+
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+    ephemeral_storage: Optional[str] = None
+
+
+class AgentResourceUsage(BaseModel):
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+    cpu_millicores: Optional[int] = None
+    memory_bytes: Optional[int] = None
+    cpu_percent_of_limit: Optional[int] = None
+    memory_percent_of_limit: Optional[int] = None
+
+
+class AgentContainerTermination(BaseModel):
+    """Why the assistant's container last stopped (``OOMKilled``, ``Error``, ...)."""
+
+    reason: Optional[str] = None
+    exit_code: Optional[int] = None
+    finished_at: Optional[str] = None
+
+
+class AgentPodEviction(BaseModel):
+    reason: str = "Evicted"
+    message: Optional[str] = None
+    at: Optional[str] = None
+
+
+class AgentResourcesResponse(BaseModel):
+    """What an assistant's pod is allowed, what it is using, and why it last stopped.
+
+    ``source`` is ``pod`` when the amounts were read from the running pod and
+    ``configured`` when they are what the Portal would put on one (stopped
+    assistant, or no cluster). ``usage`` needs the cluster's metrics API;
+    ``usage_status`` says why it is missing: ``kubernetes_disabled``, ``no_pod``,
+    ``metrics_pending`` (the pod only just started), ``metrics_unavailable``,
+    ``metrics_forbidden`` or ``error``.
+    """
+
+    id: str
+    source: str = "configured"
+    requests: AgentResourceAmounts = Field(default_factory=AgentResourceAmounts)
+    limits: AgentResourceAmounts = Field(default_factory=AgentResourceAmounts)
+    usage: Optional[AgentResourceUsage] = None
+    usage_status: str = "kubernetes_disabled"
+    pod_name: Optional[str] = None
+    pod_started_at: Optional[str] = None
+    restart_count: int = 0
+    last_termination: Optional[AgentContainerTermination] = None
+    last_eviction: Optional[AgentPodEviction] = None
+
+
 class AgentStatusBatchResponse(BaseModel):
     """Status of every assistant the caller can see, in one round trip."""
 

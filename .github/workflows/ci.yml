@@ -24,6 +24,7 @@ jobs:
       - run: node --check app/static/js/chat_ui.js
       - run: node --check app/static/js/composer_skill_chip.js
       - run: node --check app/static/js/i18n.js
+      - run: node --check app/static/js/assistant_resources.js
       # English source strings and the catalogues under app/locale stay in step.
       - run: python scripts/i18n_check.py
       # Runs the whole suite. CI used to name 25 of the repo's 145 test files,

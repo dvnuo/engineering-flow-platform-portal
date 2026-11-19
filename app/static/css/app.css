@@ -1766,6 +1766,38 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   background: color-mix(in srgb, var(--portal-success), var(--portal-surface) 92%);
 }
 
+/* Limit, live usage and last restart reason under the pills (assistant_resources.js). */
+.portal-resource-reading {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.portal-resource-reading[hidden] {
+  display: none;
+}
+
+.portal-resource-line {
+  overflow-wrap: anywhere;
+}
+
+.portal-resource-line-label {
+  color: var(--portal-text-secondary);
+  font-weight: 600;
+}
+
+.portal-resource-line.is-warning {
+  color: var(--portal-warning);
+}
+
+.portal-resource-line-detail {
+  display: block;
+  color: var(--portal-text-muted);
+}
+
 .portal-usage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6875,7 +6907,7 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-onboarding.hidden { display: none; }
 
 .portal-onboarding-card {
-  width: min(560px, 100%);
+  width: min(900px, 100%);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   background: var(--portal-surface);
@@ -6927,6 +6959,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-onboarding-muted { color: var(--portal-text-muted); }
 
 .portal-onboarding-art {
+  /* Not squashed when the step is taller than its room and scrolls. */
+  flex: 0 0 auto;
   width: 44px;
   height: 44px;
   border-radius: var(--portal-radius-md);
@@ -6981,7 +7015,20 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-assistant-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.portal-assistant-type-option { display: block; cursor: pointer; }
+/* Three across where the window leaves the two layers that show the list, the
+   create dialog and the first-run tour, their 900px (their frames are with
+   the other layers at the end of this file). */
+@media (min-width: 900px) {
+  .portal-assistant-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* The scroll margin leaves room for the focus ring when a card is scrolled
+   into view. */
+.portal-assistant-type-option { display: block; cursor: pointer; scroll-margin: 4px; }
+
+/* A card is a label, and a label in a .stack form has a bottom margin: without
+   this the rows of the create dialog sit further apart than its columns. */
+.portal-assistant-type-grid > label.portal-assistant-type-option { margin: 0; }
 
 /* The radio keeps its place in the accessibility tree and its keyboard
    behaviour; only the default presentation is replaced by the card. */
@@ -7036,10 +7083,17 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 .portal-assistant-type-copy strong { font-size: 0.92rem; color: var(--portal-text); }
 
+/* Two lines, so every card is the same height however much an administrator
+   wrote; assistant_setup.js offers the rest as a tooltip. */
 .portal-assistant-type-copy small {
   font-size: 0.82rem;
   color: var(--portal-text-muted);
   line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 /* -- connector setup guides ------------------------------------------------ */
@@ -8652,9 +8706,12 @@ body.efp-workspace-open { overflow: hidden; }
 
 .portal-picker-pop > .portal-picker-list:empty + .portal-picker-note { border-top: 0; }
 
-/* 1. The first-run tour: three steps in one card. */
+/* 1. The first-run tour: three steps in one card. It is as wide as the create
+   dialog and as tall as the tall wizard (900 x 720), which is what its last
+   step needs to show three rows of three kinds of assistant under its
+   heading and the name field. */
 .portal-onboarding-card {
-  height: min(480px, calc(100vh - 48px));
+  height: min(720px, calc(100vh - 48px));
   max-height: none;
   overflow: hidden;
 }
@@ -8669,13 +8726,25 @@ body.efp-workspace-open { overflow: hidden; }
   padding: 3px;
 }
 
+/* The two steps that are a few lines of text keep the column they were
+   written for, about 500px, in the middle of the card. The step with the form
+   starts at the top and takes the width: its list arrives after it shows. */
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) {
+  padding-inline: max(3px, calc(50% - 250px));
+}
+
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) > :first-child { margin-top: auto; }
+.portal-onboarding-card > .portal-onboarding-step:not(.is-form) > :last-child { margin-bottom: auto; }
+
 /* 1. Create assistant: the kinds of assistant arrive after the dialog opens,
-   and there are as many as an administrator has set up. They scroll in the
-   room the dialog gave them. */
+   and there are as many as an administrator has set up. The frame is the
+   size of the wizard that Advanced setup opens (900 x 600) and shows three
+   rows of three; any more scroll in the room the dialog gave them. */
 #create-simple-modal > .modal-card {
   display: flex;
   flex-direction: column;
-  height: min(520px, calc(100vh - 2rem));
+  width: min(900px, calc(100vw - 2rem));
+  height: min(600px, calc(100vh - 2rem));
 }
 
 #create-simple-modal > .modal-card > * { flex: 0 0 auto; }

@@ -112,8 +112,25 @@
       container.addEventListener("change", () => {
         container.querySelectorAll(".portal-assistant-type-option").forEach((option) => {
           const input = option.querySelector("input");
-          option.classList.toggle("is-selected", Boolean(input && input.checked));
+          const selected = Boolean(input && input.checked);
+          option.classList.toggle("is-selected", selected);
+          // The list scrolls, and arrow keys can select a card that is out of view.
+          if (selected) option.scrollIntoView({ block: "nearest" });
         });
+      });
+
+      // A description cut off at its two lines (app.css) shows in full as a
+      // tooltip. Measured on hover because the list renders while its dialog
+      // is still hidden, and in time for tooltips.js, whose listener is on
+      // the document and so runs after this one.
+      container.addEventListener("mouseover", (event) => {
+        const description = event.target.closest(".portal-assistant-type-copy small");
+        if (!description) return;
+        if (description.scrollHeight > description.clientHeight + 1) {
+          description.setAttribute("data-tooltip", description.textContent);
+        } else {
+          description.removeAttribute("data-tooltip");
+        }
       });
     }
     renderIcons(container);
