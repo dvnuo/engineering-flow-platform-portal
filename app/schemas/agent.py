@@ -165,7 +165,8 @@ class AgentResourcesResponse(BaseModel):
     ``configured`` when they are what the Portal would put on one (stopped
     assistant, or no cluster). ``usage`` needs the cluster's metrics API;
     ``usage_status`` says why it is missing: ``kubernetes_disabled``, ``no_pod``,
-    ``metrics_unavailable``, ``metrics_forbidden`` or ``error``.
+    ``metrics_pending`` (the pod only just started), ``metrics_unavailable``,
+    ``metrics_forbidden`` or ``error``.
     """
 
     id: str

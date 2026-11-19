@@ -8420,7 +8420,9 @@ function renderAgentMeta(agent) {
 
   // The limit, live usage and last restart reason, drawn under the pills by
   // assistant_resources.js; without it the pills stand as they always have.
-  window.AssistantResources?.show(agent.id);
+  // The status goes along so a reading taken while the assistant was running
+  // is not shown again once it has stopped.
+  window.AssistantResources?.show(agent.id, state.agentStatus?.get?.(agent.id)?.status || agent.status);
 }
 
 async function fetchSkillGitInfo(agentId) {

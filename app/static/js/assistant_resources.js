@@ -8,10 +8,11 @@
  * part under the pills: the limit, the live usage when the cluster reports it,
  * how often the assistant restarted, and the reason for the last time.
  *
- * The reading comes from GET /api/agents/{id}/resources, asked for when a
- * member opens the details and never by the sidebar's polling. chat_ui.js puts
- * an empty #agent-resource-reading under the pills and calls show(); when the
- * request fails the panel simply stays as it was before this file existed.
+ * The reading comes from GET /api/agents/{id}/resources, asked for while a
+ * member has the details open and never by the sidebar's polling. chat_ui.js
+ * puts an empty #agent-resource-reading under the pills and calls show() with
+ * the assistant's status; when the request fails the panel simply stays as it
+ * was before this file existed.
  */
 (function () {
   "use strict";
@@ -19,9 +20,14 @@
   const HOST_ID = "agent-resource-reading";
   const FRESH_MS = 15000;
   const EVICTION_SHOWN_FOR_MS = 7 * 24 * 60 * 60 * 1000;
-  // agentId -> { reading, at }: the panel is redrawn on every status change,
-  // and the last reading is drawn at once so the lines do not blink.
+  // agentId -> { reading, at, state }: the panel is redrawn on every status
+  // change, and the last reading is drawn at once so the lines do not blink.
+  // `state` is the assistant's status when the reading was asked for: one
+  // taken while it was running says nothing about it once it has stopped.
   const readings = new Map();
+  // agentId -> the request in flight, so that redrawing the panel several
+  // times in a row asks once.
+  const pending = new Map();
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -146,25 +152,42 @@
     return host && host.dataset.agentId === String(agentId) ? host : null;
   }
 
-  async function show(agentId) {
-    if (!agentId) return;
-    const cached = readings.get(agentId);
-    const host = hostFor(agentId);
-    if (host && cached) draw(host, cached.reading);
-    if (cached && Date.now() - cached.at < FRESH_MS) return;
-
-    let reading = null;
+  async function fetchReading(agentId) {
     try {
       const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}/resources`);
-      if (!response.ok) return;
-      reading = await response.json();
+      if (!response.ok) return null;
+      return await response.json();
     } catch (error) {
       // No reading is not an error to show: the pills above still stand.
-      return;
+      return null;
     }
-    readings.set(agentId, { reading, at: Date.now() });
-    const current = hostFor(agentId);
-    if (current) draw(current, reading);
+  }
+
+  function show(agentId, status) {
+    if (!agentId) return Promise.resolve();
+    const host = hostFor(agentId);
+    // Nobody is looking: the details are closed, or show another assistant.
+    if (!host) return Promise.resolve();
+    const state = status == null ? "" : String(status).toLowerCase();
+    const cached = readings.get(agentId);
+    const known = cached && cached.state === state ? cached : null;
+    if (known) draw(host, known.reading);
+    if (known && Date.now() - known.at < FRESH_MS) return Promise.resolve();
+    const running = pending.get(agentId);
+    if (running && running.state === state) return running.done;
+
+    const request = { state, done: null };
+    pending.set(agentId, request);
+    request.done = fetchReading(agentId).then((reading) => {
+      // The assistant changed state meanwhile and a newer request took over.
+      if (pending.get(agentId) !== request) return;
+      pending.delete(agentId);
+      if (!reading) return;
+      readings.set(agentId, { reading, at: Date.now(), state });
+      const current = hostFor(agentId);
+      if (current) draw(current, reading);
+    });
+    return request.done;
   }
 
   window.AssistantResources = { show, describe };

@@ -150,10 +150,20 @@ def _record_assistant_failure(db: Session, agent, runtime, *, action: str) -> No
     )
 
 
+def _forget_cached_readings(agent_id: str) -> None:
+    """Drop what was read about an assistant before a lifecycle action.
+
+    A refresh right after Stop must not report the "running" read a few seconds
+    earlier, nor the memory in use of a pod that is going away.
+    """
+    runtime_status_cache.invalidate(agent_id)
+    resource_reading_cache.invalidate(agent_id)
+
+
 def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     agent.status = "deleting"
     repo.save(agent)
-    runtime_status_cache.invalidate(agent.id)
+    _forget_cached_readings(agent.id)
 
     runtime = k8s_service.delete_agent_runtime(agent)
     if runtime.status == "failed":
@@ -776,7 +786,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     if runtime.status != "failed":
         agent.profile_revision_applied = applied_revision
     repo.save(agent)
-    runtime_status_cache.invalidate(agent.id)
+    _forget_cached_readings(agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -793,7 +803,7 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     agent.last_error = runtime.message
     _record_assistant_failure(db, agent, runtime, action="stop")
     repo.save(agent)
-    runtime_status_cache.invalidate(agent.id)
+    _forget_cached_readings(agent.id)
     AuditRepository(db).create("stop_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -832,7 +842,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     agent.last_activity_at = datetime.utcnow()
     agent.profile_revision_applied = applied_revision
     repo.save(agent)
-    runtime_status_cache.invalidate(agent.id)
+    _forget_cached_readings(agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 

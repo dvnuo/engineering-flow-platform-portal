@@ -33,6 +33,7 @@ _DECIMAL_SUFFIXES = {
 }
 _MEBIBYTE = 1024 * 1024
 _GIBIBYTE = 1024 * _MEBIBYTE
+_MAX_DECIMAL_EXPONENT = 30
 
 
 def parse_quantity(value: Any) -> Optional[Decimal]:
@@ -51,6 +52,10 @@ def parse_quantity(value: Any) -> Optional[Decimal]:
     except InvalidOperation:
         return None
     if not number.is_finite() or number < 0:
+        return None
+    # No real amount is anywhere near this; the bound keeps a nonsense exponent
+    # ("9e999999Ei") from overflowing the arithmetic here and in the callers.
+    if number.adjusted() > _MAX_DECIMAL_EXPONENT:
         return None
     return number * factor
 

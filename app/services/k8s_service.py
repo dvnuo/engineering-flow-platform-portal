@@ -16,7 +16,19 @@ from app.utils.k8s_quantity import cpu_millicores, format_cpu, format_memory, me
 
 OPENCODE_INTERNAL_HTTP_PORT = 4096
 MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json"
+# (connect, read) seconds for the two cluster calls behind an assistant's
+# resource reading. The reading is extra information for the details panel: a
+# cluster or metrics API that does not answer costs that request a few seconds
+# and one empty part of the panel, and never a worker for as long as it hangs.
+RESOURCE_READING_TIMEOUT = (3, 5)
+# How long after a pod starts the metrics API may simply not have measured it
+# yet (metrics-server looks about once a minute).
+METRICS_SETTLE_SECONDS = 120
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -689,6 +701,7 @@ class K8sService:
             response = self.core_api.list_namespaced_pod(
                 namespace=agent.namespace,
                 label_selector=f"app=agent,agent-id={agent.id}",
+                _request_timeout=RESOURCE_READING_TIMEOUT,
             )
             pods = list(self._get_k8s_attr(response, "items") or [])
         except Exception as exc:
@@ -709,10 +722,9 @@ class K8sService:
 
             metadata = self._get_k8s_attr(pod, "metadata")
             pod_status = self._get_k8s_attr(pod, "status")
+            pod_started = self._get_k8s_attr(pod_status, "start_time", "startTime")
             reading["pod_name"] = self._text_or_none(self._get_k8s_attr(metadata, "name"))
-            reading["pod_started_at"] = self._iso_timestamp(
-                self._get_k8s_attr(pod_status, "start_time", "startTime")
-            )
+            reading["pod_started_at"] = self._iso_timestamp(pod_started)
 
             pod_requests, pod_limits = self._pod_agent_resources(pod)
             if pod_requests is not None or pod_limits is not None:
@@ -735,7 +747,9 @@ class K8sService:
             reading["usage_status"] = "error"
             return reading
 
-        usage, usage_status = self._read_pod_usage(agent, reading["pod_name"], reading["limits"])
+        usage, usage_status = self._read_pod_usage(
+            agent, reading["pod_name"], reading["limits"], pod_started=pod_started
+        )
         reading["usage"] = usage
         reading["usage_status"] = usage_status
         return reading
@@ -803,18 +817,40 @@ class K8sService:
         pod = max(evicted, key=self._pod_timestamp)
         pod_status = self._get_k8s_attr(pod, "status")
         message = self._text_or_none(self._get_k8s_attr(pod_status, "message"))
+        at = self._pod_eviction_time(pod_status)
+        if at is None:
+            at = self._replacement_created_at(pod, pods)
         return {
             "reason": "Evicted",
             "message": sanitize_exception_message(message) if message else None,
-            "at": self._iso_timestamp(self._pod_eviction_time(pod_status)),
+            "at": self._iso_timestamp(at),
         }
+
+    def _replacement_created_at(self, evicted_pod, pods):
+        """When the pod that took an evicted pod's place was created, or None.
+
+        The cluster replaces an evicted pod at once, so for a pod that carries
+        no time of its own this is when the eviction happened, to within
+        seconds. Without it the panel could not tell a week-old eviction from
+        one that just happened, and would show it for as long as the cluster
+        keeps the evicted pod.
+        """
+        evicted_created = self._pod_timestamp(evicted_pod)
+        if evicted_created <= 0:
+            return None
+        later = [pod for pod in pods if self._pod_timestamp(pod) > evicted_created]
+        if not later:
+            return None
+        metadata = self._get_k8s_attr(min(later, key=self._pod_timestamp), "metadata")
+        return self._get_k8s_attr(metadata, "creation_timestamp", "creationTimestamp")
 
     def _pod_eviction_time(self, pod_status):
         """When an evicted pod stopped, or None when the pod does not say.
 
         The pod's own start time would be when the evicted run began, not when
-        it ended, so it is not used: an eviction with no time is shown without
-        one rather than with a misleading one.
+        it ended, so it is never used. A pod that says nothing gets the time
+        its replacement was created (see ``_replacement_created_at``), and an
+        eviction with no replacement yet is shown without a time.
         """
         finished = []
         statuses = self._get_k8s_attr(pod_status, "container_statuses", "containerStatuses") or []
@@ -885,12 +921,21 @@ class K8sService:
             self.custom_api = client.CustomObjectsApi()
         return self.custom_api
 
-    def _read_pod_usage(self, agent, pod_name: Optional[str], limits: dict) -> tuple[Optional[dict], str]:
+    def _read_pod_usage(
+        self,
+        agent,
+        pod_name: Optional[str],
+        limits: dict,
+        *,
+        pod_started=None,
+    ) -> tuple[Optional[dict], str]:
         """Live CPU and memory of the agent container from the metrics API.
 
         The metrics API is optional in a cluster (it needs metrics-server) and
         the Portal's role may not include it; both are reported as a status
         rather than an error, and the rest of the reading stands without it.
+        A pod the metrics API does not know yet because it only just started
+        is ``metrics_pending``: that says nothing about the cluster.
         """
         if not pod_name:
             return None, "no_pod"
@@ -901,10 +946,14 @@ class K8sService:
                 namespace=agent.namespace,
                 plural="pods",
                 name=pod_name,
+                _request_timeout=RESOURCE_READING_TIMEOUT,
             )
         except Exception as exc:
-            if getattr(exc, "status", None) == 403:
+            status_code = getattr(exc, "status", None)
+            if status_code == 403:
                 return None, "metrics_forbidden"
+            if status_code == 404 and self._started_recently(pod_started):
+                return None, "metrics_pending"
             logger.info(
                 "Pod metrics unavailable agent_id=%s error=%s",
                 getattr(agent, "id", "-"),
@@ -938,6 +987,20 @@ class K8sService:
             )
         except Exception:
             return None, "metrics_unavailable"
+
+    @staticmethod
+    def _started_recently(started) -> bool:
+        """Whether a pod began so recently that the metrics API may not have measured it.
+
+        A pod with no start time has not started its containers at all.
+        """
+        if started is None:
+            return True
+        if not isinstance(started, datetime):
+            return False
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        return (_utcnow() - started).total_seconds() < METRICS_SETTLE_SECONDS
 
     def _get_k8s_attr(self, obj, *names):
         if obj is None:

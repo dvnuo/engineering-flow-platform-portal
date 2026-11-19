@@ -59,9 +59,10 @@ def test_quantities_are_read_in_every_notation_the_cluster_uses():
     assert k8s_quantity.memory_bytes("128974848") == 128974848
     assert k8s_quantity.parse_quantity("1E") == Decimal("1e18")
 
-    for unreadable in (None, "", "  ", "lots", "-1", "1Zi", "NaN", "Infinity"):
+    for unreadable in (None, "", "  ", "lots", "-1", "1Zi", "NaN", "Infinity", "9e999999", "9e999999Ei", "1e31"):
         assert k8s_quantity.parse_quantity(unreadable) is None
         assert k8s_quantity.memory_bytes(unreadable) is None
+        assert k8s_quantity.cpu_millicores(unreadable) is None
 
 
 def test_readings_are_written_the_way_the_settings_write_them():
@@ -91,9 +92,11 @@ class _FakeCore:
         self.pods = list(pods)
         self.error = error
         self.calls = []
+        self.timeouts = []
 
-    def list_namespaced_pod(self, namespace, label_selector):
+    def list_namespaced_pod(self, namespace, label_selector, _request_timeout=None):
         self.calls.append((namespace, label_selector))
+        self.timeouts.append(_request_timeout)
         if self.error is not None:
             raise self.error
         return SimpleNamespace(items=self.pods)
@@ -220,6 +223,9 @@ def test_a_pod_killed_for_memory_says_so_with_its_own_limits_and_live_usage():
     reading = service.get_agent_resource_reading(AGENT)
 
     assert service.core_api.calls == [("efp-agents", "app=agent,agent-id=agent-1")]
+    # Both cluster calls give up after a few seconds: a cluster or metrics API
+    # that hangs must not hold the request, its worker and its database session.
+    assert service.core_api.timeouts == [(3, 5)]
     assert metrics.calls == [
         {
             "group": "metrics.k8s.io",
@@ -227,6 +233,7 @@ def test_a_pod_killed_for_memory_says_so_with_its_own_limits_and_live_usage():
             "namespace": "efp-agents",
             "plural": "pods",
             "name": "agent-pod-new",
+            "_request_timeout": (3, 5),
         }
     ]
     # The pod's own amounts, not the Portal's current defaults: a pod started
@@ -278,6 +285,45 @@ def test_a_cluster_without_usage_still_reports_limits_and_restarts(error, expect
     assert reading["limits"]["memory"] == "2Gi"
     assert reading["restart_count"] == 1
     assert reading["last_termination"]["reason"] == "Error"
+
+
+@pytest.mark.parametrize(
+    ("started_seconds_ago", "error", "expected"),
+    [
+        # The metrics API looks about once a minute: "not found" for a pod that
+        # only just started says nothing about the cluster.
+        (30, _ApiError(404), "metrics_pending"),
+        (None, _ApiError(404), "metrics_pending"),  # not started at all yet
+        (119, _ApiError(404), "metrics_pending"),
+        (121, _ApiError(404), "metrics_unavailable"),
+        (3600, _ApiError(404), "metrics_unavailable"),
+        # Any other answer means the same for a new pod as for an old one.
+        (30, _ApiError(503), "metrics_unavailable"),
+        (30, _ApiError(403), "metrics_forbidden"),
+        (30, RuntimeError("timed out"), "metrics_unavailable"),
+    ],
+)
+def test_a_pod_that_only_just_started_is_not_reported_as_a_cluster_without_usage(
+    monkeypatch, started_seconds_ago, error, expected
+):
+    import app.services.k8s_service as k8s_service_module
+
+    pod = _pod(limits={"cpu": "1", "memory": "2Gi"})
+    if started_seconds_ago is None:
+        pod.status.start_time = None
+    else:
+        monkeypatch.setattr(
+            k8s_service_module,
+            "_utcnow",
+            lambda: pod.status.start_time + timedelta(seconds=started_seconds_ago),
+        )
+    service = _service([pod], metrics=_FakeMetrics(error=error))
+
+    reading = service.get_agent_resource_reading(AGENT)
+
+    assert reading["usage"] is None
+    assert reading["usage_status"] == expected
+    assert reading["limits"]["memory"] == "2Gi"
 
 
 @pytest.mark.parametrize(
@@ -372,6 +418,41 @@ def test_an_eviction_time_falls_back_to_the_disruption_condition_or_stays_unknow
     assert reading["last_eviction"] == {"reason": "Evicted", "message": None, "at": None}
 
 
+def test_an_eviction_that_carries_no_time_gets_the_time_its_replacement_was_created():
+    # Without a time the panel could not tell an old eviction from a new one
+    # and would warn about it for as long as the cluster keeps the pod.
+    evicted = _pod("evicted", created=T0 - timedelta(days=9), phase="Failed", reason="Evicted")
+    older = _pod("before-it", created=T0 - timedelta(days=20), phase="Failed", reason="Error")
+    replacement = _pod("replacement", created=T0 - timedelta(days=8), phase="Failed", reason="Error")
+    current = _pod("current", created=T0 - timedelta(days=1))
+
+    reading = _service([current, older, evicted, replacement]).get_agent_resource_reading(AGENT)
+
+    assert reading["pod_name"] == "current"
+    assert reading["last_eviction"] == {
+        "reason": "Evicted",
+        "message": None,
+        "at": (T0 - timedelta(days=8)).isoformat(),
+    }
+
+    # The pod's own times still win when it has them.
+    timed = _pod(
+        "evicted",
+        created=T0 - timedelta(days=9),
+        phase="Failed",
+        reason="Evicted",
+        state_terminated_at=T0 - timedelta(days=8, hours=3),
+    )
+    reading = _service([current, timed, replacement]).get_agent_resource_reading(AGENT)
+    assert reading["last_eviction"]["at"] == (T0 - timedelta(days=8, hours=3)).isoformat()
+
+    # A pod with no creation time is not placed before anything.
+    undated = _pod("evicted", phase="Failed", reason="Evicted")
+    undated.metadata.creation_timestamp = None
+    reading = _service([current, undated]).get_agent_resource_reading(AGENT)
+    assert reading["last_eviction"]["at"] is None
+
+
 def test_a_cluster_that_cannot_list_pods_returns_the_configured_reading():
     service = _service(core_error=_ApiError(500))
 
@@ -393,7 +474,9 @@ def test_a_pod_the_portal_cannot_make_sense_of_never_raises():
 
     reading = service.get_agent_resource_reading(AGENT)
 
-    assert reading["usage_status"] in {"error", "metrics_unavailable"}
+    # No start time and no metrics: as far as anyone can tell it has not started.
+    assert reading["usage_status"] in {"error", "metrics_unavailable", "metrics_pending"}
+    assert reading["usage"] is None
     assert reading["limits"] == CONFIGURED_LIMITS
 
 
@@ -583,6 +666,49 @@ def test_the_endpoint_returns_the_reading_to_someone_who_can_see_the_assistant(m
         cleanup()
 
 
+def test_stopping_an_assistant_drops_the_reading_taken_while_it_ran(monkeypatch):
+    client, _db, agents, cleanup = _client()
+    try:
+        answers = iter(["ok", "no_pod"])
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.get_agent_resource_reading",
+            lambda agent: {"usage_status": next(answers)},
+        )
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.stop_agent",
+            lambda agent: SimpleNamespace(status="stopped", message=None),
+        )
+        url = f"/api/agents/{agents['mine'].id}/resources"
+
+        assert client.get(url).json()["usage_status"] == "ok"
+        assert client.post(f"/api/agents/{agents['mine'].id}/stop").status_code == 200
+        # Asked again at once, well inside the cache's ten seconds.
+        assert client.get(url).json()["usage_status"] == "no_pod"
+    finally:
+        cleanup()
+
+
+def test_every_lifecycle_action_forgets_both_cached_readings():
+    import app.api.agents as agents_api
+    from app.services.runtime_status_cache import runtime_status_cache
+
+    runtime_status_cache.put("agent-x", "running")
+    resource_reading_cache.put("agent-x", {"usage_status": "ok"})
+    try:
+        agents_api._forget_cached_readings("agent-x")
+        assert runtime_status_cache.get("agent-x") is None
+        assert resource_reading_cache.get("agent-x") is None
+    finally:
+        runtime_status_cache.invalidate("agent-x")
+        resource_reading_cache.invalidate("agent-x")
+
+    # Delete, start, stop and restart all go through it; none of them drops
+    # only the status reading any more.
+    source = (REPO / "app/api/agents.py").read_text(encoding="utf-8")
+    assert source.count("_forget_cached_readings(agent.id)") == 4
+    assert source.count("runtime_status_cache.invalidate(") == 1
+
+
 def test_the_endpoint_keeps_other_peoples_assistants_private(monkeypatch):
     client, _db, agents, cleanup = _client()
     try:
@@ -627,7 +753,8 @@ def test_the_panel_asks_for_the_reading_only_when_details_are_drawn():
     assert 'id="agent-resource-reading"' in render
     assert 'data-agent-id="${escapeHtmlAttr(agent.id)}" hidden' in render
     # Optional call: without the module the pills stand as they always have.
-    assert "window.AssistantResources?.show(agent.id);" in render
+    # The live status goes along, so a reading taken in another state is not reused.
+    assert "window.AssistantResources?.show(agent.id, state.agentStatus?.get?.(agent.id)?.status || agent.status);" in render
     assert CHAT_JS.count("AssistantResources") == 1
     # The three pills are still drawn from the assistant row itself.
     assert 'portal-resource-pill is-cpu' in render
@@ -641,13 +768,124 @@ def test_the_panel_asks_for_the_reading_only_when_details_are_drawn():
 
 def test_the_module_leaves_the_panel_alone_when_the_request_fails():
     assert "/api/agents/${encodeURIComponent(agentId)}/resources" in RESOURCES_JS
-    assert "if (!response.ok) return;" in RESOURCES_JS
+    assert "if (!response.ok) return null;" in RESOURCES_JS
     assert "window.AssistantResources = { show, describe };" in RESOURCES_JS
     # A reading for another assistant never lands in the open panel.
     assert "host.dataset.agentId === String(agentId)" in RESOURCES_JS
     # Everything drawn goes through the escaper.
     draw = RESOURCES_JS.split("function draw(host, reading) {", 1)[1].split("\n  }\n", 1)[0]
     assert "esc(line.text)" in draw and "esc(line.label)" in draw and "esc(line.detail)" in draw
+    # With the details closed nothing is asked for, and a reading is only
+    # reused for the status it was taken in.
+    show = RESOURCES_JS.split("function show(agentId, status) {", 1)[1].split("\n  }\n", 1)[0]
+    assert show.index("if (!host) return Promise.resolve();") < show.index("fetchReading(agentId)")
+    assert "cached.state === state" in show
+
+
+# What show() does with the panel, the cache and the network, run for real.
+# `host` is the element chat_ui.js draws under the pills; null is a closed panel.
+_SHOW_SCENARIO = """
+const out = {};
+const fresh = (id) => ({ dataset: { agentId: id }, innerHTML: "", hidden: true });
+const running = { limits: { cpu: "1", memory: "2Gi" }, usage_status: "ok", usage: { cpu: "120m", memory: "717Mi" } };
+const stopped = { limits: { cpu: "1", memory: "2Gi" }, usage_status: "no_pod", usage: null };
+const asked = [];
+let answer = async () => ({ ok: true, json: async () => running });
+sandbox.fetch = (url) => { asked.push(url); return answer(url); };
+const show = sandbox.window.AssistantResources.show;
+
+sandbox.host = null;
+await show("a1", "running");
+out.askedWhileClosed = asked.length;
+
+sandbox.host = fresh("a1");
+await Promise.all([show("a1", "running"), show("a1", "running"), show("a1", "running")]);
+out.askedForThreeRedraws = asked.length;
+out.drawn = sandbox.host.hidden === false && sandbox.host.innerHTML.includes("717Mi");
+out.url = asked[0];
+
+sandbox.host = fresh("a1");
+await show("a1", "Running");
+out.askedAgainWhileFresh = asked.length;
+out.redrawnFromMemory = sandbox.host.innerHTML.includes("717Mi");
+
+sandbox.host = fresh("a1");
+answer = async () => ({ ok: true, json: async () => stopped });
+const afterStop = show("a1", "stopped");
+out.oldReadingShownAfterStop = sandbox.host.innerHTML.includes("717Mi");
+await afterStop;
+out.askedAfterStop = asked.length;
+out.stoppedPanel = sandbox.host.innerHTML.includes("2Gi") && !sandbox.host.innerHTML.includes("717Mi");
+
+const waiting = [];
+answer = () => new Promise((resolve) => waiting.push(resolve));
+sandbox.host = fresh("a2");
+const first = show("a2", "running");
+const second = show("a2", "stopped");
+waiting[1]({ ok: true, json: async () => stopped });
+await second;
+waiting[0]({ ok: true, json: async () => running });
+await first;
+out.lateAnswerDrawn = sandbox.host.innerHTML.includes("717Mi");
+out.newerAnswerDrawn = sandbox.host.innerHTML.includes("2Gi");
+
+sandbox.host = fresh("a3");
+answer = async () => ({ ok: false, json: async () => ({}) });
+await show("a3", "running");
+answer = async () => { throw new Error("offline"); };
+await show("a3", "running");
+answer = async () => ({ ok: true, json: async () => null });
+await show("a3", "running");
+out.panelAfterFailures = [sandbox.host.hidden, sandbox.host.innerHTML];
+out.askedAfterFailures = asked.length;
+
+sandbox.host = fresh("someone-else");
+answer = async () => ({ ok: true, json: async () => running });
+await show("a4", "running");
+out.askedForAnAssistantNotShown = asked.length;
+out.otherPanelTouched = sandbox.host.innerHTML !== "";
+"""
+
+_SHOW_EXPECTED = {
+    "askedWhileClosed": 0,
+    "askedForThreeRedraws": 1,
+    "drawn": True,
+    "url": "/api/agents/a1/resources",
+    "askedAgainWhileFresh": 1,
+    "redrawnFromMemory": True,
+    "oldReadingShownAfterStop": False,
+    "askedAfterStop": 2,
+    "stoppedPanel": True,
+    "lateAnswerDrawn": False,
+    "newerAnswerDrawn": True,
+    "panelAfterFailures": [True, ""],
+    "askedAfterFailures": 7,
+    "askedForAnAssistantNotShown": 7,
+    "otherPanelTouched": False,
+}
+
+
+def test_show_asks_only_for_an_open_panel_and_never_reuses_a_reading_from_another_state():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    script = "\n".join(
+        [
+            "const sandbox = { window: {}, host: null, fetch: null };",
+            "global.window = sandbox.window;",
+            "global.document = { documentElement: { lang: 'en-GB' }, getElementById: () => sandbox.host };",
+            "global.fetch = (url) => sandbox.fetch(url);",
+            f"require({json.dumps((REPO / 'app/static/js/i18n.js').as_posix())});",
+            f"require({json.dumps((REPO / 'app/static/js/assistant_resources.js').as_posix())});",
+            "(async () => {",
+            _SHOW_SCENARIO,
+            "console.log(JSON.stringify(out));",
+            "})().catch((error) => { console.error(error); process.exit(1); });",
+        ]
+    )
+    completed = subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip().splitlines()[-1]) == _SHOW_EXPECTED
 
 
 def _describe(reading, now_iso="2026-11-18T08:00:00Z"):
