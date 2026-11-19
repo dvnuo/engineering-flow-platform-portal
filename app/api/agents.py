@@ -32,6 +32,7 @@ from app.schemas.agent import (
     AgentChatModelProfileResponse,
     AgentCreateRequest,
     AgentDeleteResponse,
+    AgentResourcesResponse,
     AgentResponse,
     AgentStatusBatchResponse,
     AgentStatusResponse,
@@ -48,7 +49,7 @@ from app.services.model_catalog_service import current_catalog, ensure_catalog
 from app.services.session_run_settings_service import load_session_run_settings, save_session_run_settings
 from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
-from app.services.runtime_status_cache import runtime_status_cache
+from app.services.runtime_status_cache import resource_reading_cache, runtime_status_cache
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.repositories.session_share_repo import SessionShareRepository
 from app.services.share_transcripts import invalidate_share_transcript
@@ -942,3 +943,26 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
         settings_restart_pending=_can_write(agent, user)
         and profile_restart_pending(agent, desired_profile_revision),
     )
+
+
+@router.get("/{agent_id}/resources", response_model=AgentResourcesResponse)
+def agent_resources(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the assistant's pod is allowed, what it is using, and why it last stopped.
+
+    The panel's own request, made when a member opens an assistant's details,
+    so the sidebar's status polling stays as cheap as it was. Read-only: it
+    never changes the assistant's status, and a cluster that cannot answer
+    (no metrics API, no pod) still returns what is known.
+    """
+    repo = AgentRepository(db)
+    agent = repo.get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
+
+    reading = resource_reading_cache.get(agent.id)
+    if reading is None:
+        reading = k8s_service.get_agent_resource_reading(agent)
+        resource_reading_cache.put(agent.id, reading)
+    return AgentResourcesResponse(id=agent.id, **reading)

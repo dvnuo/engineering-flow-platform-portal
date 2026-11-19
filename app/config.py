@@ -201,7 +201,27 @@ class Settings(BaseSettings):
     # Kubernetes quantities; empty string disables that limit.
     default_agent_cpu_limit: str = Field(default="1", validation_alias="DEFAULT_AGENT_CPU_LIMIT")
     default_agent_memory_limit: str = Field(default="2Gi", validation_alias="DEFAULT_AGENT_MEMORY_LIMIT")
+    # Local (node) disk an agent pod may use outside its workspace volume: the
+    # container's writable layer, /tmp and logs. Unset by default, which leaves
+    # the pod template exactly as it was. With a limit set, a pod that writes
+    # more than that is evicted with a reason that says so, instead of filling
+    # the node's disk and having the node evict whichever pods it picks. The
+    # workspace itself is a separate volume and is not counted. Kubernetes
+    # quantities (for example "2Gi" and "10Gi"); empty leaves each one unset.
+    default_agent_ephemeral_storage: str = Field(default="", validation_alias="DEFAULT_AGENT_EPHEMERAL_STORAGE")
+    default_agent_ephemeral_storage_limit: str = Field(
+        default="",
+        validation_alias="DEFAULT_AGENT_EPHEMERAL_STORAGE_LIMIT",
+    )
     default_agent_mount_path: str = "/workspace"
+    # Overrides for the runtime's shell tool, handed to every agent pod under
+    # the same names and only when set (empty keeps the runtime's defaults and
+    # leaves the pod template unchanged). The runtime stops a command that is
+    # about to push the assistant past its memory limit once this share of the
+    # limit is in use (its default is 90; 0 switches that off), and holds this
+    # many bytes of each of a command's output streams (its default is 8 MiB).
+    shell_memory_guard_percent: str = Field(default="", validation_alias="EFP_SHELL_MEMORY_GUARD_PERCENT")
+    shell_capture_max_bytes: str = Field(default="", validation_alias="EFP_SHELL_CAPTURE_MAX_BYTES")
 
     # User-facing maximum upload size (MB) for chat attachments and workspace
     # files. Must be matched by the runtime aiohttp client_max_size (same env)

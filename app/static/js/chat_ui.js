@@ -8400,6 +8400,7 @@ function renderAgentMeta(agent) {
             ${disk}Gi
           </span>
         </div>
+        <div id="agent-resource-reading" class="portal-resource-reading" data-agent-id="${escapeHtmlAttr(agent.id)}" hidden></div>
       </div>
     </div>
   `;
@@ -8416,6 +8417,10 @@ function renderAgentMeta(agent) {
   if (effectiveSkillRepoUrl) {
     fetchSkillGitInfo(agent.id);
   }
+
+  // The limit, live usage and last restart reason, drawn under the pills by
+  // assistant_resources.js; without it the pills stand as they always have.
+  window.AssistantResources?.show(agent.id);
 }
 
 async function fetchSkillGitInfo(agentId) {

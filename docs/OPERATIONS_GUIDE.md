@@ -563,6 +563,10 @@ Private business repositories used during an assistant task are checked out by t
 | `DEFAULT_AGENT_MEMORY` | `512Mi` | New assistant memory request |
 | `DEFAULT_AGENT_CPU_LIMIT` | `1` | Runtime CPU ceiling; empty disables this limit |
 | `DEFAULT_AGENT_MEMORY_LIMIT` | `2Gi` | Runtime memory ceiling; exceeding it can cause OOMKilled |
+| `DEFAULT_AGENT_EPHEMERAL_STORAGE` | empty | Local-disk request (writable layer, `/tmp`, logs; not the workspace volume); empty leaves it unset |
+| `DEFAULT_AGENT_EPHEMERAL_STORAGE_LIMIT` | empty | Local-disk ceiling; a pod that writes more is evicted with that reason; empty leaves it unset |
+| `EFP_SHELL_MEMORY_GUARD_PERCENT` | empty | Handed to assistant pods when set. The runtime stops a command that is about to push the assistant past its memory limit once this share of the limit is in use; `0` switches that off; empty keeps the runtime's default (90) |
+| `EFP_SHELL_CAPTURE_MAX_BYTES` | empty | Handed to assistant pods when set. Bytes of each output stream the runtime holds for one command; empty keeps the runtime's default (8 MiB) |
 | `DEFAULT_AGENT_DISK_SIZE_GI` | `20` | Initial disk-size setting; not a per-assistant filesystem quota |
 | `K8S_STORAGE_CLASS` | `local-path` | Storage class used if Portal creates the shared runtime claim |
 | `K8S_PVC_ACCESS_MODES` | `["ReadWriteOnce"]` | JSON array of access modes used for claim creation |
@@ -574,6 +578,28 @@ Private business repositories used during an assistant task are checked out by t
 | `EFP_MOBILE_DEFAULT_NETWORK` | empty (public) | The network recordings use when neither the administrator's Default connectors (BrowserStack > Advanced > Network, which every member following the system default records with) nor the member's own BrowserStack connector chooses one: `private-managed` when the apps live on the private network (the member's computer then starts BrowserStack Local for each recording) |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
+
+#### Reading an assistant's resources
+
+The assistant's details panel shows, under Resources, what the running pod is actually allowed and doing:
+
+| Line | Source | Meaning |
+| --- | --- | --- |
+| Reserved | pod requests | What the scheduler sets aside for the assistant. The three pills above it show the same request values and the disk setting. |
+| Limit | pod limits | The ceiling. A runtime that needs more memory than this is killed and restarted; CPU above the limit is throttled. |
+| In use now | metrics API | Live CPU and memory of the runtime container, with the share of the limit. |
+| Restarted N times | container status | Restarts of the runtime container in the current pod. |
+| Last restart | container status, evicted pod | The reason for the last restart: out of memory (`OOMKilled`), an unexpected exit with its code, or an eviction by the node. |
+
+"In use now" needs two things the Portal does not create: metrics-server in the cluster, and read access to `metrics.k8s.io` pods for the Portal's service account (the rule is in `k8s/service-account.yaml`; apply it to an existing installation). Without either, that line says the cluster does not report usage and everything else still shows. The reading is requested when a member opens the details, not by the sidebar's status polling, and is cached for a few seconds.
+
+What to do with a reading:
+
+- **Out of memory at the limit**: the workload needs more than `DEFAULT_AGENT_MEMORY_LIMIT`, or a command in it does. Raise the limit only with node capacity in mind.
+- **Restarts or moves well below the limit**: the node ran short. Requests far below limits let the scheduler place more assistants on a node than it can hold when several are busy; the node then evicts the pods furthest above their request. Bringing `DEFAULT_AGENT_MEMORY` closer to the limit trades density for stability.
+- **Moved because of disk**: commands writing outside the workspace (`/tmp`, package caches) fill the node's disk. `DEFAULT_AGENT_EPHEMERAL_STORAGE` and `DEFAULT_AGENT_EPHEMERAL_STORAGE_LIMIT` bound that per assistant; a pod over its limit is evicted with a message naming the limit, instead of the node choosing a victim.
+
+A changed default reaches an existing assistant the next time it is started, restarted or edited, when the Portal renders its pod template again; nothing is restarted at the moment the setting changes.
 
 The code uses the shared claim `efp-agents-efs-pvc`; if it already exists, assistant creation does not resize it to a new assistant's disk setting. Defaults also do not automatically mutate every existing assistant or resize an existing claim. New assistants use `/workspace`; the presence of `DEFAULT_AGENT_MOUNT_PATH` in the settings class does not make it an effective creation override in this revision. Workspace files survive assistant runtime deletion on the shared volume, but deletion removes the Portal assistant and related runtime objects; retained files are not a complete recoverable assistant record. Prefer Stop for a temporary pause.
 
@@ -873,7 +899,7 @@ When changing database models, create and review the corresponding Alembic migra
 | Delegation does not run | Check rule enabled state, source credentials, schedule/timezone preview, worker enabled state, and rule run/event history. |
 | Task stays active after runtime failure | Check reconciliation worker status and the configured missing/unreachable grace periods before manually altering anything. |
 | Assistant stopped after several idle days | Check for the `auto_stop_agent` audit action and restart the assistant through Portal. |
-| `OOMKilled` or repeated runtime restarts | Inspect pod termination reasons and workload memory use; adjust resource settings with cluster capacity in mind. |
+| `OOMKilled` or repeated runtime restarts | Open the assistant's details: Resources shows its limit, live usage, restart count and the reason for the last restart. Then adjust resource settings with cluster capacity in mind (see "Reading an assistant's resources"). |
 | UI looks old after deployment | Confirm the running revision and static-file mounts; refresh the browser and check caching proxies. Application code and static assets must belong to the same release. |
 
 For an unresolved issue, collect the Git/image revision, operation, approximate time, affected assistant/task IDs, HTTP status and trace ID, Portal log excerpt, and relevant pod event/runtime log excerpt. Include what you expected and what happened. Keep credentials and private user content out of the report.
