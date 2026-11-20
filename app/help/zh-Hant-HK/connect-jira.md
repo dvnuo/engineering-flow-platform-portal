@@ -9,9 +9,11 @@ icon: clipboard-list
 
 ## 正確填寫權杖
 
-用戶名稱是你的 Atlassian 帳戶電郵，不是顯示名稱。
+需要哪種權杖，取決於你的 Jira 部署在哪裏。
 
-權杖是你在 Atlassian 帳戶中建立的 API 權杖，不是你的密碼。Atlassian 不接受以密碼存取 API。
+在 Atlassian Cloud（地址以 atlassian.net 結尾），權杖是你在 Atlassian 帳戶中建立的 API 權杖，不是你的密碼；用戶名稱是你的 Atlassian 帳戶電郵，不是顯示名稱。Atlassian 不接受以密碼存取 API。
+
+在公司自行架設的 Jira（Data Center），權杖是你在 Jira 個人檔案中建立的個人存取權杖。無需填寫用戶名稱：助手只以權杖登入。
 
 網站 URL 和 API 版本已由管理員填好。
 

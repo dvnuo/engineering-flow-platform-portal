@@ -40,9 +40,9 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
         "title": N_("Connect Jira"),
         "summary": N_("Lets the assistant read tickets, comment, and create issues as you."),
         "steps": [
-            N_("Open your Atlassian account security page and create an API token."),
+            N_("On Atlassian Cloud (an address ending in atlassian.net): open your Atlassian account security page, create an API token, and paste it below with your Atlassian account email as the username."),
+            N_("On a Jira your company hosts (Data Center): open your profile in Jira, choose Personal Access Tokens, create one, and paste it below. It needs no username."),
             N_("Name the token EFP so you can recognize it later."),
-            N_("Paste your Atlassian account email as the username and the token below."),
         ],
         "help_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
         "help_label": N_("Create an Atlassian API token"),
@@ -52,9 +52,8 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
         "title": N_("Connect Confluence"),
         "summary": N_("Lets the assistant read and publish pages in your spaces."),
         "steps": [
-            N_("Confluence uses the same Atlassian API token as Jira."),
-            N_("If you already created one for Jira, paste the same token here."),
-            N_("Use your Atlassian account email as the username."),
+            N_("On Atlassian Cloud (an address ending in atlassian.net): Confluence uses the same API token as Jira. Paste it below with your Atlassian account email as the username."),
+            N_("On a Confluence your company hosts (Data Center): open your profile settings in Confluence, choose Personal Access Tokens, create one, and paste it below. It needs no username, and a token made in Jira does not work here."),
         ],
         "help_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
         "help_label": N_("Create an Atlassian API token"),
