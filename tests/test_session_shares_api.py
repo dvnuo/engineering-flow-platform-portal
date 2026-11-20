@@ -143,7 +143,7 @@ def test_bad_scope_is_400(harness, payload, detail):
     assert detail in response.json()["detail"]
 
 
-@pytest.mark.parametrize("session_id", ["task-123", "agent-task:abc", "agent-task-abc", "generic-task:1", "delegation:9", "delegation-9"])
+@pytest.mark.parametrize("session_id", ["task-123", "agent-task:abc", "agent-task-abc", "generic-task:1", "delegation:9", "delegation-9", "subagent-s1-task_1"])
 def test_task_sessions_cannot_be_shared(harness, session_id):
     response = harness.client.post(_url(harness.private_agent.id, session_id), json={"scope": "members"})
     assert response.status_code == 400
