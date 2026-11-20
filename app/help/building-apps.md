@@ -23,7 +23,7 @@ list are in the developer guide, `docs/DEVELOPING_APPS.md` of the
 
 ```
 pip install efp-app-sdk
-efp-app init fastapi my-app --owner <your Portal username>
+efp-app init fastapi my-app
 cd my-app
 efp-app dev
 ```
@@ -42,8 +42,7 @@ the platform can read, and it is ready to register.
   "type": "fastapi",
   "entry": "main:app",
   "requirements": "requirements.txt",
-  "health_path": "/",
-  "owners": ["alice"]
+  "health_path": "/"
 }
 ```
 
@@ -56,11 +55,14 @@ the platform can read, and it is ready to register.
 | `entry` | `main:app` for FastAPI and Flask, the script for Streamlit and Gradio, the directory for a static site |
 | `requirements` | the requirements file, `requirements.txt` unless you say otherwise |
 | `health_path` | the path the host asks to see that the app answers, `/` by default |
-| `owners` | the Portal usernames that may register this directory |
+| `owners` | optional; the Portal usernames that may publish this directory |
 
-`owners` is how the Portal knows you may publish this code: the service
-account can read more repositories than you can, so the manifest has to name
-you.
+Leave `owners` out and any member may register the directory as an app of
+their own. List usernames there, as in `"owners": ["alice", "bob"]`, and only
+those members may register and deploy it. The Portal reads every repository
+with one service account, which may reach repositories that some members
+cannot open on GitHub, so list `owners` when not everyone on the Portal
+should run this code.
 
 ## Registering: four fields
 
@@ -73,8 +75,8 @@ fix it:
 
 - **The Portal cannot read this repository.** It names the service account;
   add that account to the repository with the Read role.
-- **efp-app.json does not name you.** Add your username to `owners`, commit
-  and push.
+- **efp-app.json does not name you.** The manifest lists who may publish it
+  under `owners` and you are not there. Add your username, commit and push.
 - **efp-app.json needs fixing.** Each broken rule is listed.
 
 **Create and deploy** registers the app and starts its first deployment. The

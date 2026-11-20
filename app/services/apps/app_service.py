@@ -268,8 +268,8 @@ class AppService:
     def inspect(self, user: Any, *, repo_url: Any, ref: Any, entry_dir: Any, from_template: bool = False) -> Inspection:
         """Read the repository as a registration or a deployment would: the commit, the manifest, the ownership rule.
 
-        ``user`` is the member who registers (or owns) the app; their Portal
-        username is what ``owners`` must list.
+        ``user`` is the member who registers (or owns) the app; a manifest
+        that lists ``owners`` must list their Portal username.
         """
         repo = self.source.parse(repo_url)
         directory = normalize_entry_dir(entry_dir)
@@ -318,7 +318,7 @@ class AppService:
         """Register a repository directory as ``owner``'s app. Nothing is deployed.
 
         The repository is read first: an unreadable repository, a missing
-        branch, a bad manifest or a member the manifest does not list is an
+        branch, a bad manifest or a member its ``owners`` leave out is an
         error here, not later. ``skip_ownership_check`` is for an app created
         from a published template.
         """

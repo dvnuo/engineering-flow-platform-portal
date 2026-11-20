@@ -11,7 +11,8 @@ pod's environment (app/services/outbound_http.py), verifying TLS against the
 shared trust (app/services/tls_trust.py).
 
 The token belongs to a shared service account. It says nothing about the
-member who registers an app: that is what ``owners`` in the manifest is for
+member who registers an app, so any member may register a directory the
+account can read unless its manifest lists ``owners``
 (app/services/apps/manifest.py). When the account cannot read a repository
 the error names the account, so the member knows whom to add as a
 collaborator.

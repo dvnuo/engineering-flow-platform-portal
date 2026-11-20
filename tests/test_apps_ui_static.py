@@ -322,8 +322,8 @@ def test_the_dialog_says_how_to_fix_each_kind_of_problem():
         assert f'code === "{code}"' in problem, code
     # The account to invite comes from the error, or from the settings.
     assert "params.account || (settings && settings.service_account)" in problem
-    # The line to add to efp-app.json.
-    assert """problem.snippet = '"owners": ["' + username + '"]';""" in problem
+    # The username to add to the manifest's owners.
+    assert """problem.snippet = username ? '"' + username + '"' : "";""" in problem
     drawn = _extract_js_function(APPS_JS, "drawInspectProblem")
     assert "data-app-copy-text" in drawn and "data-app-inspect-again" in drawn
 

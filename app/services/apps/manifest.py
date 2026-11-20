@@ -10,10 +10,13 @@ nothing is trimmed before it is checked: a space around an entry or a path is
 part of the value, as it is for the host. Unknown keys are ignored; paths may
 not be absolute or contain ``..``.
 
-``owners`` is what lets a member register a directory: the platform's
-service account may read far more repositories than the member, so the
-manifest has to name them. An app created from a published template skips
-that check (publishing the template is the author's consent).
+``owners`` is optional. A manifest without it may be registered by any
+member; one that lists Portal usernames there may be registered and deployed
+by those members only. The list exists because the platform's service account
+may read more repositories than a member can: it is how a repository says
+that not everyone on the Portal should run its code. An app created from a
+published template skips the check (publishing the template is the author's
+consent).
 """
 
 from __future__ import annotations
@@ -268,13 +271,14 @@ def is_listed_owner(manifest: Manifest, username: str) -> bool:
 
 
 def check_ownership(manifest: Manifest, username: str, *, from_template: bool = False) -> None:
-    """Refuse a member the manifest does not name under ``owners``.
+    """Refuse a member the manifest leaves out of its ``owners``.
 
+    A manifest that lists no owners limits nothing: any member passes.
     ``username`` is the member's Portal username, never the identity behind
     a connector. ``from_template`` skips the check for an app created from a
     published template.
     """
-    if from_template:
+    if from_template or not manifest.owners:
         return
     if not is_listed_owner(manifest, username):
         raise NotListedAsOwner(username=str(username or ""))

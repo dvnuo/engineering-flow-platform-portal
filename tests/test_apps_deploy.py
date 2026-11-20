@@ -172,6 +172,10 @@ def test_the_owners_username_is_checked_whoever_presses_deploy(world):
     assert failed["error"]["code"] == "not_listed_as_owner"
     assert failed["error"]["params"] == {"username": "owner"}
 
+    # The list taken out of the manifest: it limits nobody any more.
+    world.source.manifest = {key: value for key, value in MANIFEST.items() if key != "owners"}
+    assert world.deploy().status == "succeeded"
+
 
 def test_an_app_made_from_a_template_skips_the_ownership_check(world):
     other = add_user(world.db, "other")

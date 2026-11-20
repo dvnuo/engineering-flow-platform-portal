@@ -452,9 +452,10 @@
     } else if (code === "not_listed_as_owner") {
       const username = String(params.username || "");
       problem.title = t("efp-app.json does not name you");
-      problem.text = t("Only the members listed under owners may publish this directory.");
-      problem.steps = [t("Add this line to efp-app.json, commit and push, then press Check again:")];
-      problem.snippet = '"owners": ["' + username + '"]';
+      // Only a manifest that lists owners refuses anybody: without the list any member may publish.
+      problem.text = t("efp-app.json limits who may publish this directory to the members under owners, and you are not one of them.");
+      problem.steps = [t("Add your username to owners in efp-app.json, commit and push, then press Check again:")];
+      problem.snippet = username ? '"' + username + '"' : "";
     } else if (code === "manifest_invalid") {
       problem.title = t("efp-app.json needs fixing");
       problem.list = (Array.isArray(source.problems) ? source.problems : []).map(function (item) {

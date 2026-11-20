@@ -213,8 +213,16 @@ def test_ownership_is_by_portal_username_case_insensitively():
     assert "carol" in caught.value.message
 
 
-def test_no_owners_means_nobody_unless_the_app_comes_from_a_template():
-    manifest = validate_manifest({"name": "a", "type": "static"})
+@pytest.mark.parametrize("fields", [{}, {"owners": []}, {"owners": [" "]}])
+def test_a_manifest_without_owners_limits_nobody(fields):
+    manifest = validate_manifest({"name": "a", "type": "static", **fields})
+    assert manifest.owners == ()
+    check_ownership(manifest, "alice")
+    check_ownership(manifest, "carol")
+
+
+def test_an_app_from_a_template_skips_the_owners_of_the_manifest():
+    manifest = validate_manifest({"name": "a", "type": "static", "owners": ["bob"]})
     with pytest.raises(NotListedAsOwner):
         check_ownership(manifest, "alice")
     check_ownership(manifest, "alice", from_template=True)

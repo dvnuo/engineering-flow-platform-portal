@@ -15,7 +15,7 @@ order: 23
 
 ```
 pip install efp-app-sdk
-efp-app init fastapi my-app --owner <your Portal username>
+efp-app init fastapi my-app
 cd my-app
 efp-app dev
 ```
@@ -32,8 +32,7 @@ efp-app dev
   "type": "fastapi",
   "entry": "main:app",
   "requirements": "requirements.txt",
-  "health_path": "/",
-  "owners": ["alice"]
+  "health_path": "/"
 }
 ```
 
@@ -46,16 +45,16 @@ efp-app dev
 | `entry` | FastAPI 和 Flask 填 `main:app`，Streamlit 和 Gradio 填腳本，靜態網站填目錄 |
 | `requirements` | 依賴項目檔案，不填就是 `requirements.txt` |
 | `health_path` | 宿主用來確認應用程式有回應的路徑，預設是 `/` |
-| `owners` | 可以登記這個目錄的 Portal 用戶名稱 |
+| `owners` | 可選；可以發佈這個目錄的 Portal 用戶名稱 |
 
-Portal 憑 `owners` 知道你有權發佈這份程式碼：服務帳戶能讀取的儲存庫可能比你多，所以資訊清單中必須寫上你的用戶名稱。
+不寫 `owners`，任何成員都可以把這個目錄登記成自己的應用程式。寫上用戶名稱（例如 `"owners": ["alice", "bob"]`），就只有這些成員可以登記和部署它。Portal 讀取所有儲存庫用的是同一個服務帳戶，它能讀取的儲存庫中可能有一些是部分成員在 GitHub 上無法開啟的，所以當這份程式碼不應讓 Portal 上的每個人都能執行時，就寫上 `owners`。
 
 ## 登記：四項內容
 
 **應用程式 > 新增應用程式**只問四項：儲存庫、分支或標籤、入口目錄（放置 `efp-app.json` 的那個資料夾；在儲存庫頂層就留空）和名稱。前三項一填好，Portal 就會讀取儲存庫並顯示找到了甚麼：應用程式的類型、名稱和它將得到的地址。有問題時，它會說明是甚麼問題、怎樣解決：
 
 - **Portal 無法讀取這個儲存庫。** 它會寫明服務帳戶；把這個帳戶以 Read 角色加入儲存庫即可。
-- **efp-app.json 中沒有你的用戶名稱。** 把你的用戶名稱加到 `owners`，提交並推送。
+- **efp-app.json 中沒有你的用戶名稱。** 資訊清單用 `owners` 限定了誰可以發佈，其中沒有你。把你的用戶名稱加進去，提交並推送。
 - **efp-app.json 需要修改。** 逐條列出不符合的規則。
 
 **建立並部署**會登記應用程式並開始第一次部署。地址由名稱產生，之後不會再變，也不會再分配給其他應用程式。

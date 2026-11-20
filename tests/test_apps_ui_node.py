@@ -248,14 +248,14 @@ out = {
     assert out["unknown"]["text"] == "The platform's service account cannot read acme/private."
 
 
-def test_a_manifest_that_does_not_name_the_member_shows_the_line_to_add():
+def test_a_manifest_whose_owners_leave_the_member_out_shows_the_username_to_add():
     out = _apps(
         """
 out = api.inspectProblem({ code: "not_listed_as_owner", detail: "x", params: { username: "alice" } }, null, 403);
 """
     )
-    assert out["snippet"] == '"owners": ["alice"]'
-    assert "efp-app.json" in out["steps"][0]
+    assert out["snippet"] == '"alice"'
+    assert "owners" in out["text"] and "owners" in out["steps"][0] and "efp-app.json" in out["steps"][0]
 
 
 def test_an_invalid_manifest_lists_every_problem():

@@ -15,7 +15,7 @@ order: 23
 
 ```
 pip install efp-app-sdk
-efp-app init fastapi my-app --owner <your Portal username>
+efp-app init fastapi my-app
 cd my-app
 efp-app dev
 ```
@@ -32,8 +32,7 @@ efp-app dev
   "type": "fastapi",
   "entry": "main:app",
   "requirements": "requirements.txt",
-  "health_path": "/",
-  "owners": ["alice"]
+  "health_path": "/"
 }
 ```
 
@@ -46,16 +45,16 @@ efp-app dev
 | `entry` | FastAPI 和 Flask 写 `main:app`，Streamlit 和 Gradio 写脚本，静态站点写目录 |
 | `requirements` | 依赖文件，不写就是 `requirements.txt` |
 | `health_path` | 宿主用来确认应用有响应的路径，默认是 `/` |
-| `owners` | 可以登记这个目录的 Portal 用户名 |
+| `owners` | 可选；可以发布这个目录的 Portal 用户名 |
 
-Portal 靠 `owners` 知道你有权发布这份代码：服务账号能读到的仓库可能比你多，所以清单里必须写上你的用户名。
+不写 `owners`，任何成员都可以把这个目录登记成自己的应用。写上用户名（例如 `"owners": ["alice", "bob"]`），就只有这些成员可以登记和部署它。Portal 读取所有仓库用的是同一个服务账号，它能读到的仓库里可能有一些是部分成员在 GitHub 上打不开的，所以当这份代码不该让 Portal 上的每个人都能运行时，就写上 `owners`。
 
 ## 登记：四项内容
 
 **应用 > 新建应用**只问四项：仓库、分支或标签、入口目录（放 `efp-app.json` 的那个文件夹；在仓库顶层就留空）和名称。前三项一填好，Portal 就会读取仓库并显示找到了什么：应用的类型、名称和它将得到的地址。有问题时，它会说明是什么问题、怎么解决：
 
 - **Portal 无法读取这个仓库。** 它会写明服务账号；把这个账号以 Read 角色加入仓库即可。
-- **efp-app.json 里没有你的用户名。** 把你的用户名加到 `owners`，提交并推送。
+- **efp-app.json 里没有你的用户名。** 清单用 `owners` 限定了谁可以发布，其中没有你。把你的用户名加进去，提交并推送。
 - **efp-app.json 需要修改。** 逐条列出不符合的规则。
 
 **创建并部署**会登记应用并开始第一次部署。地址由名称生成，之后不会再变，也不会再分配给别的应用。

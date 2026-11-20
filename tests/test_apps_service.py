@@ -201,7 +201,16 @@ def test_create_refuses_what_a_deployment_would_refuse(world):
     assert world.db.query(App).count() == 0
 
 
-def test_the_registering_member_must_be_listed_under_owners(world):
+def test_a_manifest_without_owners_is_registered_by_any_member(world):
+    del world.source.manifest["owners"]
+    app = world.create(owner="other")
+    assert app.owner_user_id == world.users["other"].id
+    # Nothing ties the directory to its first app: another member registers it too.
+    second = world.create(owner="mate", name="Mind map two")
+    assert second.owner_user_id == world.users["mate"].id and second.slug != app.slug
+
+
+def test_a_manifest_that_lists_owners_is_registered_by_them_only(world):
     with pytest.raises(NotListedAsOwner) as caught:
         world.create(owner="other")
     assert caught.value.params == {"username": "other"}

@@ -230,11 +230,21 @@ def test_create_refusals_say_what_is_wrong(harness, body, status, code):
     assert harness.db.query(App).count() == 0
 
 
-def test_create_is_refused_for_a_member_the_manifest_does_not_list(harness):
+def test_create_is_refused_for_a_member_the_owners_of_the_manifest_leave_out(harness):
     response = harness.as_user("other").post("/api/apps", json={"repo_url": REPO_URL, "ref": "main", "name": "Mine now"})
     assert response.status_code == 403
     error = response.json()
     assert error["code"] == "not_listed_as_owner" and error["params"] == {"username": "other"}
+
+
+def test_a_manifest_without_owners_is_checked_and_registered_by_any_member(harness):
+    del harness.source.manifest["owners"]
+    looked = harness.as_user("other").post("/api/apps/inspect", json={"repo_url": REPO_URL, "ref": "main"})
+    assert looked.status_code == 200, looked.text
+    assert looked.json()["manifest"]["owners"] == []
+    created = harness.as_user("other").post("/api/apps", json={"repo_url": REPO_URL, "ref": "main", "name": "Mine now", "deploy": False})
+    assert created.status_code == 201, created.text
+    assert harness.row(created.json()["app"]["id"]).owner_user_id == harness.users["other"].id
 
 
 def test_an_unreadable_repository_names_the_account_to_add(harness):
