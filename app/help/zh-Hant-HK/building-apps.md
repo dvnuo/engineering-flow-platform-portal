@@ -9,7 +9,7 @@ order: 23
 
 一個應用程式就是 GitHub 儲存庫中的一個目錄，裏面有一份資訊清單 `efp-app.json`。Portal 以平台的唯讀服務帳戶讀取這個目錄，交給應用程式宿主；宿主安裝它的依賴項目、啟動它，並在它自己的地址下提供服務。應用程式可以是 Python 網頁應用程式（`fastapi`、`flask`、`streamlit`、`gradio`，或者任何能提供 HTTP 服務的 `command`），也可以是 `static` 靜態網站。
 
-本頁說明的是 Portal 這一邊：登記、部署和照顧應用程式。Python SDK、各個框架的細節以及更完整的疑難排解清單，請參閱 `engineering-flow-platform-app` 儲存庫中的開發者指南 `docs/DEVELOPING_APPS.md`。
+本頁說明的是 Portal 這一邊：登記、部署和照顧應用程式。Python SDK、各個框架的細節以及更完整的疑難排解清單，請參閱 `engineering-flow-platform-app` 儲存庫中的開發者指南 `docs/DEVELOPING_APPS.md`。同一個儲存庫中還有 SDK 參考手冊（`docs/SDK_REFERENCE.md`）、把現有專案轉換成應用程式的指南（`docs/CONVERTING_A_PROJECT.md`）、可以直接參考的範例應用程式（`examples/`），以及 `AGENTS.md`：把同樣的規則寫成交給 AI Agent 的工作說明。
 
 ## 從入門範本開始
 
@@ -67,7 +67,7 @@ efp-app dev
 - **部署**可以部署另一個分支或標籤（之後應用程式就跟隨它），並保留歷史記錄。
 - **還原**會返回目前版本之前執行的那個版本。
 
-部署前先執行 `efp-app check`。應用程式是在 `/<name>/` 下提供服務的，所以頁面、腳本或樣式表中以 `/` 開頭的 URL 會指向應用程式之外；這項檢查能找出這類問題，而它們在你自己的電腦上是看不出來的。
+部署前先執行 `efp-app check`。應用程式是在 `/<name>/` 下提供服務的，所以頁面、腳本或樣式表中以 `/` 開頭的 URL 會指向應用程式之外；這項檢查能找出這類問題，而應用程式在你自己的電腦上直接於根地址執行時，它們是看不出來的。想親眼看到它們，可以按這裏的方式執行應用程式：`efp-app dev --prefix <name>` 會把應用程式放在 `/<name>/` 下提供服務，並把每個跑到應用程式之外的請求列印出來。
 
 ## 權杖與本機開發
 

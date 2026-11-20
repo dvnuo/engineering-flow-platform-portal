@@ -9,7 +9,7 @@ order: 23
 
 一个应用就是 GitHub 仓库里的一个目录，里面有一份清单 `efp-app.json`。Portal 用平台的只读服务账号读取这个目录，交给应用宿主；宿主安装它的依赖、启动它，并在它自己的地址下提供服务。应用可以是 Python Web 应用（`fastapi`、`flask`、`streamlit`、`gradio`，或者任何能提供 HTTP 服务的 `command`），也可以是 `static` 静态站点。
 
-本页讲的是 Portal 这一侧：登记、部署和照看应用。Python SDK、各个框架的细节以及更完整的排错清单，见 `engineering-flow-platform-app` 仓库中的开发者指南 `docs/DEVELOPING_APPS.md`。
+本页讲的是 Portal 这一侧：登记、部署和照看应用。Python SDK、各个框架的细节以及更完整的排错清单，见 `engineering-flow-platform-app` 仓库中的开发者指南 `docs/DEVELOPING_APPS.md`。同一个仓库里还有 SDK 参考手册（`docs/SDK_REFERENCE.md`）、把现有项目转换成应用的指南（`docs/CONVERTING_A_PROJECT.md`）、可以直接照抄的示例应用（`examples/`），以及 `AGENTS.md`：把同样的规则写成了交给 AI Agent 的任务说明。
 
 ## 从起步模板开始
 
@@ -67,7 +67,7 @@ efp-app dev
 - **部署**可以部署另一个分支或标签（之后应用就跟随它），并保留历史记录。
 - **回退**会回到当前版本之前运行的那个版本。
 
-部署前先运行 `efp-app check`。应用是在 `/<name>/` 下提供服务的，所以页面、脚本或样式表里以 `/` 开头的 URL 会指到应用之外；这个检查能找出这类问题，而它们在你自己的电脑上是看不出来的。
+部署前先运行 `efp-app check`。应用是在 `/<name>/` 下提供服务的，所以页面、脚本或样式表里以 `/` 开头的 URL 会指到应用之外；这个检查能找出这类问题，而应用在你自己电脑上直接运行在根地址时，它们是看不出来的。想亲眼看到它们，可以按这里的方式运行应用：`efp-app dev --prefix <name>` 会把应用放在 `/<name>/` 下提供服务，并把每个跑到应用之外的请求打印出来。
 
 ## 令牌与本地开发
 

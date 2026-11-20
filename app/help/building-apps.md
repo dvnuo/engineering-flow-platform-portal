@@ -17,7 +17,11 @@ that serves HTTP) or a `static` site.
 This page is the Portal's side: registering, deploying and looking after an
 app. The Python SDK, each framework's details and a longer troubleshooting
 list are in the developer guide, `docs/DEVELOPING_APPS.md` of the
-`engineering-flow-platform-app` repository.
+`engineering-flow-platform-app` repository. The same repository holds the
+SDK reference (`docs/SDK_REFERENCE.md`), a guide for turning an existing
+project into an app (`docs/CONVERTING_A_PROJECT.md`), example apps to copy
+(`examples/`) and `AGENTS.md`, the same rules written as a brief for an AI
+agent doing the work.
 
 ## Start from a starter
 
@@ -100,8 +104,10 @@ fails leaves the release that was running untouched.
 
 Run `efp-app check` before you deploy. An app is served under `/<name>/`, so
 a URL that starts with `/` in a page, a script or a style sheet points
-outside the app; the check finds those, which cannot show up on your own
-machine.
+outside the app; the check finds those, which do not show up when the app
+runs at the top of your own machine. To watch them happen, run the app the
+way it is served here: `efp-app dev --prefix <name>` serves it under
+`/<name>/` and prints every request that leaves the app.
 
 ## The token and local development
 
