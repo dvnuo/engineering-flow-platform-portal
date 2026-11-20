@@ -11,6 +11,9 @@ credentialed cross-origin endpoint for this.
 ``next`` is where the visitor was going inside the app. Only a path under
 ``/{slug}/`` is ever passed on; the app host checks the same rule again.
 
+``/apps/launch`` without a slug is the same hand-off for the app center, the
+page at the root of the apps address that lists what a member may open.
+
 Also here: ``/app/admin/apps/panel``, the frame of Administration > Apps (the
 rows come from the API, drawn by ``static/js/apps.js``).
 """
@@ -29,7 +32,7 @@ from app.i18n import N_, t
 from app.models.user import User
 from app.repositories.app_repo import AppRepository
 from app.services.apps import settings as apps_settings
-from app.services.apps.access import can_open, display_name_of, handoff_codes, safe_app_next
+from app.services.apps.access import HANDOFF_APP_CENTER, can_open, display_name_of, handoff_codes, safe_app_next
 from app.services.authorization import is_system_admin
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["apps-pages"])
 
 LAUNCH_PATH_PREFIX = "/apps/launch/"
+CENTER_LAUNCH_PATH = "/apps/launch"
 NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 
 PAGE_MISSING = "missing"
@@ -85,6 +89,29 @@ def admin_apps_panel(request: Request):
     if not is_system_admin(user):
         raise HTTPException(status_code=403, detail=N_("Forbidden"))
     return portal_web.templates.TemplateResponse("partials/admin_apps_panel.html", {"request": request})
+
+
+@router.get("/apps/launch", response_class=HTMLResponse)
+def launch_app_center(request: Request):
+    """The app center's sign-in (docs/CONTRACTS.md, section 6.5).
+
+    The apps address lists what a member may open, so it needs to know who
+    is looking. A signed-in member goes straight back with a code that names
+    them and no app; anybody else signs in first and comes back here.
+    """
+    if not apps_settings.apps_enabled():
+        return _page(request, PAGE_MISSING, 404)
+    user, reason = portal_web._session_user_access(request)
+    if reason is not None and reason in portal_web.ACCESS_DENIED_REASONS:
+        return portal_web._redirect_to_unauthorized()
+    if user is None or reason is not None:
+        sign_in = "/login/sso" if portal_web.sso_enabled() else "/login"
+        return _redirect(f"{sign_in}?next={quote(CENTER_LAUNCH_PATH, safe='')}")
+    base = apps_settings.public_base_url()
+    if not base:
+        return _page(request, PAGE_UNAVAILABLE, 503)
+    code = handoff_codes.issue(HANDOFF_APP_CENTER, user.id)
+    return _redirect(f"{base}/_efp/callback?code={quote(code, safe='')}&next=%2F")
 
 
 @router.get("/apps/launch/{slug}", response_class=HTMLResponse)

@@ -21,6 +21,12 @@ Click a card to open the app. The link button on the card copies the app's
 address, which you can send to a colleague: it works for everyone the app is
 open to, and shows a "no access" page that names the owner to everyone else.
 
+The apps address on its own, without the name of an app behind it, is an app
+center: every app you may open, your own included, the ones you used last
+first, with a search box. Bookmark it when apps are all you came for; the
+pages an app address shows when something is wrong ("no access", "not
+found") lead back to it through **All apps**.
+
 ## Signing in
 
 There is nothing to sign in to. The app's address checks with the Portal who

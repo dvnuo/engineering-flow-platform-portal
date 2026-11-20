@@ -16,9 +16,10 @@ allowlist. The member is always identified by their Portal account, never
 by the identity behind a connector's credentials.
 
 A hand-off code proves to the app host that the Portal let a member into an
-app: random, valid for 60 seconds, usable once, bound to the app and the
-member. The Portal is one process, so the codes live in memory; they sit
-behind ``HandoffCodeStore`` so they can move to the database.
+app (or into the app center, which lists what they may open): random, valid
+for 60 seconds, usable once, bound to the app and the member. The Portal is
+one process, so the codes live in memory; they sit behind
+``HandoffCodeStore`` so they can move to the database.
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ from app.services.work_visibility import VISIBILITY_PLATFORM, VISIBILITY_PRIVATE
 
 HANDOFF_CODE_TTL_SECONDS = 60
 HANDOFF_MAX_CODES = 10000
+# The ``app_id`` of a code that lets a member into the app center, which is
+# no app (docs/CONTRACTS.md, section 6.5).
+HANDOFF_APP_CENTER = ""
 
 
 # --- members -------------------------------------------------------------------

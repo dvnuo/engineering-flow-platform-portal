@@ -75,9 +75,10 @@ function initAuthForm(options) {
 // session afterwards, and one sent by an app's launch page goes back to that
 // page; everyone else lands in the app. Only a relative /share/... path or
 // /apps/launch/{slug} (with an optional ?next= that is one percent-encoded
-// path under that same app) is honoured, so the login page can never bounce
-// someone to another site. The same rule as _SAFE_NEXT_PATH in app/web.py.
-var APP_LAUNCH_NEXT_PATH = /^\/apps\/launch\/([a-z0-9][a-z0-9-]{1,38}[a-z0-9])(?:\?next=%2[Ff]\1%2[Ff](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})*)?$/;
+// path under that same app) or /apps/launch itself (the app center) is
+// honoured, so the login page can never bounce someone to another site. The
+// same rule as _SAFE_NEXT_PATH in app/web.py.
+var APP_LAUNCH_NEXT_PATH = /^\/apps\/launch(?:\/([a-z0-9][a-z0-9-]{1,38}[a-z0-9])(?:\?next=%2[Ff]\1%2[Ff](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})*)?)?$/;
 
 function postLoginDestination(nextPath) {
   var candidate = typeof nextPath === "string" ? nextPath : "";

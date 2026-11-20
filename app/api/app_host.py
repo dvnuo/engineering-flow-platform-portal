@@ -10,11 +10,14 @@ is off. Errors use the contract's envelope: ``{"error": {"code", "message"}}``.
 - ``GET  /apps``: the desired state, read when the host boots.
 - ``POST /metrics/ingest``: traffic counters, every app's status, the host's own figures.
 - ``POST /events``: something happened to an app (it crashed, was killed, went idle ...).
+- ``POST /catalog``: the apps a member may open, for the app center at the root of the apps address.
+- ``GET  /apps/{app_id}/icon``: an app's icon, for that page.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import hashlib
 import hmac
 import json
 import logging
@@ -30,10 +33,21 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.app import App
+from app.models.user import User
 from app.repositories.app_repo import AppRepository, AppTrafficRepository
 from app.repositories.user_repo import UserRepository
 from app.services.apps import settings as apps_settings
-from app.services.apps.access import app_enabled, can_open, handoff_codes, is_member_active, user_payload
+from app.services.apps.access import (
+    HANDOFF_APP_CENTER,
+    app_enabled,
+    can_open,
+    display_name_of,
+    effective_visibility,
+    handoff_codes,
+    is_member_active,
+    openable_clause,
+    user_payload,
+)
 from app.services.apps.audit import record_host_event
 from app.services.apps.error_events import record_host_crash
 from app.services.apps.host_spec import desired_app
@@ -145,8 +159,13 @@ def redeem_handoff(payload: Any = Body(default=None), db: Session = Depends(get_
     grant = handoff_codes.redeem(_object(payload).get("code"))
     if grant is None:
         raise HostApiError("invalid_code", "The code is not valid: it was used already, it expired, or it never existed.", 400)
-    app = AppRepository(db).get_by_id(grant.app_id)
     user = UserRepository(db).get_by_id(grant.user_id)
+    if grant.app_id == HANDOFF_APP_CENTER:
+        # The app center: the code names a member and no app.
+        if user is None or not is_member_active(db, user):
+            raise HostApiError("invalid_code", "The code is not valid: it was used already, it expired, or it never existed.", 400)
+        return {"app_id": None, "slug": None, "user": user_payload(db, user)}
+    app = AppRepository(db).get_by_id(grant.app_id)
     # A minute is long enough for the member or the app to have changed.
     if app is None or user is None or not is_member_active(db, user) or not can_open(user, app, db):
         raise HostApiError("invalid_code", "The code is not valid: it was used already, it expired, or it never existed.", 400)
@@ -278,3 +297,87 @@ def post_event(payload: Any = Body(default=None), db: Session = Depends(get_db))
     # A crash also shows in Administration > Errors, thinned out to one entry per app in ten minutes.
     record_host_crash(db, app, kind, detail, body.get("at"))
     return {"ok": True}
+
+
+# --- 5.6 ---------------------------------------------------------------------------
+
+
+def _iso(moment: Optional[datetime]) -> Optional[str]:
+    """A stored (naive UTC) instant as the contract writes one."""
+    return moment.replace(microsecond=0).isoformat() + "Z" if moment is not None else None
+
+
+def icon_version(app: App) -> Optional[str]:
+    """Changes whenever the icon does, so a page can cache the image for good under this name."""
+    if not app.icon_data or not app.icon_content_type:
+        return None
+    return hashlib.sha1(bytes(app.icon_data)).hexdigest()[:12]
+
+
+@router.post("/catalog")
+def catalog(payload: Any = Body(default=None), db: Session = Depends(get_db)):
+    """What the app center shows one member: the apps they may open and that can be opened.
+
+    By the visibility rules alone, for a system administrator too: the page
+    is a member's, and what every app is belongs to the administration.
+    """
+    user_id = _int(_object(payload).get("user_id"), minimum=1)
+    if user_id is None:
+        raise HostApiError("invalid_request", "user_id is required.", 400)
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None or not is_member_active(db, user):
+        return {"allowed": False, "reason": REASON_USER_INACTIVE, "apps": []}
+
+    rows = AppRepository(db).list_where(openable_clause(user, as_member=True))
+    apps = [app for app in rows if app.current_release_id and app_enabled(db, app)[0]]
+    visits = AppTrafficRepository(db).last_visits_of_user(user.id, [app.id for app in apps])
+    # What the member used last comes first, the rest by name (list_where already sorted by it).
+    apps.sort(key=lambda app: (0, -visits[app.id].timestamp()) if app.id in visits else (1, 0.0))
+
+    owners: dict[int, Optional[User]] = {}
+    items = []
+    for app in apps:
+        if app.owner_user_id not in owners:
+            owners[app.owner_user_id] = db.get(User, app.owner_user_id)
+        owner = owners[app.owner_user_id]
+        items.append(
+            {
+                "id": app.id,
+                "slug": app.slug,
+                "name": app.name,
+                "description": app.description or "",
+                "type": app.type,
+                "visibility": effective_visibility(app),
+                "mine": app.owner_user_id == user.id,
+                "owner": {
+                    "username": str(owner.username) if owner is not None else "",
+                    "display_name": display_name_of(owner) if owner is not None else "",
+                },
+                "icon": icon_version(app),
+                "last_visited_at": _iso(visits.get(app.id)),
+            }
+        )
+    return JSONResponse(
+        {"allowed": True, "reason": None, "user": user_payload(db, user), "apps": items},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+# --- 5.7 ---------------------------------------------------------------------------
+
+
+@router.get("/apps/{app_id}/icon")
+def app_icon(app_id: str, db: Session = Depends(get_db)):
+    """The icon as the last deployment read it: a raster image, never markup. The host decides who sees it."""
+    app = AppRepository(db).get_by_id(app_id)
+    if app is None or not app.icon_data or not app.icon_content_type:
+        raise HostApiError("icon_not_found", "This app has no icon.", 404)
+    return Response(
+        content=bytes(app.icon_data),
+        media_type=app.icon_content_type,
+        headers={
+            "ETag": '"' + hashlib.sha1(bytes(app.icon_data)).hexdigest() + '"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

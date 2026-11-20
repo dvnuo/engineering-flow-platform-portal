@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from _apps_helpers import (
     HOST_TOKEN,
+    PNG,
     REPO_URL,
     SHA_1,
     FakeHost,
@@ -22,8 +23,9 @@ from _apps_helpers import (
 )
 from app.db import get_db
 from app.models import AppAuditEvent, AppTrafficDaily, AppVisit
+from app.repositories.app_repo import AppTrafficRepository
 from app.services.apps import access as access_module
-from app.services.apps.access import HandoffCodeStore, handoff_codes
+from app.services.apps.access import HANDOFF_APP_CENTER, HandoffCodeStore, handoff_codes
 from app.services.apps.app_service import AppService
 from app.services.apps.host_state import host_state
 
@@ -86,6 +88,8 @@ ROUTES = [
     ("GET", "/apps", None),
     ("POST", "/metrics/ingest", {"traffic": []}),
     ("POST", "/events", {"app_id": "x", "kind": "crashed"}),
+    ("POST", "/catalog", {"user_id": 1}),
+    ("GET", "/apps/x/icon", None),
 ]
 
 
@@ -507,3 +511,141 @@ def test_the_module_store_is_the_one_the_launch_page_issues_from():
     import app.apps_pages as pages
 
     assert api.handoff_codes is pages.handoff_codes is access_module.handoff_codes
+
+
+# --- the app center: a code that names no app, the catalog, the icons ----------------------
+
+
+def test_a_code_for_the_app_center_names_the_member_and_no_app(harness):
+    mate = harness.users["mate"]
+    code = handoff_codes.issue(HANDOFF_APP_CENTER, mate.id)
+    response = _post(harness, "/handoff/redeem", {"code": code})
+    assert response.status_code == 200
+    assert response.json() == {
+        "app_id": None,
+        "slug": None,
+        "user": {"id": mate.id, "username": "mate", "display_name": "Bob", "group_id": harness.groups["qa"].id, "group_name": "QA"},
+    }
+    assert _post(harness, "/handoff/redeem", {"code": code}).status_code == 400  # once
+
+    code = handoff_codes.issue(HANDOFF_APP_CENTER, mate.id)
+    remove_from_allowlist(harness.db, "mate")
+    assert _post(harness, "/handoff/redeem", {"code": code}).status_code == 400
+    assert _post(harness, "/handoff/redeem", {"code": handoff_codes.issue(HANDOFF_APP_CENTER, 99999)}).status_code == 400
+
+
+def _deploy_all(harness):
+    for app in harness.apps.values():
+        harness.deploys.start_deploy(app, None, harness.users["owner"])
+        harness.db.refresh(app)
+
+
+def _catalog(harness, member):
+    response = _post(harness, "/catalog", {"user_id": harness.users[member].id})
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    return response.json()
+
+
+def _slugs(harness, member):
+    return [item["slug"] for item in _catalog(harness, member)["apps"]]
+
+
+def test_the_catalog_lists_what_a_member_may_open_and_that_can_be_opened(harness):
+    assert _slugs(harness, "owner") == []  # nothing is deployed: nothing can be opened
+    _deploy_all(harness)
+
+    # By name: Board, Mind map, Wiki.
+    assert _slugs(harness, "owner") == ["board", "mindmap", "wiki"]
+    assert _slugs(harness, "mate") == ["board", "wiki"]  # the owner's group, and every member
+    assert _slugs(harness, "other") == ["wiki"]
+    # A system administrator sees what a member in their place would, not everybody's private apps.
+    assert _slugs(harness, "admin") == ["wiki"]
+
+    body = _catalog(harness, "mate")
+    assert body["allowed"] is True and body["reason"] is None
+    assert body["user"] == {"id": harness.users["mate"].id, "username": "mate", "display_name": "Bob", "group_id": harness.groups["qa"].id, "group_name": "QA"}
+    board = body["apps"][0]
+    assert set(board) == {"id", "slug", "name", "description", "type", "visibility", "mine", "owner", "icon", "last_visited_at"}
+    assert board["id"] == harness.apps["public"].id and board["name"] == "Board"
+    assert board["description"] == "Draw and share mind maps." and board["type"] == "fastapi"
+    assert board["visibility"] == "public" and board["mine"] is False
+    assert board["owner"] == {"username": "owner", "display_name": "Olive"}
+    assert len(board["icon"]) == 12 and board["last_visited_at"] is None
+    assert all(item["mine"] for item in _catalog(harness, "owner")["apps"])
+    # Nothing a visitor of the page has no business with: no token, no key, no repository.
+    assert "efpa_" not in str(body) and "github.com" not in str(body) and harness.apps["public"].visitor_key not in str(body)
+
+
+def test_the_catalog_puts_what_the_member_used_last_first(harness):
+    _deploy_all(harness)
+    mate = harness.users["mate"]
+    visits = AppTrafficRepository(harness.db)
+    visits.upsert_visit(harness.apps["platform"].id, mate.id, day=date(2026, 11, 18), requests=3, last_at=datetime(2026, 11, 18, 9, 12, 0, 500))
+    harness.db.commit()
+    body = _catalog(harness, "mate")
+    assert [item["slug"] for item in body["apps"]] == ["wiki", "board"]
+    assert body["apps"][0]["last_visited_at"] == "2026-11-18T09:12:00Z"
+    assert _slugs(harness, "owner") == ["board", "mindmap", "wiki"]  # somebody else's visits change nothing
+
+
+def test_the_catalog_leaves_out_what_cannot_be_opened(harness):
+    _deploy_all(harness)
+    harness.service.disable(harness.apps["platform"], harness.users["admin"], "Under review")
+    assert _slugs(harness, "mate") == ["board"]
+    harness.service.enable(harness.apps["platform"], harness.users["admin"])
+    harness.service.delete(harness.apps["public"], harness.users["owner"])
+    assert _slugs(harness, "mate") == ["wiki"]
+    harness.service.update(harness.apps["platform"], harness.users["owner"], visibility="private")
+    assert _slugs(harness, "mate") == []
+
+    # An owner who lost access takes their apps out of everybody's list.
+    harness.service.update(harness.apps["platform"], harness.users["owner"], visibility="platform")
+    remove_from_allowlist(harness.db, "owner")
+    assert _slugs(harness, "mate") == []
+
+
+def test_the_catalog_names_the_audience_in_force(harness, monkeypatch):
+    _deploy_all(harness)
+    enable_apps(monkeypatch, apps_anyone_enabled=True)
+    harness.service.update(harness.apps["platform"], harness.users["owner"], visibility="anyone")
+
+    def audience():
+        return next(item["visibility"] for item in _catalog(harness, "other")["apps"] if item["slug"] == "wiki")
+
+    assert audience() == "platform"  # asked for, not approved yet: open to every member
+    harness.service.set_anyone_approval(harness.apps["platform"], harness.users["admin"], True)
+    assert audience() == "anyone"
+
+
+def test_the_catalog_refuses_a_member_without_access(harness):
+    _deploy_all(harness)
+    remove_from_allowlist(harness.db, "mate")
+    assert _post(harness, "/catalog", {"user_id": harness.users["mate"].id}).json() == {"allowed": False, "reason": "user_inactive", "apps": []}
+    assert _post(harness, "/catalog", {"user_id": 99999}).json() == {"allowed": False, "reason": "user_inactive", "apps": []}
+
+
+@pytest.mark.parametrize("body", [{}, {"user_id": "1"}, {"user_id": 0}, {"user_id": True}, {"user_id": None}, []])
+def test_the_catalog_needs_a_member(harness, body):
+    response = _post(harness, "/catalog", body)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_the_icon_of_an_app_is_served_as_the_image_it_is(harness):
+    app = harness.apps["public"]
+    missing = harness.client.get(f"{PREFIX}/apps/{app.id}/icon", headers=AUTH)  # not deployed: no icon was read yet
+    assert missing.status_code == 404 and missing.json()["error"]["code"] == "icon_not_found"
+
+    _deploy_all(harness)
+    response = harness.client.get(f"{PREFIX}/apps/{app.id}/icon", headers=AUTH)
+    assert response.status_code == 200
+    assert response.content == PNG and response.headers["content-type"] == "image/png"
+    assert response.headers["x-content-type-options"] == "nosniff" and response.headers["etag"].startswith('"')
+    version = next(item["icon"] for item in _catalog(harness, "mate")["apps"] if item["slug"] == "board")
+    assert response.headers["etag"].strip('"').startswith(version)
+
+    unknown = harness.client.get(f"{PREFIX}/apps/no-such-app/icon", headers=AUTH)
+    assert unknown.status_code == 404 and unknown.json()["error"]["code"] == "icon_not_found"
+    harness.service.delete(app, harness.users["owner"])
+    assert harness.client.get(f"{PREFIX}/apps/{app.id}/icon", headers=AUTH).status_code == 404

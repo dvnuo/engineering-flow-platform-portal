@@ -11,7 +11,7 @@ from app.security.sso_state import sso_state_cookie_name
 from _apps_helpers import REPO_URL, FakeHost, FakeSource, add_group, add_user, enable_apps, make_database, reset_apps_state
 
 SSO_STATE = "state-issued-to-this-browser"
-from app.services.apps.access import handoff_codes
+from app.services.apps.access import HANDOFF_APP_CENTER, handoff_codes
 from app.services.apps.app_service import AppService
 
 APPS = "https://app.example.com"
@@ -404,3 +404,45 @@ def test_the_sign_in_script_returns_only_to_a_share_or_a_launch_path():
         assert _safe(value) == value
     for value in refused:
         assert _safe(value) == ""
+
+
+# --- the app center: /apps/launch without a slug --------------------------------------------
+
+
+def test_the_app_center_sends_a_signed_in_member_back_with_a_code_that_names_no_app(harness):
+    harness.viewer["value"] = (harness.mate, None)
+    response = _get(harness, "/apps/launch")
+    assert response.status_code == 302 and response.headers["cache-control"] == "no-store"
+    target, query = _callback(response)
+    assert target == f"{APPS}/_efp/callback" and query["next"] == ["/"]
+    grant = handoff_codes.redeem(query["code"][0])
+    assert grant.app_id == HANDOFF_APP_CENTER and grant.user_id == harness.mate.id
+
+
+def test_the_app_center_signs_a_visitor_in_first_and_brings_them_back(harness, monkeypatch):
+    response = _get(harness, "/apps/launch")
+    assert response.headers["location"] == f"/login/sso?next={quote('/apps/launch', safe='')}"
+    # /login/sso keeps that address across the round trip to the identity provider.
+    start = harness.client.get(response.headers["location"], follow_redirects=False)
+    assert f'{harness.web.POST_LOGIN_NEXT_COOKIE}="/apps/launch"' in start.headers["set-cookie"]
+
+    monkeypatch.setattr(harness.web, "sso_enabled", lambda: False)
+    assert _get(harness, "/apps/launch").headers["location"] == f"/login?next={quote('/apps/launch', safe='')}"
+    assert harness.web._safe_next_path("/apps/launch") == "/apps/launch"
+    for elsewhere in ("/apps/launch/", "/apps/launchx", "/apps/launch?next=%2F", "/apps/launch#x", "//evil.example.com/apps/launch"):
+        assert harness.web._safe_next_path(elsewhere) == "", elsewhere
+
+    # The sign-in page's own copy of the rule lets the same address through.
+    script = (REPO / "app" / "static" / "js" / "auth_form.js").read_text(encoding="utf-8")
+    assert "var APP_LAUNCH_NEXT_PATH = /^\\/apps\\/launch(?:\\/(" in script
+
+
+def test_the_app_center_follows_the_portals_other_answers(harness, monkeypatch):
+    harness.viewer["value"] = (harness.mate, "not_allowlisted")
+    assert _get(harness, "/apps/launch").headers["location"] == "/unauthorized"
+
+    harness.viewer["value"] = (harness.mate, None)
+    enable_apps(monkeypatch, apps_public_base_url="")
+    assert _get(harness, "/apps/launch").status_code == 503
+    enable_apps(monkeypatch, apps_enabled=False)
+    assert _get(harness, "/apps/launch").status_code == 404
