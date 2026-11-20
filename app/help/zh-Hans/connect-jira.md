@@ -9,9 +9,11 @@ icon: clipboard-list
 
 ## 正确填写令牌
 
-用户名是你的 Atlassian 账号邮箱，不是显示名称。
+需要哪种令牌，取决于你的 Jira 部署在哪里。
 
-令牌是你在 Atlassian 账号中创建的 API 令牌，不是你的密码。Atlassian 不接受用密码访问 API。
+在 Atlassian Cloud（地址以 atlassian.net 结尾），令牌是你在 Atlassian 账号中创建的 API 令牌，不是你的密码；用户名是你的 Atlassian 账号邮箱，不是显示名称。Atlassian 不接受用密码访问 API。
+
+在公司自建的 Jira（Data Center），令牌是你在 Jira 个人资料中创建的个人访问令牌。不需要填写用户名：助手只用令牌登录。
 
 站点 URL 和 API 版本已由管理员填好。
 

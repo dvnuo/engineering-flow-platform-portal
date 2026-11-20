@@ -10,10 +10,16 @@ It can only see projects your own account can see.
 
 ## Getting the token right
 
-The username is your Atlassian account email, not your display name.
+Which token you need depends on where your Jira runs.
 
-The token is an API token from your Atlassian account, not your password.
-Passwords are rejected by Atlassian for API access.
+On Atlassian Cloud (the address ends in atlassian.net), the token is an API
+token from your Atlassian account, not your password, and the username is your
+Atlassian account email, not your display name. Passwords are rejected by
+Atlassian for API access.
+
+On a Jira your company hosts (Data Center), the token is a personal access
+token you create from your profile in Jira. It needs no username: the
+assistant signs in with the token alone.
 
 Your administrator has already filled in the site URL and API version.
 

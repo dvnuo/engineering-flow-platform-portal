@@ -14,7 +14,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-from app.services.proxy_plan import KIND_NONE, KIND_PROXY, ProxyChoice, ProxyPlan, build_proxy_plan
+from app.services.proxy_plan import KIND_NONE, KIND_PROXY, ProxyChoice, ProxyPlan, build_proxy_plan, hostname_of
 from app.services.tls_trust import trust_context
 
 
@@ -48,18 +48,38 @@ def basic_auth_header(username: str, secret: str) -> dict:
     return {"Authorization": f"Basic {encoded}"}
 
 
+# The hosts Atlassian runs itself. Every other Jira or Confluence address is a
+# site a company hosts (Data Center).
+ATLASSIAN_CLOUD_HOST_SUFFIXES = (".atlassian.net", ".jira.com")
+ATLASSIAN_CLOUD_API_HOST = "api.atlassian.com"
+
+
+def is_atlassian_cloud(url: str) -> bool:
+    host = hostname_of(url)
+    return host == ATLASSIAN_CLOUD_API_HOST or host.endswith(ATLASSIAN_CLOUD_HOST_SUFFIXES)
+
+
 def instance_auth_headers(instance: dict) -> dict:
     """The Authorization header an instance row (Jira, Confluence) signs in with.
 
-    A username with a token is Basic (the Cloud API-token form, and what a
-    Data Center username plus token means too); a token alone is a personal
-    access token sent as Bearer; a username with a password is Basic.
+    A token decides it. On Atlassian Cloud a token is an API token, which
+    signs in as Basic together with the account email. Anywhere else it is a
+    Data Center personal access token, which the site accepts as Bearer only:
+    sent as Basic beside a username it is answered 401, so the username is
+    left out. A token without a username is Bearer everywhere. Only a row
+    with no token signs in with its username and password.
+
+    Both runtimes hand the row to the jira and confluence CLIs by this same
+    rule (``_build_auth`` in the native runtime's
+    src/external_cli/profile_config.py and the OpenCode adapter's
+    tools_config_env.py), so the credential Test proves is the one the
+    assistant sends. Change the three together.
     """
     username = str(instance.get("username") or "").strip()
     token = str(instance.get("token") or "").strip()
-    if username and token:
-        return basic_auth_header(username, token)
     if token:
+        if username and is_atlassian_cloud(str(instance.get("url") or "")):
+            return basic_auth_header(username, token)
         return {"Authorization": f"Bearer {token}"}
     password = str(instance.get("password") or "").strip()
     if username and password:
