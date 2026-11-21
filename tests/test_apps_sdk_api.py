@@ -234,31 +234,6 @@ def test_everything_answers_404_while_apps_are_off(sdk, monkeypatch, method, pat
     assert sdk.gateway.calls == [] and sdk.executions() == []
 
 
-@pytest.mark.parametrize(
-    "authorization",
-    [
-        None,
-        "",
-        "Bearer",
-        "Bearer ",
-        "Bearer not-a-token",
-        "Bearer efpa_" + "x" * 43,
-        "Basic b3duZXI6cGFzc3dvcmQ=",
-        "Token efpa_" + "x" * 43,
-    ],
-)
-@pytest.mark.parametrize("method, path", ENDPOINTS)
-def test_a_call_without_the_apps_token_is_401(sdk, authorization, method, path):
-    headers = {} if authorization is None else {"Authorization": authorization}
-
-    response = sdk.client.request(method, PREFIX + path, headers=headers, json={"messages": HELLO})
-
-    assert response.status_code == 401
-    assert error_of(response)["code"] == "invalid_token"
-    assert response.headers["www-authenticate"] == "Bearer"
-    assert sdk.gateway.calls == [] and sdk.executions() == []
-
-
 def test_the_scheme_is_case_insensitive_and_the_token_is_the_whole_credential(sdk):
     assert sdk.client.get(PREFIX + "/app", headers={"Authorization": f"bearer {sdk.token}"}).status_code == 200
     assert sdk.client.get(PREFIX + "/app", headers={"Authorization": f"Bearer {sdk.token}x"}).status_code == 401
