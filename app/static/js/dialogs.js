@@ -124,8 +124,10 @@
       escapeHtml(opts.confirmText || (kind === "alert" ? t("OK") : t("Confirm"))) +
       "</button>";
 
+    // A dialog that waits can take focus itself: while its action runs every
+    // control in it is held, and the keyboard must stay in it all the same.
     root.innerHTML =
-      '<div class="modal-card panel portal-dialog-card" data-dialog-card>' +
+      '<div class="modal-card panel portal-dialog-card" data-dialog-card' + (hasAction ? ' tabindex="-1"' : "") + ">" +
       titleHtml +
       messageHtml +
       inputHtml +
@@ -143,6 +145,7 @@
     var confirmEl = root.querySelector("[data-dialog-confirm]");
     var cancelEl = root.querySelector("[data-dialog-cancel]");
     var statusEl = root.querySelector("[data-dialog-status]");
+    var cardEl = root.querySelector("[data-dialog-card]");
     if (hasAction) reserveBusyWidth(confirmEl, opts.busyText || t("Working\u2026"));
 
     return new Promise(function (resolve) {
@@ -166,6 +169,9 @@
         else if (releaseConfirm) { releaseConfirm(); releaseConfirm = null; }
         if (cancelEl) cancelEl.disabled = on;
         if (input) input.disabled = on;
+        // Focus was on a control that is now held: the dialog takes it, so
+        // the keys still reach this dialog and nothing behind it.
+        if (on && cardEl && typeof cardEl.focus === "function") cardEl.focus();
       }
 
       function cleanup(result) {
@@ -245,6 +251,10 @@
       function onKeydown(e) {
         // While the action runs nothing closes the dialog and nothing starts it twice.
         if (busy && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); return; }
+        // Nor does Tab walk out of it: every control in it is held, so there
+        // is nowhere in the dialog to go, and what lies behind it is not to
+        // be reached while it waits.
+        if (busy && e.key === "Tab") { e.preventDefault(); return; }
         if (e.key === "Escape") { e.preventDefault(); cancelResult(); return; }
         if (e.key === "Enter" && kind !== "prompt" && document.activeElement !== cancelEl) {
           e.preventDefault();

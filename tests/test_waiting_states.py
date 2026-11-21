@@ -106,6 +106,132 @@ def test_nothing_closes_or_restarts_a_dialog_that_is_working():
     assert "busyButton(confirmEl, opts.busyText" in busy
 
 
+# A page that is just enough for dialogs.js: the dialog's own parts, found by
+# what its markup holds, a place for focus, and the keys the test presses.
+FAKE_DIALOG_PAGE = r"""
+const keyListeners = [];
+let focused = null;
+class Part {
+  constructor(tag, name) {
+    this.tag = tag;
+    this.name = name || tag;
+    this.children = [];
+    this.parts = {};
+    this.listeners = {};
+    this.attrs = {};
+    this.style = {};
+    this.disabled = false;
+    this.value = "";
+    this.offsetParent = {};
+    this.offsetWidth = 100;
+    this.clientWidth = 100;
+    this.scrollWidth = 100;
+    this.parentNode = null;
+    this._html = "";
+    this._text = "";
+    const classes = new Set();
+    this.classList = {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      contains: (name) => classes.has(name),
+      toggle: (name, on) => { const want = on === undefined ? !classes.has(name) : Boolean(on); if (want) classes.add(name); else classes.delete(name); return want; },
+    };
+  }
+  set className(value) { this._className = String(value); }
+  set innerHTML(html) {
+    this._html = String(html);
+    if (this.tag !== "root") return;
+    const part = (key, tag) => { const node = new Part(tag, key); node.parentNode = this; this.parts[key] = node; this.children.push(node); return node; };
+    part("[data-dialog-card]", "card").takesFocus = /data-dialog-card tabindex="-1"/.test(this._html);
+    if (/portal-dialog-input/.test(this._html)) part(".portal-dialog-input", "input");
+    if (/data-dialog-status/.test(this._html)) part("[data-dialog-status]", "p");
+    if (/data-dialog-cancel/.test(this._html)) part("[data-dialog-cancel]", "button");
+    part("[data-dialog-confirm]", "button");
+  }
+  get innerHTML() { return this._html; }
+  set textContent(value) { this._text = String(value); this._html = String(value); }
+  get textContent() { return this._text; }
+  querySelector(selector) { return this.parts[selector] || null; }
+  // What Tab can reach: the field, and the buttons that are not held.
+  querySelectorAll() { return this.children.filter((node) => node.tag === "input" || (node.tag === "button" && !node.disabled)); }
+  setAttribute(name, value) { this.attrs[name] = String(value); }
+  getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; }
+  removeAttribute(name) { delete this.attrs[name]; }
+  addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((item) => item !== fn); }
+  press() { (this.listeners.click || []).slice().forEach((fn) => fn({ target: this, preventDefault() {} })); }
+  appendChild(node) { node.parentNode = this; this.children.push(node); return node; }
+  removeChild(node) { this.children = this.children.filter((item) => item !== node); node.parentNode = null; return node; }
+  focus() { focused = this; }
+  select() {}
+  getBoundingClientRect() { return { width: 100 }; }
+}
+const body = new Part("body");
+focused = new Part("button", "the button that opened it");
+const document = {
+  body: body,
+  get activeElement() { return focused; },
+  createElement: () => new Part("root"),
+  addEventListener(type, fn) { if (type === "keydown") keyListeners.push(fn); },
+  removeEventListener(type, fn) { const at = keyListeners.indexOf(fn); if (at >= 0) keyListeners.splice(at, 1); },
+};
+const window = { requestAnimationFrame: (fn) => fn() };
+// A key pressed anywhere: true when the dialog kept it for itself.
+const key = (name) => {
+  const event = { key: name, shiftKey: false, prevented: false, preventDefault() { this.prevented = true; } };
+  keyListeners.slice().forEach((fn) => fn(event));
+  return event.prevented;
+};
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+"""
+
+
+def test_the_keyboard_stays_in_a_dialog_that_is_working():
+    # Every control of a working dialog is held. Tab used to find nothing to
+    # stop at and walk out to the page behind, where Space still pressed things.
+    out = _node(
+        I18N_STUB
+        + FAKE_DIALOG_PAGE
+        + DIALOGS
+        + r"""
+(async () => {
+  let finish;
+  let answered = "(not yet)";
+  window.showConfirm({ title: "Delete it?", busyText: "Deleting", action: () => new Promise((resolve) => { finish = resolve; }) }).then((value) => { answered = value; });
+  const root = body.children[0];
+  const card = root.querySelector("[data-dialog-card]");
+  const atRest = { focus: focused.name, tabKept: key("Tab"), then: focused.name };
+  root.querySelector("[data-dialog-confirm]").press();
+  await wait(0);
+  const working = { cardTakesFocus: card.takesFocus, focus: focused.name, tabKept: key("Tab"), escapeKept: key("Escape"), enterKept: key("Enter"), open: body.children.length, answered: answered };
+  finish();
+  await wait(260);
+  const done = { answered: answered, open: body.children.length, focus: focused.name, listeners: keyListeners.length };
+  // A dialog without an action is made as it always was.
+  window.showConfirm({ title: "Sure?" });
+  const plain = body.children[0].querySelector("[data-dialog-card]").takesFocus;
+  console.log(JSON.stringify({ atRest: atRest, working: working, done: done, plain: plain }));
+})();
+"""
+    )
+    # At rest Tab goes round inside the dialog, from its last button to its first.
+    assert out["atRest"] == {"focus": "[data-dialog-confirm]", "tabKept": True, "then": "[data-dialog-cancel]"}
+    # Working: the dialog itself holds focus, and Tab, Escape and Enter go nowhere.
+    assert out["working"] == {
+        "cardTakesFocus": True,
+        "focus": "[data-dialog-card]",
+        "tabKept": True,
+        "escapeKept": True,
+        "enterKept": True,
+        "open": 1,
+        "answered": "(not yet)",
+    }
+    assert out["done"] == {"answered": True, "open": 0, "focus": "the button that opened it", "listeners": 0}
+    assert out["plain"] is False
+    assert 'if (busy && e.key === "Tab") { e.preventDefault(); return; }' in DIALOGS
+    assert "outline: none" in _rule(".portal-dialog-card:focus")
+
+
 def test_the_line_for_what_is_happening_is_in_the_dialog_from_the_start():
     assert "'<p class=\"portal-dialog-status\" data-dialog-status aria-live=\"polite\"></p>'" in DIALOGS
     assert "statusHtml +" in DIALOGS
@@ -299,3 +425,28 @@ def test_a_switch_that_is_being_saved_is_held_with_a_spinner_beside_its_name():
     assert 'holder.setAttribute("aria-busy", "true");' in saving and "input.disabled = true;" in saving
     assert "animation: portal-spin" in _rule(".portal-app-switch-row.is-saving .portal-app-switch-copy strong::after")
     assert "cursor: progress" in _rule(".portal-share-option.is-saving")
+
+
+def test_the_other_switches_wait_while_one_is_saved():
+    # One save of Settings at a time: the list of connectors is sent whole,
+    # so a second save beside the first would undo it.
+    held = _function(APPS, "saveHeld")
+    assert held.index("owner.busy = true;") < held.index("return await save();") < held.index("owner.busy = false;")
+    assert held.count("if (pageLive(owner.token)) syncSettingsHold();") == 2
+    hold = _function(APPS, "syncSettingsHold")
+    # Held in place, so the one being saved keeps its spinner; what was off
+    # for a reason of its own is not marked, and so not switched on afterwards.
+    assert 'section.querySelectorAll("input")' in hold
+    assert hold.index("if (!input.disabled) {") < hold.index('input.dataset.appHeld = "1";')
+    assert "} else if (input.dataset.appHeld) {" in hold and "delete input.dataset.appHeld;" in hold
+    assert 'const SETTINGS_HELD = ["audience", "capabilities", "template"];' in APPS
+    # A section drawn again while the page is held is held like the rest.
+    assert "if (SETTINGS_HELD.indexOf(name) >= 0) syncSettingsHold();" in _function(APPS, "redrawSettingsSection")
+    for name in ("changeAudience", "changeCapability", "toggleTemplate"):
+        body = _function(APPS, name)
+        assert "saveHeld(owner, function () {" in body, name
+        # A change that arrives while the page is held is put back, not left looking made.
+        refused = body.split("if (owner.busy) {", 1)[1].split("}", 1)[0]
+        assert "return;" in refused and ("restore();" in refused or "redrawSettingsSection(" in refused), name
+    waiting = _rule(".portal-app-switch-row .toggle-switch:has(input[data-app-held])")
+    assert "opacity: .55" in waiting and "cursor: progress" in waiting

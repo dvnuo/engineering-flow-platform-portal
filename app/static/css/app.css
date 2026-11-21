@@ -6225,6 +6225,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-dialog-status.is-error { color: var(--portal-danger); }
 .portal-dialog-card .portal-dialog-status + .portal-modal-actions { margin-top: 10px; }
 .portal-dialog.is-busy { cursor: progress; }
+/* While it waits the dialog itself holds focus (dialogs.js): no ring around the card. */
+.portal-dialog-card:focus { outline: none; }
 /* A switch or a choice that is being saved: held, dimmed, with the same spinner
    beside its name. */
 .portal-app-switch-row.is-saving,
@@ -6232,6 +6234,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-app-switch-row.is-saving .toggle-switch,
 .portal-app-switch-row.is-saving .portal-checkbox-row,
 .portal-share-option.is-saving > input { opacity: .55; }
+/* The other switches wait while that one is saved (apps.js, syncSettingsHold):
+   dimmed the same way, without a spinner of their own. A radio that waits is
+   dimmed by the share dialog's rule for a disabled option. */
+.portal-app-switch-row .toggle-switch:has(input[data-app-held]),
+.portal-app-switch-row .portal-checkbox-row:has(input[data-app-held]) { opacity: .55; cursor: progress; }
 .portal-app-switch-row.is-saving .portal-app-switch-copy strong::after,
 .portal-share-option.is-saving strong::after {
   content: "";

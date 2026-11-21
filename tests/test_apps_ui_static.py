@@ -275,7 +275,26 @@ def test_an_app_opens_in_a_new_tab_and_is_never_embedded():
     # Only an app its viewer manages leads to the app's page.
     assert "if (app.can_manage) {" in card and "data-app-manage" in card
     assert "<iframe" not in APPS_JS and "createElement(\"iframe\")" not in APPS_JS
-    assert 'window.open(page.app.url, "_blank", "noopener")' in APPS_JS
+    # The header's Open goes through the one function that opens a tab, and
+    # that one opens only an address safeUrl lets through.
+    assert "if (page.app) openInNewTab(page.app.url);" in APPS_JS
+    opener = _extract_js_function(APPS_JS, "openInNewTab")
+    assert "const url = safeUrl(value);" in opener and 'if (url) window.open(url, "_blank", "noopener");' in opener
+    assert APPS_JS.count("window.open(") == 1
+
+
+def test_every_address_from_the_server_is_checked_before_it_is_a_link():
+    # http, https, or inside the Portal: nothing else becomes a link, an image or a new tab.
+    safe = _extract_js_function(APPS_JS, "safeUrl")
+    assert 'return scheme === "http:" || scheme === "https:" ? text : "";' in safe
+    checked = {"url", "icon", "repoLink", "forkLink"}
+    for name in checked:
+        assert f"const {name} = safeUrl(" in APPS_JS, name
+    used = re.findall(r"""(?:href|src|data-app-copy-link|data-admin-app-open)="' \+ esc\(([\w.]+)\)""", APPS_JS)
+    assert len(used) >= 10
+    assert set(used) <= checked, sorted(set(used) - checked)
+    # What a row menu carries back is checked again where it is opened.
+    assert "openInNewTab(el.dataset.adminAppOpen);" in APPS_JS
 
 
 def test_every_empty_list_says_what_to_do_next():
@@ -375,8 +394,12 @@ def test_the_three_warnings_are_said_at_the_moment_of_the_action():
     # unless it is confirmed, and it stays open until the change is saved.
     assert "await window.showConfirm(Object.assign(question, {" in capability
     asked = capability.split("if (question) {", 1)[1].split("const saved = savingControl(input);", 1)[0]
-    assert "action: function () { return patchApp(changes); }," in asked and "return;" in asked
-    assert capability.count("patchApp(changes)") == 2  # in the dialog, or directly when nothing has to be asked
+    assert "action: function () { return save(); }," in asked and "return;" in asked
+    # One place sends the change, for the page that asked, and holds the other
+    # switches while it does. It is reached from the dialog, or directly when
+    # nothing has to be asked.
+    assert capability.count("saveHeld(owner, function () { return patchApp(owner, changes); })") == 1
+    assert capability.count("return save();") == 1 and capability.count("await save();") == 1
 
     audience = _extract_js_function(APPS_JS, "changeAudience")
     # Letting more people in repeats what their use costs the owner.
@@ -411,18 +434,69 @@ def test_the_token_is_read_only_when_asked_for():
     # Reading it is recorded, so drawing Settings must not fetch it.
     settings = _extract_js_function(APPS_JS, "drawSettings")
     assert "fetchToken" not in settings and "/token" not in settings
-    assert "await fetchToken()" in _extract_js_function(APPS_JS, "revealToken")
+    assert "await fetchToken(owner)" in _extract_js_function(APPS_JS, "revealToken")
     used = _extract_js_function(APPS_JS, "tokenUsedText")
     assert "token_last_used_at" in used and "token_last_used_source" in used
+
+
+def test_the_token_is_forgotten_when_the_page_is_left():
+    # It was read for this visit of the page: leaving forgets it, and one that
+    # arrives after the member left is kept nowhere.
+    stop = _extract_js_function(APPS_JS, "stopPage")
+    assert 'page.token_value = "";' in stop and "page.tokenShown = false;" in stop
+    fetch = _extract_js_function(APPS_JS, "fetchToken")
+    assert fetch.index("if (!pageLive(owner.token)) return value;") < fetch.index("owner.token_value = value;")
+    assert "page." not in fetch, "the token is kept on the page that asked, never on `page`"
+
+
+def _action_bodies(source: str) -> list[str]:
+    """The body of every `action:` function handed to a dialog."""
+    bodies = []
+    for match in re.finditer(r"action: (?:async )?function \([^)]*\) \{", source):
+        depth = 0
+        for index in range(match.end() - 1, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    bodies.append(source[match.end() : index])
+                    break
+    return bodies
+
+
+def test_work_that_waits_belongs_to_the_page_it_started_on():
+    # By the time a request answers or a dialog is confirmed, `page` may be
+    # another app's page. So nothing a dialog runs reads it, and the two
+    # functions that keep an answer keep it on the page they were given.
+    actions = _action_bodies(APPS_JS)
+    assert len(actions) >= 9
+    for body in actions:
+        assert not re.search(r"(?<![\w.])page\.", body), " ".join(body.split())[:120]
+    patch = _extract_js_function(APPS_JS, "patchApp")
+    assert "async function patchApp(owner, changes) {" in patch
+    assert "request(appPath(owner.appId), { method: \"PATCH\", json: changes })" in patch
+    assert "if (pageLive(owner.token)) syncHeader();" in patch and "page.app" not in patch
+    assert "owner.app = app;" in _extract_js_function(APPS_JS, "keepApp")
+    # Every function that asks before it acts takes its page before it asks.
+    for name in ("clearData", "resetToken", "runRollback", "removeTemplateVersion", "confirmUpgrade", "changeAudience", "changeCapability"):
+        body = _extract_js_function(APPS_JS, name)
+        assert body.index("const owner = page;") < body.index("window.showConfirm("), name
+        assert "page.appId" not in body, name
 
 
 def test_a_deployment_is_followed_and_the_log_is_live():
     poll = _extract_js_function(APPS_JS, "pollRelease")
     assert "releaseIsActive(release)" in poll and "RELEASE_POLL_MS" in poll
-    assert '"/log?offset=" + page.releaseLogOffset' in _extract_js_function(APPS_JS, "pullReleaseLog")
+    assert '"/log?offset=" + owner.releaseLogOffset' in _extract_js_function(APPS_JS, "pullReleaseLog")
     stream = _extract_js_function(APPS_JS, "openLogStream")
     assert 'appPath(page.appId, "/logs/stream")' in stream and "createSseParser(onLogLine)" in stream
-    assert 'request(appPath(page.appId, "/rollback"), { method: "POST" })' in _extract_js_function(APPS_JS, "runRollback")
+    # The rollback is the dialog's action: it is sent for the page that asked.
+    assert 'request(appPath(owner.appId, "/rollback"), { method: "POST" })' in _extract_js_function(APPS_JS, "runRollback")
+    # Details on a release is the member's pick; the running one does not take its place.
+    assert "pickRelease(el.dataset.appReleaseShow);" in APPS_JS
+    changed = _extract_js_function(APPS_JS, "onStatusChanged")
+    assert "if (!page.pickedReleaseId && !(page.following && page.shownReleaseId === active)) followRelease(active);" in changed
 
 
 # --------------------------------------------------------- Administration > Apps

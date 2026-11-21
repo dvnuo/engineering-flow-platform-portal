@@ -31,6 +31,28 @@
       .replace(/'/g, "&#39;");
   }
 
+  // An address the server gave, before it becomes a link, an image or a new
+  // tab: an http(s) address, or one inside the Portal ("/api/...", "#/help").
+  // Anything with a scheme of another kind (javascript:, data:, ssh: ...) is
+  // no address to go to: "", which every caller shows as "no link".
+  function safeUrl(value) {
+    const text = String(value === null || value === undefined ? "" : value).trim();
+    if (!text) return "";
+    try {
+      const here = typeof window !== "undefined" && window.location && window.location.href ? window.location.href : "http://portal.invalid/";
+      const scheme = new URL(text, here).protocol;
+      return scheme === "http:" || scheme === "https:" ? text : "";
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  // An app opens in a tab of its own, and only at an address safeUrl lets through.
+  function openInNewTab(value) {
+    const url = safeUrl(value);
+    if (url) window.open(url, "_blank", "noopener");
+  }
+
   function shell() {
     return (typeof window !== "undefined" && window.portalAppsShell) || null;
   }
@@ -724,9 +746,10 @@
   function appIconHtml(app, extraClass) {
     const cls = "portal-app-icon" + (extraClass ? " " + extraClass : "");
     const initial = esc(appInitial(app && app.name));
-    if (app && app.icon_url) {
+    const icon = safeUrl(app && app.icon_url);
+    if (icon) {
       // The letter is the fallback when the image does not load (see the error listener).
-      return '<span class="' + cls + '" data-app-initial="' + initial + '" aria-hidden="true"><img src="' + esc(app.icon_url) + '" alt="" loading="lazy" /></span>';
+      return '<span class="' + cls + '" data-app-initial="' + initial + '" aria-hidden="true"><img src="' + esc(icon) + '" alt="" loading="lazy" /></span>';
     }
     return '<span class="' + cls + '" aria-hidden="true">' + initial + "</span>";
   }
@@ -776,6 +799,9 @@
     lists: { mine: null, available: null, templates: null },
     errors: { mine: "", available: "", templates: "" },
     seq: 0,
+    // Counts the times the center was opened: an opening that is no longer
+    // the newest one stops where it is (showCenter).
+    shown: 0,
     timer: 0,
     drawn: "",
   };
@@ -790,14 +816,15 @@
 
   function appCardHtml(app) {
     const state = app.can_manage ? appState(app, null) : null;
-    const launchable = Boolean(app.url) && Boolean(app.deployed) && app.enabled !== false;
+    const url = safeUrl(app.url);
+    const launchable = Boolean(url) && Boolean(app.deployed) && app.enabled !== false;
     const copy =
       appIconHtml(app) +
       '<span class="portal-app-card-copy"><strong>' + esc(app.name) + "</strong>" +
       "<small>" + esc(app.description || t("No description.")) + "</small></span>";
     let main;
     if (launchable) {
-      main = '<a class="portal-app-card-main" href="' + esc(app.url) + '" target="_blank" rel="noopener" data-app-launch="' + esc(app.id) +
+      main = '<a class="portal-app-card-main" href="' + esc(url) + '" target="_blank" rel="noopener" data-app-launch="' + esc(app.id) +
         '" title="' + esc(t("Open {name} in a new tab", { name: app.name })) + '">' + copy + "</a>";
     } else if (app.can_manage) {
       main = '<button type="button" class="portal-app-card-main" data-app-manage="' + esc(app.id) +
@@ -824,9 +851,9 @@
     if (app.can_manage) {
       actions.push('<button type="button" class="portal-btn" data-app-manage="' + esc(app.id) + '">' + esc(t("Manage")) + "</button>");
     }
-    if (app.url) {
+    if (url) {
       actions.push(
-        '<button type="button" class="portal-btn portal-app-icon-btn" data-app-copy-link="' + esc(app.url) + '" title="' + esc(t("Copy link")) +
+        '<button type="button" class="portal-btn portal-app-icon-btn" data-app-copy-link="' + esc(url) + '" title="' + esc(t("Copy link")) +
         '" aria-label="' + esc(t("Copy the link of {name}", { name: app.name })) + '"><i data-lucide="link" class="w-4 h-4"></i></button>'
       );
     }
@@ -995,6 +1022,10 @@
   async function showCenter(container, options) {
     stopPage();
     stopCenter();
+    // One address can reach here twice at once (Back fires popstate and
+    // hashchange, and the shell applies both): only the newest opening goes
+    // on after the lists are read, so only one refresh timer is ever started.
+    const shown = ++center.shown;
     center.root = container;
     center.visible = true;
     center.requested = options && VIEW_TITLES[options.view] ? options.view : "";
@@ -1003,11 +1034,12 @@
     drawCenterFrame();
     drawCenterBody(true);
     await refreshCenter();
-    if (!center.visible || center.root !== container) return;
+    if (shown !== center.shown || !center.visible || center.root !== container) return;
     // Chosen once the lists are known; a later refresh never moves the member.
     if (!center.requested && (firstLoad || !VIEW_TITLES[center.view])) center.view = chooseView(center.lists);
     if (shell()) shell().markView(center.view);
     drawCenterBody(true);
+    if (center.timer) window.clearInterval(center.timer);
     center.timer = window.setInterval(async function () {
       if (!center.visible || document.hidden) return;
       await refreshCenter();
@@ -1095,6 +1127,11 @@
       ready = Boolean(createValue("template_app_id") && createValue("version_id") && createValue("template_name"));
     }
     button.disabled = !ready || dialog.submitting;
+    // While the app is being created nothing closes the dialog
+    // (closeCreateDialog), and its two ways out say so.
+    Array.prototype.forEach.call(modal.querySelectorAll("[data-app-create-close]"), function (closer) {
+      closer.disabled = dialog.submitting;
+    });
   }
 
   function inspectBox() {
@@ -1462,6 +1499,9 @@
   function openCreateDialog(options) {
     const modal = createModal();
     if (!modal) return;
+    // An app is being created: the dialog is still open and is not started
+    // over, or the same app could be asked for a second time.
+    if (dialog.submitting) return;
     dialog.trigger = document.activeElement;
     resetCreateDialog();
     modal.classList.remove("hidden");
@@ -1478,9 +1518,13 @@
     }, 0);
   }
 
+  // False when there was nothing to close, and while an app is being created:
+  // Escape, Cancel, the cross and a press beside the dialog would only hide
+  // it, and the app would be created all the same.
   function closeCreateDialog() {
     const modal = createModal();
     if (!modal || modal.classList.contains("hidden")) return false;
+    if (dialog.submitting) return false;
     modal.classList.add("hidden");
     modal.setAttribute("aria-hidden", "true");
     window.clearTimeout(dialog.timer);
@@ -1518,6 +1562,8 @@
     try {
       const created = await request(path, { method: "POST", json: body });
       const app = (created && created.app) || created || {};
+      // Created: the dialog may close now.
+      dialog.submitting = false;
       closeCreateDialog();
       center.lists.mine = null;
       if (created && created.deploy_error) {
@@ -1556,6 +1602,9 @@
   const RELEASE_POLL_MS = 2000;
   const LOG_TAIL_LINES = 500;
   const LOG_MAX_LINES = 5000;
+  // How far the live log may grow past that before its oldest lines go, all
+  // in one cut (appendLogLines).
+  const LOG_TRIM_LINES = 500;
   const LOG_RECONNECT_MS = 5000;
   const CONNECTOR_NAMES = { jira: "Jira", confluence: "Confluence", github: "GitHub", jenkins: "Jenkins", nexus: "Nexus", splunk: "Splunk" };
 
@@ -1583,6 +1632,12 @@
       rollbackReleaseId: "",
       followReleaseId: "",
       shownReleaseId: "",
+      // The release the member asked to see (Details): a deployment that is
+      // running does not take its place.
+      pickedReleaseId: "",
+      // The deployment the status last named as running, so that its end is
+      // noticed when nobody follows it.
+      activeSeenId: "",
       release: null,
       releaseTimer: 0,
       followSeq: 0,
@@ -1597,6 +1652,8 @@
       // Usage, Data, Activity
       usageDays: 30,
       // Settings
+      // What the server said to the last save of the variables that failed.
+      envFailure: "",
       token_value: "",
       tokenShown: false,
       templateTags: null,
@@ -1606,6 +1663,15 @@
 
   let page = newPage();
 
+  // One rule for everything on these pages that waits, for an answer of the
+  // server or for the member to answer a dialog: the work belongs to the page
+  // it started on. It takes that page first (`const owner = page`), builds
+  // its addresses from `owner.appId`, keeps what comes back on `owner`, and
+  // touches the screen only while `pageLive(owner.token)`. By the time the
+  // wait is over `page` may be another app's page: an answer written to it
+  // would put one app's settings under the other's name, and an address
+  // built from it would act on the app the member is looking at instead of
+  // the one they were asked about.
   function pageLive(token) {
     return page.active && page.token === token;
   }
@@ -1634,13 +1700,16 @@
   }
 
   // Ends what the page keeps running: the status refresh, a followed
-  // deployment and the live log.
+  // deployment and the live log. The token, if it was shown, is forgotten:
+  // it was read for this visit of the page and is asked for again on the next.
   function stopPage() {
     page.active = false;
     if (page.statusTimer) window.clearTimeout(page.statusTimer);
     page.statusTimer = 0;
     stopReleasePolling();
     closeLogStream();
+    page.token_value = "";
+    page.tokenShown = false;
   }
 
   function pageState() {
@@ -1665,8 +1734,9 @@
     const open = document.getElementById("header-app-open");
     const copy = document.getElementById("header-app-copy-link");
     const deployed = Boolean(app && (page.status ? page.status.deployed : app.deployed));
-    if (open) open.disabled = !(app && app.url && deployed);
-    if (copy) copy.disabled = !(app && app.url);
+    const url = app ? safeUrl(app.url) : "";
+    if (open) open.disabled = !(url && deployed);
+    if (copy) copy.disabled = !url;
   }
 
   function drawPageError(error) {
@@ -1686,7 +1756,8 @@
   // Someone who may open the app but not manage it sees what it is and a way in.
   function drawVisitorPage() {
     const app = page.app;
-    const launchable = Boolean(app.url) && Boolean(app.deployed) && app.enabled !== false;
+    const url = safeUrl(app.url);
+    const launchable = Boolean(url) && Boolean(app.deployed) && app.enabled !== false;
     page.root.innerHTML =
       '<div class="portal-panel-stack portal-app-page" data-app-page="' + esc(app.id) + '">' +
       '<div class="portal-app-page-bar"><button type="button" class="portal-btn portal-app-back" data-apps-view-open=""><i data-lucide="arrow-left" class="w-4 h-4"></i><span>' +
@@ -1700,7 +1771,7 @@
       "</dl>" +
       "<p class=\"portal-panel-note\">" + esc(t("Only its owner and administrators can change this app.")) + "</p>" +
       (launchable
-        ? '<div><a class="portal-btn is-primary" href="' + esc(app.url) + '" target="_blank" rel="noopener"><i data-lucide="external-link" class="w-4 h-4"></i><span>' +
+        ? '<div><a class="portal-btn is-primary" href="' + esc(url) + '" target="_blank" rel="noopener"><i data-lucide="external-link" class="w-4 h-4"></i><span>' +
           esc(t("Open in a new tab")) + "</span></a></div>"
         : "") +
       "</section></div>";
@@ -1753,40 +1824,73 @@
     else drawOverview();
   }
 
+  // The app as an answer gives it, kept on the page that asked. The
+  // variables are read from the single-app answer (GET /api/apps/{id}); an
+  // answer that leaves them out (a list never has to carry them) leaves the
+  // page the ones it has.
+  function keepApp(owner, app) {
+    const had = owner.app && owner.app.manage ? owner.app.manage.env : undefined;
+    if (app && app.manage && (app.manage.env === undefined || app.manage.env === null) && had !== undefined) app.manage.env = had;
+    owner.app = app;
+  }
+
   async function reloadApp() {
-    const token = page.token;
+    const owner = page;
     try {
-      const app = await request(appPath(page.appId));
-      if (!pageLive(token)) return;
-      page.app = app;
+      const app = await request(appPath(owner.appId));
+      if (!pageLive(owner.token)) return;
+      owner.app = app;
     } catch (_error) {
       /* the page keeps what it has; the next refresh tries again */
     }
   }
 
   async function refreshStatus() {
-    const token = page.token;
-    if (!page.app || !page.app.can_manage) return;
+    const owner = page;
+    if (!owner.app || !owner.app.can_manage) return;
     try {
-      const status = await request(appPath(page.appId, "/status"));
-      if (!pageLive(token)) return;
-      page.status = status;
-      page.statusError = "";
+      const status = await request(appPath(owner.appId, "/status"));
+      if (!pageLive(owner.token)) return;
+      owner.status = status;
+      owner.statusError = "";
     } catch (error) {
-      if (!pageLive(token)) return;
-      page.statusError = error.message;
+      if (!pageLive(owner.token)) return;
+      owner.statusError = error.message;
     }
     onStatusChanged();
   }
 
   function onStatusChanged() {
     syncHeader();
+    syncSettingsHold();
     if (page.tab === "overview") drawOverview();
     if (page.tab === "deployments") {
       syncDeployControls();
-      // A deployment started somewhere else (another tab, another administrator) is followed too.
       const active = page.status && page.status.deploying ? page.status.active_release_id : "";
-      if (active && !(page.following && page.shownReleaseId === active)) followRelease(active);
+      if (active) {
+        page.activeSeenId = active;
+        // A deployment started somewhere else (another tab, another
+        // administrator) is followed too, unless the member is reading a
+        // release they picked: that one stays until they pick another.
+        if (!page.pickedReleaseId && !(page.following && page.shownReleaseId === active)) followRelease(active);
+      } else if (page.activeSeenId) {
+        const ended = page.activeSeenId;
+        page.activeSeenId = "";
+        if (!page.announced[ended] && !(page.following && page.shownReleaseId === ended)) releaseEndedUnfollowed(ended);
+      }
+    }
+  }
+
+  // A deployment that ended while the member was reading another release:
+  // said, and the history drawn again, as when it is followed to its end.
+  async function releaseEndedUnfollowed(releaseId) {
+    const owner = page;
+    try {
+      const release = await request(appPath(owner.appId, "/releases/" + encodeURIComponent(releaseId)));
+      if (!pageLive(owner.token) || releaseIsActive(release)) return;
+      onReleaseEnded(release);
+    } catch (_error) {
+      if (pageLive(owner.token) && owner.tab === "deployments") loadReleases();
     }
   }
 
@@ -1820,8 +1924,10 @@
     const token = page.token;
     container.innerHTML = loadingHtml(t("Loading the app\u2026"));
     loadSettings().catch(function () { /* the parts that need it say so */ });
+    let app;
     try {
-      page.app = await request(appPath(appId));
+      // The single-app read: the one answer the variables are taken from.
+      app = await request(appPath(appId));
     } catch (error) {
       if (!pageLive(token)) return;
       drawPageError(error);
@@ -1829,6 +1935,7 @@
       return;
     }
     if (!pageLive(token)) return;
+    page.app = app;
     drawPageFrame();
     syncHeader();
     // The side pane marks the list this app is in; an administrator looking
@@ -1938,11 +2045,12 @@
     }
 
     const facts = [];
-    if (app.url) {
+    const url = safeUrl(app.url);
+    if (url) {
       facts.push(factHtml(
         t("Address"),
-        '<a href="' + esc(app.url) + '" target="_blank" rel="noopener">' + esc(app.url) + "</a> " +
-        '<button type="button" class="portal-btn portal-app-icon-btn" data-app-copy-link="' + esc(app.url) + '" title="' + esc(t("Copy link")) + '" aria-label="' + esc(t("Copy link")) +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + "</a> " +
+        '<button type="button" class="portal-btn portal-app-icon-btn" data-app-copy-link="' + esc(url) + '" title="' + esc(t("Copy link")) + '" aria-label="' + esc(t("Copy link")) +
         '"><i data-lucide="copy" class="w-4 h-4"></i></button>'
       ));
     } else {
@@ -1968,11 +2076,15 @@
     }
     const repoUrl = manage.repo_web_url || manage.repo_url || "";
     if (repoUrl) {
+      // A link when the address is one to go to; the address as words when
+      // it is not (the page of a repository cannot be made of every address).
+      const repoLink = safeUrl(repoUrl);
+      const repoShown = repoUrl.replace(/^https?:\/\//, "");
       // An app made from a template follows no branch: it is pinned to a commit.
       const followed = /^[0-9a-f]{40}$/.test(manage.repo_ref || "") ? shortSha(manage.repo_ref) : manage.repo_ref || "";
       facts.push(factHtml(
         t("Code"),
-        '<a href="' + esc(repoUrl) + '" target="_blank" rel="noopener">' + esc(repoUrl.replace(/^https?:\/\//, "")) + "</a> \u00b7 " +
+        (repoLink ? '<a href="' + esc(repoLink) + '" target="_blank" rel="noopener">' + esc(repoShown) + "</a>" : esc(repoShown)) + " \u00b7 " +
         esc(followed) + (manage.entry_dir ? " \u00b7 " + esc(manage.entry_dir) : "")
       ));
     }
@@ -2152,65 +2264,67 @@
   // The host's own log of the job, read on from where the last read ended.
   async function pullReleaseLog(release) {
     if (!release.host_job_id) return;
+    const owner = page;
     try {
-      const data = await request(appPath(page.appId, "/releases/" + encodeURIComponent(release.id) + "/log?offset=" + page.releaseLogOffset));
-      if (page.shownReleaseId !== release.id || !data) return;
-      if (typeof data.text === "string" && data.text) page.releaseLog += data.text;
-      if (typeof data.size === "number" && data.size >= page.releaseLogOffset) page.releaseLogOffset = data.size;
-      page.releaseLogLive = Boolean(page.releaseLog);
+      const data = await request(appPath(owner.appId, "/releases/" + encodeURIComponent(release.id) + "/log?offset=" + owner.releaseLogOffset));
+      if (owner.shownReleaseId !== release.id || !data) return;
+      if (typeof data.text === "string" && data.text) owner.releaseLog += data.text;
+      if (typeof data.size === "number" && data.size >= owner.releaseLogOffset) owner.releaseLogOffset = data.size;
+      owner.releaseLogLive = Boolean(owner.releaseLog);
     } catch (_error) {
       // The end of the log the release itself carries is shown instead.
-      page.releaseLogLive = false;
+      owner.releaseLogLive = false;
     }
   }
 
   async function onReleaseEnded(release) {
-    const token = page.token;
+    const owner = page;
     // Said once, however many reads see the release ended.
-    if (page.announced[release.id]) return;
-    page.announced[release.id] = true;
+    if (owner.announced[release.id]) return;
+    owner.announced[release.id] = true;
     if (release.status === "succeeded") {
-      toast(release.kind === "rollback" ? t("{name} is rolled back.", { name: page.app.name }) : t("{name} is deployed.", { name: page.app.name }), "success");
+      toast(release.kind === "rollback" ? t("{name} is rolled back.", { name: owner.app.name }) : t("{name} is deployed.", { name: owner.app.name }), "success");
     } else {
       // The summary is a whole sentence of its own ("The deployment failed at the step ...").
       toast(release.error_summary || t("The deployment failed. Its log says why."), "error");
     }
     await Promise.all([reloadApp(), refreshStatus()]);
-    if (!pageLive(token)) return;
-    if (page.tab === "deployments") loadReleases();
+    if (!pageLive(owner.token)) return;
+    if (owner.tab === "deployments") loadReleases();
     scheduleStatus();
   }
 
   // One chain of reads per followed release: `follow` is the chain's number,
-  // and a chain that is no longer the newest stops at its next step.
-  async function pollRelease(releaseId, failures, follow) {
-    const token = page.token;
+  // and a chain that is no longer the newest stops at its next step. A step
+  // that starts from a timer is handed the page the chain belongs to.
+  async function pollRelease(releaseId, failures, follow, from) {
+    const owner = from || page;
     const current = function () {
-      return pageLive(token) && page.following === follow && page.shownReleaseId === releaseId && page.tab === "deployments";
+      return pageLive(owner.token) && owner.following === follow && owner.shownReleaseId === releaseId && owner.tab === "deployments";
     };
-    page.releaseTimer = 0;
+    owner.releaseTimer = 0;
     let release;
     try {
-      release = await request(appPath(page.appId, "/releases/" + encodeURIComponent(releaseId)));
+      release = await request(appPath(owner.appId, "/releases/" + encodeURIComponent(releaseId)));
     } catch (error) {
       if (!current()) return;
       // A read that fails is tried again a few times before the page says so.
       if (failures < 5) {
-        page.releaseTimer = window.setTimeout(function () { pollRelease(releaseId, failures + 1, follow); }, RELEASE_POLL_MS * 2);
+        owner.releaseTimer = window.setTimeout(function () { pollRelease(releaseId, failures + 1, follow, owner); }, RELEASE_POLL_MS * 2);
       } else {
         toast(t("The deployment can no longer be followed: {error}", { error: error.message }), "error");
       }
       return;
     }
     if (!current()) return;
-    page.release = release;
+    owner.release = release;
     await pullReleaseLog(release);
     if (!current()) return;
     drawRelease();
     if (releaseIsActive(release)) {
-      page.releaseTimer = window.setTimeout(function () { pollRelease(releaseId, 0, follow); }, RELEASE_POLL_MS);
+      owner.releaseTimer = window.setTimeout(function () { pollRelease(releaseId, 0, follow, owner); }, RELEASE_POLL_MS);
     } else {
-      page.following = 0;
+      owner.following = 0;
       onReleaseEnded(release);
     }
   }
@@ -2226,23 +2340,32 @@
     pollRelease(releaseId, 0, page.following);
   }
 
+  // The release the member pressed Details on. It stays in the panel until
+  // they pick another one or start a deployment themselves: a deployment
+  // that runs meanwhile does not take its place (onStatusChanged,
+  // loadReleases). Picking the running one follows it.
+  function pickRelease(releaseId) {
+    page.pickedReleaseId = releaseId;
+    return showReleaseOnce(releaseId);
+  }
+
   async function showReleaseOnce(releaseId) {
-    const token = page.token;
+    const owner = page;
     stopReleasePolling();
-    page.following = 0;
-    page.shownReleaseId = releaseId;
-    page.releaseLog = "";
-    page.releaseLogOffset = 0;
-    page.releaseLogLive = false;
+    owner.following = 0;
+    owner.shownReleaseId = releaseId;
+    owner.releaseLog = "";
+    owner.releaseLogOffset = 0;
+    owner.releaseLogLive = false;
     try {
-      const release = await request(appPath(page.appId, "/releases/" + encodeURIComponent(releaseId)));
-      if (!pageLive(token) || page.shownReleaseId !== releaseId) return;
-      page.release = release;
+      const release = await request(appPath(owner.appId, "/releases/" + encodeURIComponent(releaseId)));
+      if (!pageLive(owner.token) || owner.shownReleaseId !== releaseId) return;
+      owner.release = release;
       drawRelease();
       drawHistory();
       if (releaseIsActive(release)) followRelease(releaseId);
     } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
+      if (pageLive(owner.token)) toast(error.message, "error");
     }
   }
 
@@ -2283,32 +2406,33 @@
   }
 
   async function loadReleases() {
-    const token = page.token;
+    const owner = page;
     try {
-      const data = await request(appPath(page.appId, "/releases"));
-      if (!pageLive(token)) return;
-      page.releases = Array.isArray(data && data.releases) ? data.releases : [];
-      page.rollbackReleaseId = (data && data.rollback_release_id) || "";
-      page.releasesError = "";
+      const data = await request(appPath(owner.appId, "/releases"));
+      if (!pageLive(owner.token)) return;
+      owner.releases = Array.isArray(data && data.releases) ? data.releases : [];
+      owner.rollbackReleaseId = (data && data.rollback_release_id) || "";
+      owner.releasesError = "";
     } catch (error) {
-      if (!pageLive(token)) return;
-      page.releasesError = error.message;
-      if (page.releases === null) {
+      if (!pageLive(owner.token)) return;
+      owner.releasesError = error.message;
+      if (owner.releases === null) {
         drawHistory();
         return;
       }
     }
-    if (page.tab !== "deployments") return;
+    if (owner.tab !== "deployments") return;
     drawHistory();
     // What to show above the history: the deployment just asked for, one that
-    // is running, or else the newest entry (and why it failed, if it did).
-    const active = page.releases.filter(releaseIsActive)[0];
-    const wanted = page.followReleaseId || (active && active.id) || "";
-    page.followReleaseId = "";
+    // is running (unless the member is reading a release they picked), or
+    // else the newest entry (and why it failed, if it did).
+    const active = owner.releases.filter(releaseIsActive)[0];
+    const wanted = owner.followReleaseId || (!owner.pickedReleaseId && active && active.id) || "";
+    owner.followReleaseId = "";
     if (wanted) {
-      if (!(page.following && page.shownReleaseId === wanted)) followRelease(wanted);
-    } else if (!page.shownReleaseId && page.releases.length) {
-      showReleaseOnce(page.releases[0].id);
+      if (!(owner.following && owner.shownReleaseId === wanted)) followRelease(wanted);
+    } else if (!owner.shownReleaseId && owner.releases.length) {
+      showReleaseOnce(owner.releases[0].id);
     }
   }
 
@@ -2339,6 +2463,8 @@
       "</div>";
     drawIcons(body);
     page.shownReleaseId = "";
+    page.pickedReleaseId = "";
+    page.activeSeenId = "";
     page.release = null;
     page.deployRefsLoaded = false;
     syncDeployControls();
@@ -2367,51 +2493,61 @@
     }
   }
 
+  // `options.owner` is the page a dialog asked on (confirmUpgrade): the
+  // deployment is asked for that page's app, whatever is on the screen by
+  // the time the dialog is confirmed.
   async function startDeploy(options) {
-    if (page.busy || !page.app) return;
-    const token = page.token;
-    const manage = page.app.manage || {};
-    const typed = deployRefValue();
+    const owner = (options && options.owner) || page;
+    if (owner.busy || !owner.app) return;
+    const live = function () { return pageLive(owner.token); };
+    const manage = owner.app.manage || {};
+    const typed = live() ? deployRefValue() : "";
     const latest = Boolean(options && options.latest) || !typed || typed === manage.repo_ref;
-    page.busy = true;
-    page.busyAction = options && options.upgradeTo !== undefined ? "upgrade" : "deploy";
-    syncDeployControls();
-    if (page.tab === "overview") drawOverview();
-    const pressed = busy(page.tab === "deployments" && page.root ? page.root.querySelector("[data-app-deploy]") : null, t("Starting\u2026"));
+    owner.busy = true;
+    owner.busyAction = options && options.upgradeTo !== undefined ? "upgrade" : "deploy";
+    if (live()) {
+      syncDeployControls();
+      if (owner.tab === "overview") drawOverview();
+    }
+    const pressed = busy(live() && owner.tab === "deployments" && owner.root ? owner.root.querySelector("[data-app-deploy]") : null, t("Starting\u2026"));
     try {
       let release;
       if (options && options.upgradeTo !== undefined) {
-        release = await request(appPath(page.appId, "/upgrade"), { method: "POST", json: { version_id: options.upgradeTo } });
+        release = await request(appPath(owner.appId, "/upgrade"), { method: "POST", json: { version_id: options.upgradeTo } });
       } else if (latest) {
-        release = await request(appPath(page.appId, "/deploy-latest"), { method: "POST" });
+        release = await request(appPath(owner.appId, "/deploy-latest"), { method: "POST" });
       } else {
-        release = await request(appPath(page.appId, "/deploy"), { method: "POST", json: { ref: typed } });
+        release = await request(appPath(owner.appId, "/deploy"), { method: "POST", json: { ref: typed } });
       }
-      if (!pageLive(token)) return;
+      if (!live()) return;
       toast(t("The deployment has started."));
-      page.status = Object.assign({}, page.status || {}, { deploying: true, active_release_id: release && release.id });
-      page.busy = false;
-      page.followReleaseId = (release && release.id) || "";
-      if (page.tab !== "deployments") {
-        if (shell()) await shell().openApp(page.appId, "deployments");
+      owner.status = Object.assign({}, owner.status || {}, { deploying: true, active_release_id: release && release.id });
+      owner.busy = false;
+      owner.followReleaseId = (release && release.id) || "";
+      // Asked for by the member: it is followed, whatever release they were reading.
+      owner.pickedReleaseId = "";
+      if (owner.tab !== "deployments") {
+        if (shell()) await shell().openApp(owner.appId, "deployments");
       } else {
         syncDeployControls();
         loadReleases();
       }
+      if (!live()) return;
       syncHeader();
       scheduleStatus();
     } catch (error) {
       // Asked from a dialog: the dialog is still open and shows what went wrong.
       if (options && options.rethrow) throw error;
-      if (!pageLive(token)) return;
+      if (!live()) return;
       toast(error.message, "error");
     } finally {
       pressed();
-      if (pageLive(token)) {
-        page.busy = false;
-        page.busyAction = "";
+      owner.busy = false;
+      owner.busyAction = "";
+      if (live()) {
         syncDeployControls();
-        if (page.tab === "overview") drawOverview();
+        syncSettingsHold();
+        if (owner.tab === "overview") drawOverview();
       }
     }
   }
@@ -2419,30 +2555,30 @@
   // An app made from a template moves to the template's newer version only
   // when its owner says so.
   async function confirmUpgrade(versionId) {
-    if (page.busy || !page.app || !page.app.template) return;
-    const token = page.token;
-    const template = page.app.template;
+    const owner = page;
+    if (owner.busy || !owner.app || !owner.app.template) return;
+    const template = owner.app.template;
     await window.showConfirm({
-      title: t("Upgrade {name} to version {tag}?", { name: page.app.name, tag: (template.update_available && template.update_available.tag) || "?" }),
+      title: t("Upgrade {name} to version {tag}?", { name: owner.app.name, tag: (template.update_available && template.update_available.tag) || "?" }),
       message: t("The app is deployed again from that version of {template}. If it does not work out, Roll back returns to the version it runs now.", {
         template: template.app_name || t("its template"),
       }),
       confirmText: t("Upgrade"),
       busyText: t("Starting\u2026"),
       action: function () {
-        return pageLive(token) ? startDeploy({ upgradeTo: versionId, rethrow: true }) : null;
+        return startDeploy({ upgradeTo: versionId, rethrow: true, owner: owner });
       },
     });
   }
 
   async function runRollback() {
-    if (page.busy || !page.app) return;
-    const token = page.token;
-    const target = (page.releases || []).filter(function (release) { return release.id === page.rollbackReleaseId; })[0];
+    const owner = page;
+    if (owner.busy || !owner.app) return;
+    const target = (owner.releases || []).filter(function (release) { return release.id === owner.rollbackReleaseId; })[0];
     let release = null;
     let failed = false;
     const confirmed = await window.showConfirm({
-      title: t("Roll back {name}?", { name: page.app.name }),
+      title: t("Roll back {name}?", { name: owner.app.name }),
       message: target && target.commit_sha
         ? t("The app switches back to the release that ran before ({sha}) and restarts.", { sha: shortSha(target.commit_sha) })
         : t("The app switches back to the release that ran before and restarts."),
@@ -2451,31 +2587,33 @@
       busyMessage: t("Switching to the release that ran before and restarting the app."),
       // The dialog stays until the host has switched; what fails is said in it.
       action: async function () {
-        page.busy = true;
-        page.busyAction = "rollback";
-        syncDeployControls();
+        owner.busy = true;
+        owner.busyAction = "rollback";
+        if (pageLive(owner.token)) syncDeployControls();
         try {
-          release = await request(appPath(page.appId, "/rollback"), { method: "POST" });
+          release = await request(appPath(owner.appId, "/rollback"), { method: "POST" });
         } catch (error) {
           failed = true;
           throw error;
         } finally {
-          if (pageLive(token)) {
-            page.busy = false;
-            page.busyAction = "";
+          owner.busy = false;
+          owner.busyAction = "";
+          if (pageLive(owner.token)) {
             syncDeployControls();
+            syncSettingsHold();
           }
         }
       },
     });
-    if (!pageLive(token)) return;
+    if (!pageLive(owner.token)) return;
     if (!confirmed || !release) {
       if (failed) loadReleases();
       return;
     }
-    page.release = release;
-    page.shownReleaseId = release.id;
-    page.releaseLogLive = false;
+    owner.release = release;
+    owner.shownReleaseId = release.id;
+    owner.pickedReleaseId = "";
+    owner.releaseLogLive = false;
     drawRelease();
     await onReleaseEnded(release);
   }
@@ -2501,11 +2639,19 @@
     node.dataset.state = state;
   }
 
-  function drawLogLines() {
+  // The whole log, written anew. It ends at its last line, as when the page
+  // first reads it; with `keepPlace` it does so only for a member who was at
+  // the end, and one who is reading further up keeps the lines they are on
+  // (what was taken off the top is made up for).
+  function drawLogLines(keepPlace) {
     const box = logBox();
     if (!box) return;
+    const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 32;
+    const heightBefore = box.scrollHeight;
+    const topBefore = box.scrollTop;
     box.textContent = page.log.lines.length ? page.log.lines.join("\n") + "\n" : "";
-    box.scrollTop = box.scrollHeight;
+    if (!keepPlace || atEnd) box.scrollTop = box.scrollHeight;
+    else box.scrollTop = Math.max(0, topBefore - Math.max(0, heightBefore - box.scrollHeight));
     const empty = page.root.querySelector("[data-app-log-empty]");
     if (empty) empty.hidden = page.log.lines.length > 0;
   }
@@ -2513,11 +2659,13 @@
   function appendLogLines(lines) {
     const box = logBox();
     if (!lines.length) return;
-    page.log.lines = page.log.lines.concat(lines);
-    if (page.log.lines.length > LOG_MAX_LINES) {
-      // The oldest lines go; Download still gets them from the host.
+    Array.prototype.push.apply(page.log.lines, lines);
+    if (page.log.lines.length >= LOG_MAX_LINES + LOG_TRIM_LINES) {
+      // The oldest lines go, a batch at a time (Download still gets them
+      // from the host): the box is written anew once per batch and not once
+      // per line, and it stays where the member is reading.
       page.log.lines = page.log.lines.slice(-LOG_MAX_LINES);
-      drawLogLines();
+      drawLogLines(true);
       return;
     }
     if (!box) return;
@@ -2676,14 +2824,18 @@
   }
 
   async function downloadLog(button) {
+    const owner = page;
+    const slug = (owner.app && owner.app.slug) || "app";
     const fetched = busy(button, t("Preparing\u2026"));
     try {
-      const data = await request(appPath(page.appId, "/logs?tail=" + LOG_MAX_LINES));
+      const data = await request(appPath(owner.appId, "/logs?tail=" + LOG_MAX_LINES));
+      // The member has left the page meanwhile: no file arrives on another one.
+      if (!pageLive(owner.token)) return;
       const lines = Array.isArray(data && data.lines) ? data.lines : [];
       const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
-      saveTextFile((page.app.slug || "app") + "-log-" + stamp + ".txt", lines.join("\n") + "\n");
+      saveTextFile(slug + "-log-" + stamp + ".txt", lines.join("\n") + "\n");
     } catch (error) {
-      toast(error.message, "error");
+      if (pageLive(owner.token)) toast(error.message, "error");
     } finally {
       fetched();
     }
@@ -2835,14 +2987,17 @@
   async function drawUsage() {
     const body = tabBody();
     if (!body) return;
-    const token = page.token;
+    const owner = page;
+    // The period asked for: an answer for one the member has since changed is not drawn.
+    const days = owner.usageDays;
+    const wanted = function () { return pageLive(owner.token) && owner.tab === "usage" && owner.usageDays === days; };
     body.innerHTML = loadingHtml(t("Loading usage\u2026"));
     try {
-      const usage = await request(appPath(page.appId, "/usage?days=" + page.usageDays));
-      if (!pageLive(token) || page.tab !== "usage") return;
+      const usage = await request(appPath(owner.appId, "/usage?days=" + days));
+      if (!wanted()) return;
       drawUsageData(usage || {});
     } catch (error) {
-      if (!pageLive(token) || page.tab !== "usage") return;
+      if (!wanted()) return;
       body.innerHTML = error.status === 404
         ? '<div class="portal-panel-empty">' + esc(t("Usage figures are not available on this Portal yet.")) + "</div>"
         : errorHtml(error.message, "data-app-usage-retry");
@@ -2867,11 +3022,58 @@
     return t("Visitors will read these systems with the account of {owner}'s connector.", { owner: ownerName(page.app) });
   }
 
-  async function patchApp(changes) {
-    const app = await request(appPath(page.appId), { method: "PATCH", json: changes });
-    page.app = app;
-    syncHeader();
+  // Saves changes to the app of `owner`, the page that asked. The answer is
+  // that app as it was saved: it is kept on that page and on no other, and
+  // the header follows it only while that page is the one on the screen.
+  async function patchApp(owner, changes) {
+    const app = await request(appPath(owner.appId), { method: "PATCH", json: changes });
+    const carriesEnv = Boolean(app && app.manage && app.manage.env !== undefined && app.manage.env !== null);
+    keepApp(owner, app);
+    // Variables an answer does not repeat are the ones that were just saved.
+    if (!carriesEnv && changes && changes.env && owner.app && owner.app.manage) owner.app.manage.env = changes.env;
+    if (pageLive(owner.token)) syncHeader();
     return app;
+  }
+
+  // While one action holds the page, the choices and switches of Settings
+  // wait with it. A second save beside the first would undo it (the list of
+  // connectors is sent whole, and the answer that arrives last is the one
+  // the page keeps), and a choice that cannot be saved must not look chosen.
+  // They are held where they are, so the one being saved keeps its spinner;
+  // what was switched off for another reason stays off when the hold ends.
+  const SETTINGS_HELD = ["audience", "capabilities", "template"];
+
+  function syncSettingsHold() {
+    if (!page.root || page.tab !== "settings" || !page.app || !page.app.can_manage) return;
+    SETTINGS_HELD.forEach(function (name) {
+      const section = settingsSection(name);
+      if (!section) return;
+      Array.prototype.forEach.call(section.querySelectorAll("input"), function (input) {
+        if (page.busy) {
+          if (!input.disabled) {
+            input.disabled = true;
+            input.dataset.appHeld = "1";
+          }
+        } else if (input.dataset.appHeld) {
+          input.disabled = false;
+          delete input.dataset.appHeld;
+        }
+      });
+    });
+    syncEnvSave();
+  }
+
+  // One save of Settings at a time, with the page held from the request to
+  // its answer. `save` is what asks the server; `owner` the page it is for.
+  async function saveHeld(owner, save) {
+    owner.busy = true;
+    if (pageLive(owner.token)) syncSettingsHold();
+    try {
+      return await save();
+    } finally {
+      owner.busy = false;
+      if (pageLive(owner.token)) syncSettingsHold();
+    }
   }
 
   function audienceSectionHtml() {
@@ -2976,11 +3178,21 @@
     const save = section.querySelector("[data-app-env-save]");
     const changed = !result.error && JSON.stringify(Object.keys(result.env).sort().map(function (key) { return [key, result.env[key]]; })) !==
       JSON.stringify(Object.keys(saved).sort().map(function (key) { return [key, saved[key]]; }));
+    // What is wrong with the rows as they are typed, or else what the server
+    // said to the last save: that stays until the rows are changed, so a
+    // save that failed is not answered with a button that just comes back.
+    const said = result.error || page.envFailure || "";
     if (message) {
-      message.textContent = result.error || "";
-      message.classList.toggle("is-error", Boolean(result.error));
+      message.textContent = said;
+      message.classList.toggle("is-error", Boolean(said));
     }
     if (save) save.disabled = Boolean(result.error) || !changed || page.busy;
+  }
+
+  // The rows were changed by the member: what the last save was told no longer applies.
+  function envRowsChanged() {
+    page.envFailure = "";
+    syncEnvSave();
   }
 
   function tokenUsedText() {
@@ -3059,11 +3271,14 @@
   function codeSectionHtml() {
     const manage = page.app.manage || {};
     const repoUrl = manage.repo_web_url || manage.repo_url || "";
-    const forkUrl = manage.fork_url || (repoUrl ? repoUrl.replace(/\/+$/, "") + "/fork" : "");
+    // Links only for addresses there is a page to go to (safeUrl); the
+    // repository's address is shown as words either way.
+    const repoLink = safeUrl(repoUrl);
+    const forkLink = safeUrl(manage.fork_url || (repoLink ? repoLink.replace(/\/+$/, "") + "/fork" : ""));
     return (
       '<div class="portal-overview-panel-head"><h3>' + esc(t("Code")) + "</h3></div>" +
       '<dl class="portal-app-facts is-compact">' +
-      factHtml(t("Repository"), repoUrl ? '<a href="' + esc(repoUrl) + '" target="_blank" rel="noopener">' + esc(repoUrl) + "</a>" : "-") +
+      factHtml(t("Repository"), repoLink ? '<a href="' + esc(repoLink) + '" target="_blank" rel="noopener">' + esc(repoUrl) + "</a>" : esc(repoUrl || "-")) +
       (page.app.template
         ? factHtml(t("Version"), esc((page.app.template.version && page.app.template.version.tag) || "?") + " <code>" + esc(shortSha(manage.repo_ref)) + "</code>")
         : factHtml(t("Branch or tag"), esc(manage.repo_ref || "-"))) +
@@ -3071,7 +3286,7 @@
       "</dl>" +
       '<p class="portal-panel-note">' + esc(t("The Portal only reads this repository: the app changes when someone pushes to it and deploys.")) + "<br />" +
       esc(t("Without write access to it, fork it on GitHub with your own account and register your fork here as a new app.")) + "</p>" +
-      (forkUrl ? '<div><a class="portal-btn" href="' + esc(forkUrl) + '" target="_blank" rel="noopener"><i data-lucide="git-fork" class="w-4 h-4"></i><span>' + esc(t("Fork on GitHub")) + "</span></a></div>" : "")
+      (forkLink ? '<div><a class="portal-btn" href="' + esc(forkLink) + '" target="_blank" rel="noopener"><i data-lucide="git-fork" class="w-4 h-4"></i><span>' + esc(t("Fork on GitHub")) + "</span></a></div>" : "")
     );
   }
 
@@ -3088,6 +3303,8 @@
     if (!section) return;
     section.innerHTML = html;
     drawIcons(section);
+    // Drawn anew while the page is held: what was drawn waits like the rest.
+    if (SETTINGS_HELD.indexOf(name) >= 0) syncSettingsHold();
   }
 
   async function loadTemplateDetails() {
@@ -3107,6 +3324,7 @@
     const body = tabBody();
     if (!body || !page.app) return;
     page.tokenShown = false;
+    page.envFailure = "";
     page.templateTags = null;
     page.templateVersions = null;
     body.innerHTML =
@@ -3130,28 +3348,31 @@
         redrawSettingsSection("capabilities", capabilitySectionHtml());
       }, function () { /* the defaults stay */ });
     }
+    // Opened while an action runs (a restart, say): the choices wait for it.
+    syncSettingsHold();
     loadTemplateDetails();
   }
 
   async function changeAudience(input) {
-    const app = page.app;
+    const owner = page;
+    const app = owner.app;
     const manage = app.manage || {};
     const previous = app.visibility;
     const next = input.value;
-    if (next === previous || page.busy) return;
-    const token = page.token;
     const restore = function () {
-      if (pageLive(token)) redrawSettingsSection("audience", audienceSectionHtml());
+      if (pageLive(owner.token)) redrawSettingsSection("audience", audienceSectionHtml());
     };
+    if (next === previous) return;
+    // Another action holds the page, so this choice cannot be saved now: it
+    // is put back, not left looking chosen.
+    if (owner.busy) {
+      restore();
+      return;
+    }
     let updated = null;
     let asked = false;
-    const save = async function () {
-      page.busy = true;
-      try {
-        return await patchApp({ visibility: next });
-      } finally {
-        page.busy = false;
-      }
+    const save = function () {
+      return saveHeld(owner, function () { return patchApp(owner, { visibility: next }); });
     };
     if (audienceWidens(previous, next)) {
       // More people in: said again what their use costs the owner.
@@ -3179,12 +3400,12 @@
       try {
         updated = await save();
       } catch (error) {
-        if (pageLive(token)) toast(error.message, "error");
+        if (pageLive(owner.token)) toast(error.message, "error");
       } finally {
         saved();
       }
     }
-    if (updated && pageLive(token)) {
+    if (updated && pageLive(owner.token)) {
       if (updated.anyone_pending_approval) toast(t("An administrator has to approve it before anyone can open the app without signing in. Until then every member can open it."));
       else toast(t("{audience} can open {name} now.", { audience: audienceLabel(updated.visibility), name: updated.name }), "success");
     }
@@ -3192,13 +3413,21 @@
   }
 
   async function changeCapability(input) {
-    const app = page.app;
+    const owner = page;
+    const app = owner.app;
     const manage = app.manage || {};
-    const token = page.token;
     const turnedOn = input.checked;
     const restore = function () {
-      if (pageLive(token)) redrawSettingsSection("capabilities", capabilitySectionHtml());
+      if (pageLive(owner.token)) redrawSettingsSection("capabilities", capabilitySectionHtml());
     };
+    // One save at a time. The lists below are made of what the page knows
+    // now and are sent whole: made while another save is on its way, they
+    // would leave out what that save changes and undo it. The switch is put
+    // back; it can be pressed again once the page is free.
+    if (owner.busy) {
+      restore();
+      return;
+    }
     let changes;
     let question = null;
     if (input.hasAttribute("data-app-llm")) {
@@ -3227,20 +3456,24 @@
         };
       }
     }
+    // The other switches and choices wait from the request to its answer.
+    const save = function () {
+      return saveHeld(owner, function () { return patchApp(owner, changes); });
+    };
     if (question) {
       // The dialog stays until the change is saved, and says so when it is not.
       await window.showConfirm(Object.assign(question, {
         busyText: t("Saving\u2026"),
-        action: function () { return patchApp(changes); },
+        action: function () { return save(); },
       }));
       restore();
       return;
     }
     const saved = savingControl(input);
     try {
-      await patchApp(changes);
+      await save();
     } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
+      if (pageLive(owner.token)) toast(error.message, "error");
     } finally {
       saved();
       restore();
@@ -3248,94 +3481,97 @@
   }
 
   async function saveEnv() {
+    const owner = page;
     const result = envFromRows(readEnvRows());
-    if (result.error || page.busy) return;
-    const token = page.token;
-    page.busy = true;
-    syncEnvSave();
+    if (result.error || owner.busy) return;
+    owner.busy = true;
+    owner.envFailure = "";
+    // The Save button, and the choices and switches above it, wait.
+    syncSettingsHold();
     const section = settingsSection("env");
     const saved = busy(section && section.querySelector("[data-app-env-save]"), t("Saving\u2026"));
     try {
-      await patchApp({ env: result.env });
-      if (!pageLive(token)) return;
-      toast(page.app.deployed ? t("Saved. The app restarts with the new values.") : t("Saved. The values apply from the first deployment."), "success");
-      page.busy = false;
+      await patchApp(owner, { env: result.env });
+      if (!pageLive(owner.token)) return;
+      toast(owner.app.deployed ? t("Saved. The app restarts with the new values.") : t("Saved. The values apply from the first deployment."), "success");
+      owner.busy = false;
       redrawSettingsSection("env", envSectionHtml());
     } catch (error) {
-      if (!pageLive(token)) return;
-      const message = settingsSection("env") && settingsSection("env").querySelector("[data-app-env-msg]");
-      if (message) {
-        message.textContent = error.message;
-        message.classList.add("is-error");
-      }
+      // Said in the line beside the button (syncEnvSave), where it stays
+      // until the rows are changed.
+      owner.envFailure = error.message;
     } finally {
       saved();
-      page.busy = false;
-      if (pageLive(token)) syncEnvSave();
+      owner.busy = false;
+      if (pageLive(owner.token)) syncSettingsHold();
     }
   }
 
   // Reading the token is recorded in the app's activity, so it is asked for
-  // only when the member wants to see or copy it.
-  async function fetchToken() {
-    const data = await request(appPath(page.appId, "/token"));
-    page.token_value = String((data && data.token) || "");
-    if (page.app.manage && data) {
-      page.app.manage.token_last_used_at = data.last_used_at || null;
-      page.app.manage.token_last_used_source = data.last_used_source || null;
+  // only when the member wants to see or copy it. It is the token of the app
+  // of `owner`, the page that asked, and is kept on that page while it is
+  // open: one that arrives after the member left is kept nowhere.
+  async function fetchToken(owner) {
+    const data = await request(appPath(owner.appId, "/token"));
+    const value = String((data && data.token) || "");
+    if (!pageLive(owner.token)) return value;
+    owner.token_value = value;
+    if (owner.app && owner.app.manage && data) {
+      owner.app.manage.token_last_used_at = data.last_used_at || null;
+      owner.app.manage.token_last_used_source = data.last_used_source || null;
     }
-    return page.token_value;
+    return value;
   }
 
   async function revealToken(button) {
-    const token = page.token;
+    const owner = page;
     // The token is asked for the first time it is shown; the button waits with the member.
     const fetched = !page.tokenShown && !page.token_value ? busy(button, t("Loading\u2026")) : function () {};
     try {
-      if (!page.tokenShown && !page.token_value) await fetchToken();
-      if (!pageLive(token)) return;
-      page.tokenShown = !page.tokenShown;
+      if (!owner.tokenShown && !owner.token_value) await fetchToken(owner);
+      if (!pageLive(owner.token)) return;
+      owner.tokenShown = !owner.tokenShown;
       redrawSettingsSection("token", tokenSectionHtml());
     } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
+      if (pageLive(owner.token)) toast(error.message, "error");
     } finally {
       fetched();
     }
   }
 
   async function copyToken(button) {
-    const token = page.token;
+    const owner = page;
     const fetched = page.token_value ? function () {} : busy(button, t("Copying\u2026"));
     try {
-      const value = page.token_value || (await fetchToken());
-      if (!pageLive(token)) return;
+      const value = owner.token_value || (await fetchToken(owner));
+      if (!pageLive(owner.token)) return;
       toast((await copyToClipboard(value)) ? t("Token copied") : t("Copy failed"));
     } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
+      if (pageLive(owner.token)) toast(error.message, "error");
     } finally {
       fetched();
     }
   }
 
   async function resetToken() {
-    const token = page.token;
+    const owner = page;
     let data = null;
     const confirmed = await window.showConfirm({
-      title: t("Reset the token of {name}?", { name: page.app.name }),
+      title: t("Reset the token of {name}?", { name: owner.app.name }),
       message: t("The old token stops working at once and the app restarts with the new one. A copy in a .env file on someone's machine has to be replaced."),
       confirmText: t("Reset token"),
       busyText: t("Resetting\u2026"),
       danger: true,
       action: async function () {
-        data = await request(appPath(page.appId, "/token/reset"), { method: "POST" });
+        data = await request(appPath(owner.appId, "/token/reset"), { method: "POST" });
       },
     });
-    if (!confirmed || !pageLive(token)) return;
-    page.token_value = String((data && data.token) || "");
-    page.tokenShown = true;
-    if (page.app.manage) {
-      page.app.manage.token_last_used_at = null;
-      page.app.manage.token_last_used_source = null;
+    if (!confirmed || !pageLive(owner.token)) return;
+    owner.token_value = String((data && data.token) || "");
+    owner.tokenShown = true;
+    if (owner.app.manage) {
+      owner.app.manage.token_last_used_at = null;
+      owner.app.manage.token_last_used_source = null;
     }
     redrawSettingsSection("token", tokenSectionHtml());
     if (data && data.host_synced === false) {
@@ -3346,21 +3582,31 @@
   }
 
   async function toggleTemplate(input) {
-    const token = page.token;
+    const owner = page;
+    const offered = input.checked;
+    // Held like the other switches of Settings: its answer is the whole app
+    // too, and must not land beside another save's.
+    if (owner.busy) {
+      if (pageLive(owner.token)) redrawSettingsSection("template", templateSectionHtml());
+      return;
+    }
     const saved = savingControl(input);
     try {
-      const answer = await request(appPath(page.appId, "/template"), { method: "PUT", json: { is_template: input.checked } });
-      if (!pageLive(token)) return;
-      if (answer && typeof answer === "object" && answer.id) page.app = answer;
-      else page.app.is_template = input.checked;
-      toast(input.checked ? t("{name} is offered as a template once a version is published.", { name: page.app.name }) : t("{name} is no longer offered as a template.", { name: page.app.name }));
+      const answer = await saveHeld(owner, function () {
+        return request(appPath(owner.appId, "/template"), { method: "PUT", json: { is_template: offered } });
+      });
+      if (answer && typeof answer === "object" && answer.id) keepApp(owner, answer);
+      else if (owner.app) owner.app.is_template = offered;
+      if (pageLive(owner.token)) {
+        toast(offered ? t("{name} is offered as a template once a version is published.", { name: owner.app.name }) : t("{name} is no longer offered as a template.", { name: owner.app.name }));
+      }
     } catch (error) {
-      if (pageLive(token)) toast(error.status === 404 ? t("Templates are not available on this Portal yet.") : error.message, "error");
+      if (pageLive(owner.token)) toast(error.status === 404 ? t("Templates are not available on this Portal yet.") : error.message, "error");
     }
     saved();
-    if (!pageLive(token)) return;
-    page.templateTags = null;
-    page.templateVersions = null;
+    if (!pageLive(owner.token)) return;
+    owner.templateTags = null;
+    owner.templateVersions = null;
     redrawSettingsSection("template", templateSectionHtml());
     loadTemplateDetails();
     refreshNavCounts();
@@ -3388,8 +3634,9 @@
   }
 
   async function removeTemplateVersion(button) {
-    const token = page.token;
+    const owner = page;
     const tag = button.dataset.tag || "";
+    const versionId = button.dataset.appTemplateRemove;
     const confirmed = await window.showConfirm({
       title: t("Remove version {tag}?", { tag: tag }),
       message: t("Nobody can start a new app from this version any more. Apps already made from it keep running."),
@@ -3397,11 +3644,11 @@
       busyText: t("Removing\u2026"),
       danger: true,
       action: function () {
-        return request(appPath(page.appId, "/template/versions/" + encodeURIComponent(button.dataset.appTemplateRemove)), { method: "DELETE" });
+        return request(appPath(owner.appId, "/template/versions/" + encodeURIComponent(versionId)), { method: "DELETE" });
       },
     });
     if (!confirmed) return;
-    if (pageLive(token)) {
+    if (pageLive(owner.token)) {
       loadTemplateDetails();
       refreshNavCounts();
     }
@@ -3473,20 +3720,22 @@
   }
 
   async function clearData() {
-    const token = page.token;
+    const owner = page;
+    const name = owner.app.name;
     const confirmed = await window.showConfirm({
-      title: t("Clear the data of {name}?", { name: page.app.name }),
+      title: t("Clear the data of {name}?", { name: name }),
       message: t("Everything the app saved is removed and cannot be brought back. The app itself keeps running."),
       confirmText: t("Clear data"),
       busyText: t("Clearing\u2026"),
       danger: true,
       action: function () {
-        return request(appPath(page.appId, "/data"), { method: "DELETE" });
+        return request(appPath(owner.appId, "/data"), { method: "DELETE" });
       },
     });
-    if (!pageLive(token)) return;
-    if (confirmed) toast(t("The data of {name} is cleared.", { name: page.app.name }), "success");
-    if (page.tab === "data") drawData();
+    // Said wherever the member is by now: the sentence names the app.
+    if (confirmed) toast(t("The data of {name} is cleared.", { name: name }), "success");
+    if (!pageLive(owner.token)) return;
+    if (owner.tab === "data") drawData();
   }
 
   // ---- Activity ----
@@ -3616,8 +3865,9 @@
     if (app.anyone_pending_approval) badges.push('<span class="portal-admin-status-badge is-danger">' + esc(t("Waiting for approval")) + "</span>");
     const menuId = "admin-app-menu-" + esc(app.id);
     const items = ['<button type="button" role="menuitem" data-admin-app-manage="' + esc(app.id) + '">' + esc(t("Manage")) + "</button>"];
-    if (app.url && app.deployed) {
-      items.push('<button type="button" role="menuitem" data-admin-app-open="' + esc(app.url) + '">' + esc(t("Open in a new tab")) + "</button>");
+    const url = safeUrl(app.url);
+    if (url && app.deployed) {
+      items.push('<button type="button" role="menuitem" data-admin-app-open="' + esc(url) + '">' + esc(t("Open in a new tab")) + "</button>");
     }
     if (app.visibility === "anyone") {
       items.push(
@@ -3700,6 +3950,19 @@
     }
   }
 
+  // The list could not be read. Before the first one there is nowhere to say
+  // so but in its place; once a list is on the screen it stays (what it
+  // shows may be a little old) and the failure is said beside it: a Refresh
+  // that changes nothing would look like one that found nothing new.
+  function adminLoadFailed(message) {
+    const hadList = admin.apps !== null;
+    admin.error = message;
+    drawAdminRows();
+    if (hadList && admin.root && admin.root.isConnected) {
+      toast(t("The list of apps could not be refreshed: {error}", { error: message }), "error");
+    }
+  }
+
   async function loadAdminApps() {
     const seq = ++admin.seq;
     let data = null;
@@ -3712,15 +3975,11 @@
           const list = await request(API + "?scope=all");
           data = { apps: (list && list.apps) || [], host: null };
         } catch (fallbackError) {
-          if (seq !== admin.seq) return;
-          admin.error = fallbackError.message;
-          drawAdminRows();
+          if (seq === admin.seq) adminLoadFailed(fallbackError.message);
           return;
         }
       } else {
-        if (seq !== admin.seq) return;
-        admin.error = error.message;
-        drawAdminRows();
+        if (seq === admin.seq) adminLoadFailed(error.message);
         return;
       }
     }
@@ -3891,11 +4150,12 @@
 
       // The header over an open app
       if ((el = hit("[data-app-copy-current]"))) {
-        if (page.app && page.app.url) copyToClipboard(page.app.url).then(function (copied) { toast(copied ? t("Link copied") : t("Copy failed")); });
+        const link = page.app ? safeUrl(page.app.url) : "";
+        if (link) copyToClipboard(link).then(function (copied) { toast(copied ? t("Link copied") : t("Copy failed")); });
         return;
       }
       if ((el = hit("[data-app-open-current]"))) {
-        if (page.app && page.app.url) window.open(page.app.url, "_blank", "noopener");
+        if (page.app) openInNewTab(page.app.url);
         return;
       }
 
@@ -3907,7 +4167,7 @@
       if ((el = hit("[data-app-deploy]"))) { startDeploy({}); return; }
       if ((el = hit("[data-app-upgrade]"))) { confirmUpgrade(el.dataset.appUpgrade); return; }
       if ((el = hit("[data-app-rollback]"))) { runRollback(); return; }
-      if ((el = hit("[data-app-release-show]"))) { showReleaseOnce(el.dataset.appReleaseShow); return; }
+      if ((el = hit("[data-app-release-show]"))) { pickRelease(el.dataset.appReleaseShow); return; }
       if ((el = hit("[data-app-release-log-copy]"))) {
         const log = page.root && page.root.querySelector("[data-release-log]");
         copyToClipboard(log ? log.textContent : "").then(function (copied) { toast(copied ? t("Copied") : t("Copy failed")); });
@@ -3929,13 +4189,13 @@
         el.classList.toggle("is-active", shown);
         return;
       }
-      if ((el = hit("[data-env-remove]"))) { el.closest("[data-env-row]").remove(); syncEnvSave(); return; }
+      if ((el = hit("[data-env-remove]"))) { el.closest("[data-env-row]").remove(); envRowsChanged(); return; }
       if ((el = hit("[data-app-env-add]"))) {
         const rows = settingsSection("env").querySelector("[data-app-env-rows]");
         rows.insertAdjacentHTML("beforeend", envRowHtml("", ""));
         drawIcons(rows.lastElementChild);
         rows.lastElementChild.querySelector("[data-env-name]").focus();
-        syncEnvSave();
+        envRowsChanged();
         return;
       }
       if ((el = hit("[data-app-env-save]"))) { saveEnv(); return; }
@@ -3948,7 +4208,7 @@
 
       // Administration > Apps
       if ((el = hit("[data-admin-app-manage]"))) { closeRowMenus(); if (shell()) shell().openApp(el.dataset.adminAppManage, ""); return; }
-      if ((el = hit("[data-admin-app-open]"))) { closeRowMenus(); window.open(el.dataset.adminAppOpen, "_blank", "noopener"); return; }
+      if ((el = hit("[data-admin-app-open]"))) { closeRowMenus(); openInNewTab(el.dataset.adminAppOpen); return; }
       if ((el = hit("[data-admin-app-approve]"))) { closeRowMenus(); adminApprove(el.dataset.adminAppApprove, true); return; }
       if ((el = hit("[data-admin-app-unapprove]"))) { closeRowMenus(); adminApprove(el.dataset.adminAppUnapprove, false); return; }
       if ((el = hit("[data-admin-app-transfer]"))) { closeRowMenus(); adminTransfer(el.dataset.adminAppTransfer); return; }
@@ -4002,7 +4262,7 @@
       if (target.matches("#app-create-repo, #app-create-ref, #app-create-dir")) { scheduleInspect(false); return; }
       if (target.matches("#app-create-name")) { syncAddressPreview(); return; }
       if (target.matches("#app-create-template-name")) { syncCreateSubmit(); return; }
-      if (target.matches("[data-env-name], [data-env-value]")) { syncEnvSave(); return; }
+      if (target.matches("[data-env-name], [data-env-value]")) { envRowsChanged(); return; }
       if (target.matches("[data-admin-apps-search]")) { admin.query = target.value; drawAdminRows(); }
     });
 
@@ -4088,6 +4348,7 @@
       plausibleEntryDir: plausibleEntryDir,
       plausibleRef: plausibleRef,
       plausibleRepoUrl: plausibleRepoUrl,
+      safeUrl: safeUrl,
       slugify: slugify,
       sortAvailable: sortAvailable,
       sortMine: sortMine,
