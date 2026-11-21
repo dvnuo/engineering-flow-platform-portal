@@ -49,6 +49,9 @@ const dom = {
   uiLocaleOptions: Array.from(document.querySelectorAll("[data-ui-locale-option]")),
   shortcutsBtn: document.getElementById("shortcuts-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
+  // Only in the page while Apps is enabled (APPS_ENABLED); see apps.js.
+  appsMenuBtn: document.getElementById("apps-menu-btn"),
+  appsNavSection: document.getElementById("apps-nav-section"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
@@ -150,6 +153,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
 
 const PORTAL_ROUTE_SECTIONS = new Set([
   "assistants",
+  "apps",
   "tasks",
   "help",
   "connectors",
@@ -159,6 +163,10 @@ const PORTAL_ROUTE_SECTIONS = new Set([
 const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";
 // Links saved before Connections became Connectors still open the right place.
 const LEGACY_PORTAL_ROUTE_SECTIONS = { "runtime-profiles": "connectors" };
+// #/apps/<view> names one of the app center's lists; anything else after
+// #/apps/ is an app's id, optionally followed by one of its page's parts.
+const PORTAL_APPS_VIEWS = new Set(["mine", "available", "templates"]);
+const PORTAL_APP_TABS = new Set(["overview", "deployments", "logs", "usage", "settings", "data", "activity"]);
 
 function canonicalPortalRouteSection(section) {
   return LEGACY_PORTAL_ROUTE_SECTIONS[section] || section;
@@ -167,6 +175,8 @@ function canonicalPortalRouteSection(section) {
 function isPortalRouteSectionAvailable(section) {
   if (!PORTAL_ROUTE_SECTIONS.has(section)) return false;
   if (section === "users") return Boolean(dom.usersMenuBtn);
+  // The rail button is in the page only while Apps is enabled.
+  if (section === "apps") return Boolean(dom.appsMenuBtn);
   return true;
 }
 
@@ -190,6 +200,7 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
 const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
+  if (section === "apps") return t("Apps");
   if (section === "tasks") return t("Tasks");
   if (section === "connectors") return t("Connectors");
   if (section === "delegations") return t("Delegations");
@@ -199,6 +210,7 @@ function initialPortalSectionTitle(section) {
 }
 
 function initialPortalStatusText(section) {
+  if (section === "apps") return t("Small web apps members publish. They open in a new tab.");
   if (section === "tasks") return t("Task health, workload, and recent activity");
   if (section === "connectors") return t("Everything your assistants can connect to");
   if (section === "delegations") return t("Manage delegations");
@@ -210,7 +222,7 @@ function initialPortalStatusText(section) {
 // The eyebrow above the side pane's title: whose things the pane lists.
 function portalSectionEyebrow(section) {
   if (section === "users" || section === "help") return t("Portal");
-  if (section === "tasks" || section === "delegations") return t("Workspace");
+  if (section === "tasks" || section === "delegations" || section === "apps") return t("Workspace");
   return t("My Space");
 }
 
@@ -218,6 +230,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const normalized = isPortalRouteSectionAvailable(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   const railButtons = {
     assistants: dom.railAssistantsBtn,
+    apps: dom.appsMenuBtn,
     tasks: dom.tasksMenuBtn,
     connectors: dom.connectorsMenuBtn,
     delegations: dom.delegationsMenuBtn,
@@ -226,6 +239,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   };
   const navSections = {
     assistants: dom.assistantsNavSection,
+    apps: dom.appsNavSection,
     tasks: dom.tasksNavSection,
     connectors: dom.connectorsNavSection,
     delegations: dom.delegationsNavSection,
@@ -512,6 +526,11 @@ const state = {
   delegationFilters: { owner: "all", source: "all" },
   selectedDelegationRuleId: null,
   selectedUserManagementView: "",
+  // Apps: the app center's open list ("" = let it choose), or one app's page
+  // and the part of it that is open (apps.js draws both).
+  selectedAppsView: "",
+  selectedAppId: "",
+  selectedAppTab: "",
   agentDefaults: null,
   gitRepoBranches: new Map(),
   createAgentStep: "runtime",
@@ -540,6 +559,9 @@ function parsePortalHashRoute(hash = window.location.hash) {
     delegationRuleId: "",
     userManagementView: "",
     helpTopicId: "",
+    appsView: "",
+    appId: "",
+    appTab: "",
     hadHash,
     raw,
   };
@@ -565,7 +587,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
 
   // Connector panels accept a `?step=N` deep link into their guided setup.
   if (queryString && section !== "connectors") return fallback;
-  if (encodedParts.length > 2) return fallback;
+  // An app's page has parts: #/apps/<app id>/<part>.
+  if (encodedParts.length > (section === "apps" ? 3 : 2)) return fallback;
 
   const decodedId = safeDecodeRouteComponent(encodedParts[1] || "");
   if (decodedId === null) return fallback;
@@ -587,6 +610,19 @@ function parsePortalHashRoute(hash = window.location.hash) {
     parsed.userManagementView = decodedId;
   } else if (section === "help") {
     parsed.helpTopicId = decodedId;
+  } else if (section === "apps") {
+    const decodedTab = safeDecodeRouteComponent(encodedParts[2] || "");
+    if (decodedTab === null) return fallback;
+    if (PORTAL_APPS_VIEWS.has(decodedId)) {
+      if (decodedTab) return fallback;
+      parsed.appsView = decodedId;
+    } else if (decodedId) {
+      if (decodedTab && !PORTAL_APP_TABS.has(decodedTab)) return fallback;
+      parsed.appId = decodedId;
+      parsed.appTab = decodedTab;
+    } else if (decodedTab) {
+      return fallback;
+    }
   }
   return parsed;
 }
@@ -623,6 +659,16 @@ function portalHashForRoute(route = {}) {
     return route.userManagementView === "members" ? "#/users/members" : "#/users";
   }
 
+  if (section === "apps") {
+    const appId = route.appId ? String(route.appId) : "";
+    if (appId) {
+      // The overview is the page itself, so its address carries no part.
+      const tab = PORTAL_APP_TABS.has(route.appTab) && route.appTab !== "overview" ? route.appTab : "";
+      return tab ? `#/apps/${encodeURIComponent(appId)}/${tab}` : `#/apps/${encodeURIComponent(appId)}`;
+    }
+    return PORTAL_APPS_VIEWS.has(route.appsView) ? `#/apps/${route.appsView}` : "#/apps";
+  }
+
   return "#/assistants";
 }
 
@@ -647,6 +693,15 @@ function currentPortalRouteFromState() {
 
   if (section === "users") {
     return { section, userManagementView: state.selectedUserManagementView || "" };
+  }
+
+  if (section === "apps") {
+    return {
+      section,
+      appsView: state.selectedAppsView || "",
+      appId: state.selectedAppId || "",
+      appTab: state.selectedAppTab || "",
+    };
   }
 
   return portalSectionRoute(DEFAULT_PORTAL_ROUTE_SECTION);
@@ -678,6 +733,10 @@ function clearPortalSectionDetailSelection(section) {
     state.selectedDelegationRuleId = null;
   } else if (section === "users") {
     state.selectedUserManagementView = "";
+  } else if (section === "apps") {
+    state.selectedAppsView = "";
+    state.selectedAppId = "";
+    state.selectedAppTab = "";
   }
 }
 
@@ -699,7 +758,8 @@ async function openPortalSection(section, {
     (section === "tasks" && !!state.selectedTaskId) ||
     (section === "connectors" && !!state.selectedConnectorType) ||
     (section === "delegations" && !!state.selectedDelegationRuleId) ||
-    (section === "users" && !!state.selectedUserManagementView)
+    (section === "users" && !!state.selectedUserManagementView) ||
+    (section === "apps" && !!state.selectedAppId)
   );
 
   // Section-only navigation means the user clicked the rail/menu to open the column page,
@@ -825,6 +885,17 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
     // An unknown topic id falls back to the default server-side rather than
     // erroring, so a stale bookmark still opens something useful.
     await openHelpTopic(route.helpTopicId || "", { updateRoute: false, ensureSection: false });
+    return;
+  }
+
+  if (route.section === "apps") {
+    // Selected first, so the section switch below draws nothing of its own:
+    // the address says which list or which app's page to open.
+    state.selectedAppsView = route.appsView || "";
+    state.selectedAppId = route.appId || "";
+    state.selectedAppTab = route.appTab || "";
+    await setActiveNavSection("apps", { toggleIfSame: false, updateRoute: false });
+    await openAppsInMain({ ensureSection: false, updateRoute: false });
     return;
   }
 
@@ -12473,6 +12544,89 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   }
 }
 
+// ===== Apps =====
+// The section's pages are drawn by apps.js (window.EfpApps), which is in the
+// page only while Apps is enabled. This side keeps what every section's
+// router keeps: which list or app is open, the address, the rail, the header.
+function markAppsNavRows(shownView = "") {
+  const onAppPage = Boolean(state.selectedAppId);
+  // An app's own page belongs to the list the app is in, which apps.js names
+  // once it has read the app ("My apps" until then); with no list named in
+  // the address, the app center says which one it chose.
+  const view = onAppPage ? (shownView || "mine") : (state.selectedAppsView || shownView || "");
+  document.querySelectorAll("[data-apps-view-nav]").forEach((item) => {
+    const active = item.dataset.appsViewNav === view;
+    item.classList.toggle("is-active", active);
+    if (active && !onAppPage) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+}
+
+// True while openAppsInMain switches to the section itself, so the switch
+// leaves the drawing to it.
+let isOpeningAppsInMain = false;
+
+async function openAppsInMain({ ensureSection = true, updateRoute = true } = {}) {
+  if (!dom.appsMenuBtn || !dom.workspaceDetailContent) return;
+  if (ensureSection && state.activeNavSection !== "apps") {
+    isOpeningAppsInMain = true;
+    try {
+      await setActiveNavSection("apps", { toggleIfSame: false, updateRoute: false });
+    } finally {
+      isOpeningAppsInMain = false;
+    }
+  }
+
+  setMainView("detail");
+  markAppsNavRows();
+  syncMainHeader();
+
+  if (updateRoute && !isApplyingPortalRoute) {
+    commitPortalRoute(currentPortalRouteFromState());
+  }
+
+  const appsUi = window.EfpApps;
+  if (!appsUi) {
+    dom.workspaceDetailContent.dataset.workspaceState = "apps-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Apps could not be loaded. Reload the page."))}</div>`;
+    return;
+  }
+  if (state.selectedAppId) {
+    dom.workspaceDetailContent.dataset.workspaceState = "apps-app";
+    await appsUi.showApp(dom.workspaceDetailContent, {
+      appId: state.selectedAppId,
+      tab: state.selectedAppTab || "overview",
+    });
+  } else {
+    dom.workspaceDetailContent.dataset.workspaceState = "apps-center";
+    await appsUi.showCenter(dom.workspaceDetailContent, { view: state.selectedAppsView || "" });
+  }
+}
+
+async function openAppsCenterInMain(view = "", options = {}) {
+  state.selectedAppsView = PORTAL_APPS_VIEWS.has(view) ? view : "";
+  state.selectedAppId = "";
+  state.selectedAppTab = "";
+  await openAppsInMain(options);
+}
+
+async function openAppInMain(appId, tab = "", options = {}) {
+  if (!appId) return;
+  state.selectedAppId = String(appId);
+  state.selectedAppTab = PORTAL_APP_TABS.has(tab) && tab !== "overview" ? tab : "";
+  await openAppsInMain(options);
+}
+
+// What apps.js asks of the shell.
+window.portalAppsShell = {
+  openCenter: (view, options) => openAppsCenterInMain(view, options),
+  openApp: (appId, tab, options) => openAppInMain(appId, tab, options),
+  markView: (view) => markAppsNavRows(view),
+  syncHeader: () => syncMainHeader(),
+  isActive: () => state.activeNavSection === "apps",
+  current: () => ({ view: state.selectedAppsView, appId: state.selectedAppId, tab: state.selectedAppTab || "overview" }),
+};
+
 function showPinnedPanelRestorePlaceholder(message = t("Select a utility from top toolbar.")) {
   setToolPanel(t("Panel"), `<div class="portal-inline-state is-visible">${safe(message)}</div>`, null, {
     persistPreference: false,
@@ -12578,9 +12732,25 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 // Connections field can link to a full guide and that link survives a reload or
 // being opened in a new tab.
 let activeHelpTopicId = "";
+// The topic whose panel is being fetched right now: { topicId, request }.
+let helpTopicLoad = null;
 
 async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true } = {}) {
   if (!dom.workspaceDetailContent) return;
+  // A link to a guide (#/help/<id>) reaches the router twice: the browser fires
+  // popstate and then hashchange for one fragment navigation. htmx sends the
+  // second request only once the first has ended and resolves its promise at
+  // once, so the second copy of the topic landed after everything that renders
+  // it had run, and the guide stayed an empty page. The topic is on its way
+  // already: wait for that load instead of starting another.
+  if (helpTopicLoad && helpTopicLoad.topicId === String(topicId || "")) {
+    try {
+      await helpTopicLoad.request;
+    } catch (error) {
+      // The call that started the load reports it.
+    }
+    return;
+  }
   if (ensureSection && state.activeNavSection !== "help") {
     await setActiveNavSection("help", { toggleIfSame: false, updateRoute: false });
   }
@@ -12599,12 +12769,15 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
     commitPortalRoute({ section: "help", helpTopicId: activeHelpTopicId });
   }
 
+  let request = null;
   try {
     const query = activeHelpTopicId ? `?topic=${encodeURIComponent(activeHelpTopicId)}` : "";
-    await htmx.ajax("GET", `/app/help/panel${query}`, {
+    request = htmx.ajax("GET", `/app/help/panel${query}`, {
       target: "#workspace-detail-content",
       swap: "innerHTML",
     });
+    helpTopicLoad = { topicId: activeHelpTopicId, request };
+    await request;
     dom.workspaceDetailContent.dataset.workspaceState = "help-topic";
     // The rendered topic is the authority on which one loaded, since an unknown
     // id falls back to the default server-side.
@@ -12621,6 +12794,8 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "help-error";
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Failed to load help: {error}", { error: error.message }))}</div>`;
+  } finally {
+    if (helpTopicLoad && helpTopicLoad.request === request) helpTopicLoad = null;
   }
 }
 
@@ -13065,6 +13240,7 @@ async function openOverviewAgent(agentId) {
 }
 
 function getSecondaryPaneLabel() {
+  if (state.activeNavSection === "apps") return t("Apps");
   if (state.activeNavSection === "tasks") return t("Tasks");
   if (state.activeNavSection === "connectors") return t("Connectors");
   if (state.activeNavSection === "delegations") return t("Delegations");
@@ -13146,6 +13322,9 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "connectors") {
     dom.secondaryPaneEyebrow.textContent = t("My Space");
     dom.secondaryPaneTitle.textContent = t("Connectors");
+  } else if (state.activeNavSection === "apps") {
+    dom.secondaryPaneEyebrow.textContent = t("Workspace");
+    dom.secondaryPaneTitle.textContent = t("Apps");
   } else if (state.activeNavSection === "help") {
     dom.secondaryPaneEyebrow.textContent = t("Portal");
     dom.secondaryPaneTitle.textContent = t("Help");
@@ -13163,6 +13342,10 @@ function syncOverviewToolbars() {
   const delegationGroup = document.getElementById("header-delegation-actions");
   taskGroup?.classList.toggle("hidden", section !== "tasks");
   delegationGroup?.classList.toggle("hidden", section !== "delegations");
+  // Apps: New app over the app center, Copy link and Open over one app's page.
+  const onAppPage = section === "apps" && !!state.selectedAppId;
+  document.getElementById("header-apps-actions")?.classList.toggle("hidden", section !== "apps" || onAppPage);
+  document.getElementById("header-app-actions")?.classList.toggle("hidden", !onAppPage);
 
   const taskScope = state.taskFilters?.owner === "mine" ? "mine" : "all";
   const delegationScope = state.delegationFilters?.owner === "mine" ? "mine" : "all";
@@ -13227,6 +13410,10 @@ const ADMIN_PANEL_HEADINGS = {
     title: t("Errors"),
     status: t("Failures and warnings collected for troubleshooting"),
   },
+  "apps": {
+    title: t("Apps"),
+    status: t("Every app, who owns it, and the app host"),
+  },
 };
 
 function syncAdminHeaderActions(section) {
@@ -13279,6 +13466,12 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "connectors") {
       dom.embedTitle.textContent = t("Connectors");
       setChatStatus(t("Everything your assistants can connect to"));
+    } else if (state.activeNavSection === "apps") {
+      // An open app's page is headed by the app's name and what it is doing.
+      const appsUi = typeof window !== "undefined" ? window.EfpApps : null;
+      const heading = (state.selectedAppId && appsUi && typeof appsUi.heading === "function" && appsUi.heading()) || {};
+      dom.embedTitle.textContent = heading.title || t("Apps");
+      setChatStatus(heading.status || t("Small web apps members publish. They open in a new tab."));
     }
   }
 }
@@ -13335,6 +13528,7 @@ async function setActiveNavSection(section, {
     : new Set(["assistants", "tasks", "connectors", "delegations", "users"]);
   if (!validSections.has(section)) return;
   if (section === "users" && !dom.usersMenuBtn) return;
+  if (section === "apps" && !dom.appsMenuBtn) return;
 
   if (preferSectionLanding) {
     clearPortalSectionDetailSelection(section);
@@ -13353,6 +13547,13 @@ async function setActiveNavSection(section, {
   }
 
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
+  dom.appsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "apps");
+  dom.appsNavSection?.classList.toggle("hidden", state.activeNavSection !== "apps");
+  // Leaving Apps ends what its pages keep running: a followed deployment, a
+  // live log, the status refresh.
+  if (previousSection === "apps" && state.activeNavSection !== "apps" && typeof window !== "undefined") {
+    window.EfpApps?.leave?.();
+  }
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.connectorsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "connectors");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
@@ -13414,11 +13615,25 @@ async function setActiveNavSection(section, {
       renderWorkspaceDetailPlaceholder(t("Loading connectors…"), "connectors-loading");
     } else if (section === "delegations") {
       renderWorkspaceDetailPlaceholder(t("Loading delegations…"), "delegations-loading");
+    } else if (section === "apps") {
+      renderWorkspaceDetailPlaceholder(t("Loading apps\u2026"), "apps-loading");
     }
   }
 
   if (state.activeNavSection === "users" && preferSectionLanding) {
     await openUsersInMain({ ensureSection: false, updateRoute: false });
+  }
+
+  // Apps: the app center, or the app's page that was open. An address being
+  // applied opens its own page (applyPortalRoute), so nothing is drawn twice.
+  if (
+    state.activeNavSection === "apps" &&
+    shouldRefreshVisibleSection &&
+    !isApplyingPortalRoute &&
+    typeof openAppsInMain === "function" &&
+    !isOpeningAppsInMain
+  ) {
+    await openAppsInMain({ ensureSection: false, updateRoute: false });
   }
 
   if (state.activeNavSection === "connectors" && shouldRefreshVisibleSection) {
@@ -22795,6 +23010,11 @@ function bindEvents() {
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
+  dom.appsMenuBtn?.addEventListener("click", () => openPortalSection("apps"));
+  // The app center's three lists, in the side pane.
+  document.querySelectorAll("[data-apps-view-nav]").forEach((item) => {
+    item.addEventListener("click", () => openAppsCenterInMain(item.dataset.appsViewNav));
+  });
   dom.agentSearchInput?.addEventListener("input", () => {
     state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
     renderAgentList();

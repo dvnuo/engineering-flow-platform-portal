@@ -145,10 +145,10 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return StatusResp()
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
@@ -202,7 +202,7 @@ def test_dispatch_task_done_delegation_triggers_immediate_reply_processing(db_se
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
     calls = []
@@ -242,12 +242,12 @@ def test_dispatch_task_async_status_poll_timeout_retry_then_success(db_session, 
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "done after retry"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
     polls = {"count": 0}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         polls["count"] += 1
         if polls["count"] == 1:
             raise httpx.ReadTimeout("status read timeout")
@@ -292,7 +292,7 @@ def test_agent_async_task_dispatch_uses_configured_poll_timeout_and_interval(db_
         def json():
             return {"ok": True, "status": "accepted", "request_id": "req-timeout"}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
     captured = {}
@@ -340,10 +340,10 @@ def test_dispatch_task_async_submit_then_error(db_session, monkeypatch):
         def json():
             return {"ok": False, "status": "error", "error": {"message": "bad input"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return StatusResp()
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
@@ -370,7 +370,7 @@ def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
@@ -424,7 +424,7 @@ def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkey
         def json():
             return {"ok": True, "status": "success", "final_response": "done"}
 
-    async def fake_post(url, body):
+    async def fake_post(url, body, **_kwargs):
         captured["url"] = url
         captured["body"] = body
         return SubmitResp()
@@ -491,7 +491,7 @@ def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_cred
         def json():
             return {"ok": True, "status": "success", "final_response": "done"}
 
-    async def fake_post(url, body):
+    async def fake_post(url, body, **_kwargs):
         captured["url"] = url
         captured["body"] = body
         return SubmitResp()
@@ -591,7 +591,7 @@ def test_agent_async_task_dispatch_applies_request_inference_overrides(db_sessio
         def json():
             return {"ok": True, "status": "success", "final_response": "done"}
 
-    async def fake_post(url, body):
+    async def fake_post(url, body, **_kwargs):
         captured["url"] = url
         captured["body"] = body
         return SubmitResp()
@@ -649,7 +649,7 @@ def test_poll_runtime_task_retries_transient_status_timeout_then_success(monkeyp
 
     polls = {"count": 0}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         polls["count"] += 1
         if polls["count"] == 1:
             raise httpx.ReadTimeout("status read timeout")
@@ -664,6 +664,7 @@ def test_poll_runtime_task_retries_transient_status_timeout_then_success(monkeyp
             runtime_status_url="http://runtime/api/tasks/task-1",
             metadata={"trace_id": "trace-1"},
             trace_context={"trace_id": "trace-1", "portal_dispatch_id": "dispatch-1"},
+            agent_id="agent-1",
             timeout_seconds=1,
             interval_seconds=0,
         )
@@ -677,7 +678,7 @@ def test_poll_runtime_task_transient_status_failures_handoff_running(monkeypatch
     service = TaskDispatcherService()
     polls = {"count": 0}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         polls["count"] += 1
         raise httpx.ReadTimeout("status read timeout")
 
@@ -688,6 +689,7 @@ def test_poll_runtime_task_transient_status_failures_handoff_running(monkeypatch
             runtime_status_url="http://runtime/api/tasks/task-timeout",
             metadata={"trace_id": "trace-timeout"},
             trace_context={"trace_id": "trace-timeout", "portal_dispatch_id": "dispatch-timeout"},
+            agent_id="agent-timeout",
             timeout_seconds=0.05,
             interval_seconds=0.001,
         )
@@ -721,10 +723,10 @@ def test_dispatch_task_poll_timeout_keeps_task_running_for_reconciler(db_session
         def json():
             return {"ok": True, "status": "running"}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return PendingResp()
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
@@ -770,7 +772,7 @@ def test_reconcile_running_task_applies_terminal_runtime_status(db_session, monk
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "done by reconciler"}}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return StatusResp()
 
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
@@ -807,7 +809,7 @@ def test_reconcile_running_task_keeps_recent_runtime_404_running(db_session, mon
         def json():
             return {"detail": "not found"}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return MissingResp()
 
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
@@ -844,7 +846,7 @@ def test_reconcile_running_task_marks_old_runtime_404_stale(db_session, monkeypa
         def json():
             return {"detail": "not found"}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         return MissingResp()
 
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
@@ -874,7 +876,7 @@ def test_reconcile_running_task_keeps_recent_runtime_connect_error_running(db_se
         lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
     )
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         raise httpx.ConnectError("all attempts failed")
 
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
@@ -902,7 +904,7 @@ def test_reconcile_running_task_marks_old_runtime_connect_error_stale(db_session
         lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
     )
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         raise httpx.ConnectError("all attempts failed")
 
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
@@ -948,12 +950,12 @@ def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeyp
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
 
     polls = {"count": 0}
 
-    async def fake_get(_url, _meta):
+    async def fake_get(_url, _meta, **_kwargs):
         polls["count"] += 1
         if polls["count"] == 1:
             return RunningResp()
@@ -988,7 +990,7 @@ def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_s
     service = TaskDispatcherService()
     monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         raise RuntimeError("runtime unavailable")
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
@@ -1058,7 +1060,7 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
         def json():
             return {"ok": True, "status": "success", "output_payload": {"result": "ok"}}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         fresh = db.get(AgentTask, task.id)
         fresh.status = "stale"
         fresh.result_payload_json = stale_payload
@@ -1113,7 +1115,7 @@ def test_dispatch_late_runtime_success_cannot_overwrite_cancelled(db_session, mo
         def json():
             return {"ok": True, "status": "success", "final_response": "ok"}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         fresh = db.get(AgentTask, task.id)
         fresh.status = "cancelled"
         fresh.summary = "Cancelled locally."
@@ -1145,7 +1147,7 @@ def test_cancel_running_task_recent_runtime_connect_error_raises_clean_runtime_e
         lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
     )
 
-    async def fake_cancel(_url, _meta):
+    async def fake_cancel(_url, _meta, **_kwargs):
         raise httpx.ConnectError("all attempts failed")
 
     monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
@@ -1173,7 +1175,7 @@ def test_cancel_running_task_old_runtime_connect_error_marks_stale(db_session, m
         lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
     )
 
-    async def fake_cancel(_url, _meta):
+    async def fake_cancel(_url, _meta, **_kwargs):
         raise httpx.ConnectError("all attempts failed")
 
     monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
@@ -1207,7 +1209,7 @@ def test_cancel_running_task_applies_runtime_terminal_success(db_session, monkey
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "already done"}}
 
-    async def fake_cancel(_url, _meta):
+    async def fake_cancel(_url, _meta, **_kwargs):
         return DoneResp()
 
     monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
@@ -1234,7 +1236,7 @@ def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypat
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
-    async def fake_post(_url, body):
+    async def fake_post(_url, body, **_kwargs):
         captured["url"] = _url
         captured["body"] = body
         return SubmitResp()
@@ -1363,7 +1365,7 @@ def test_agent_async_delegation_task_metadata_includes_source(monkeypatch, db_se
         def json():
             return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
 
-    async def fake_post(_url, body):
+    async def fake_post(_url, body, **_kwargs):
         captured["url"] = _url
         captured["body"] = body
         return SubmitResp()
@@ -1487,7 +1489,7 @@ def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
         def json():
             return {"ok": True, "status": "pending_restart"}
 
-    async def fake_post(_url, _body):
+    async def fake_post(_url, _body, **_kwargs):
         return SubmitResp()
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
     result = asyncio.run(service.dispatch_task(task.id, db))

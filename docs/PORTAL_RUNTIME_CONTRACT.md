@@ -173,3 +173,12 @@ The browser submits top-level local connector hints with an interactive chat req
 - `GET /api/sessions/{session_id}/pending-input` is authoritative only when it answers: a read that fails leaves the card as it is, and a later read that succeeds puts it away or replaces it.
 - The composer offers `jira.issues`, `github.pull_requests` and `confluence.pages` after a `#`; a pick replaces the `#...` with the item's `value`.
 - A card whose input names `github.pull_requests` or `ci.failed_builds` shows a count when its `review_requested` or `pr_checks` group has rows ("2 to review", "1 failed"). It is the request the picker makes on the click, made when the cards are painted; no other source is asked before a card is opened.
+
+## 17) Portal identity contract
+- Portal derives one trust token per agent: `HMAC-SHA256(key=SECRET_KEY, message="agent-trust:v1:" + agent_id)`, hex encoded. Nothing is stored.
+- The agent pod receives it as the environment variable `EFP_PORTAL_TRUST_TOKEN`.
+- Portal sends it as the header `X-Portal-Trust-Token` on every request it makes to that agent's runtime: the user-facing proxy (JSON, SSE, downloads, uploads), the `/api/events` WebSocket handshake, task dispatch / status / cancel, `GET /ready`, `GET /api/models`, `GET /api/capabilities` and the share pages. Browser-supplied values of this header are never forwarded.
+- A runtime that has the variable must require the matching header before it trusts `X-Portal-Author-Source: portal` and the identity headers; a runtime without the variable behaves as before.
+- The runtime sends the same header on its calls to Portal `/api/internal/agents/{agent_id}/...`. Portal rejects a token that does not belong to the agent in the path with 401; a call without the header is rejected only when `INTERNAL_API_AUTH_REQUIRED=true`.
+- `/api/internal/*` is for callers inside the cluster: Portal answers 404 when such a request arrives through a reverse proxy (`X-Forwarded-For` or `X-Real-IP` present), unless `INTERNAL_API_BLOCK_FORWARDED=false`.
+- Changing `SECRET_KEY` changes every token; agents must be restarted to receive the new one.

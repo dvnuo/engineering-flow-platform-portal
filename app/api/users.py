@@ -23,6 +23,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.access_control_service import AccessControlService
+from app.services.apps.member_hooks import member_access_changed
 from app.services.auth_service import hash_password
 from app.services.authorization import (
     ROLE_SYSTEM_ADMIN,
@@ -149,6 +150,7 @@ def _ensure_allowlist_access(
         UserRepository(db).update_access(existing_user, role=role)
     if entry.role != role:
         UserAllowlistRepository(db).update_role(entry, role)
+    member_access_changed(entry.username)  # apps of a member who is let back in come back up
     return entry, profile_id
 
 
@@ -379,6 +381,7 @@ def remove_from_allowlist(
 
     audit_details = {"username": entry.username}
     allowlist.delete(entry)
+    member_access_changed(audit_details["username"])  # their apps go down with their access
     AuditRepository(db).create(
         action="remove_allowlist_user",
         target_type="user_allowlist",

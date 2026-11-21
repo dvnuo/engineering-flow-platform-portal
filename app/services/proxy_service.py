@@ -13,6 +13,7 @@ except Exception:
 
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
+from app.services.agent_trust import TRUST_TOKEN_HEADER, agent_trust_headers
 from app.services.member_identity import github_login_for
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,10 @@ def build_portal_agent_headers(user, agent) -> dict[str, str]:
     sanitized_name = sanitize_header_value(getattr(agent, "name", None))
     if sanitized_name:
         headers["X-Portal-Agent-Name"] = sanitized_name
+    # What proves to this assistant's runtime that the request is the Portal's
+    # (app/services/agent_trust.py). forward() and forward_multipart() add it
+    # on their own as well, for callers that pass no identity headers.
+    headers.update(agent_trust_headers(agent))
     return headers
 
 
@@ -276,6 +281,7 @@ class ProxyService:
         url = f"{base}{path}"
 
         outbound_headers = self._build_outbound_headers(headers, extra_headers)
+        outbound_headers.update(agent_trust_headers(agent))
 
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(
@@ -320,6 +326,7 @@ class ProxyService:
         path = f"/{subpath}" if subpath else "/"
         url = f"{base}{path}"
         outbound_headers = self._build_outbound_headers(headers or {}, extra_headers)
+        outbound_headers.update(agent_trust_headers(agent))
 
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.request(
@@ -343,6 +350,7 @@ class ProxyService:
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
             "x-portal-agent-name": "X-Portal-Agent-Name",
+            TRUST_TOKEN_HEADER.lower(): TRUST_TOKEN_HEADER,
             "x-trace-id": "X-Trace-Id",
             "x-span-id": "X-Span-Id",
             "x-parent-span-id": "X-Parent-Span-Id",

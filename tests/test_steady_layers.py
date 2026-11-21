@@ -41,6 +41,7 @@ LAYERS = [
     ("app/templates/app.html", 'id="file-preview-modal"', VIEWER, "one image or one link"),
     ("app/templates/app.html", 'id="onboarding-overlay"', FRAME, "three steps"),
     ("app/templates/app.html", 'id="create-simple-modal"', FRAME, "the kinds of assistant load after it opens"),
+    ("app/templates/partials/app_create_dialog.html", 'id="app-create-modal"', FRAME, "four fields, then what the repository holds or what to fix; a second source with its own fields"),
     ("app/templates/partials/assistant_types_panel.html", 'id="assistant-type-create-modal"', STILL, "a form drawn by the server"),
     ("app/templates/partials/task_create_panel.html", "create-task-modal-title", FRAME, "four steps"),
     ("app/templates/partials/task_detail_panel.html", 'id="task-followup-modal"', FRAME, "two steps"),
@@ -53,7 +54,7 @@ LAYERS = [
     ("app/static/js/chat_ui.js", "create-delegation-modal-title", FRAME, "four steps, and fields that follow the source"),
     ("app/static/js/chat_ui.js", "edit-delegation-modal-title", FRAME, "four steps, and fields that follow the source"),
     ("app/static/js/chat_ui.js", "system-prompt-editor-modal", STILL, "a switch and a text box"),
-    ("app/static/js/dialogs.js", '"modal portal-dialog";', STILL, "confirm, prompt and alert"),
+    ("app/static/js/dialogs.js", '"modal portal-dialog";', KEPT, "confirm, prompt and alert; with an action, the line that says what is happening or what went wrong"),
     ("app/static/js/mobile_testing.js", "data-recording-dialog", FRAME, "a form, then progress, then a result"),
 ]
 
@@ -140,6 +141,7 @@ FRAMES = {
     ".portal-dialog-card.portal-picker-dialog.has-list": ".portal-dialog-card.portal-picker-dialog.has-list > .portal-picker-list",
     ".portal-onboarding-card": ".portal-onboarding-card > .portal-onboarding-step",
     "#create-simple-modal > .modal-card": "#create-simple-modal > .modal-card > form > .portal-assistant-type-grid",
+    "#app-create-modal > .modal-card": "#app-create-modal > .modal-card > form > .portal-app-create-body",
     "[data-recording-dialog] > .portal-dialog-card": "[data-recording-dialog] > .portal-dialog-card > .efp-replay-body",
 }
 
@@ -249,6 +251,21 @@ def test_the_share_dialog_has_the_links_row_before_the_link_exists():
     assert 'statusLine.classList.toggle("hidden"' not in dialog
     assert "copyBtn.disabled = !share;" in dialog
     assert 't("Not shared yet.")' in dialog
+
+
+def test_a_dialog_that_waits_has_its_status_line_and_its_button_width_from_the_start():
+    dialogs = _read("app/static/js/dialogs.js")
+    # The line is part of the markup whenever the dialog can have something to say.
+    assert "var statusHtml = hasAction || typeof opts.validate === \"function\"" in dialogs
+    assert '<p class="portal-dialog-status" data-dialog-status aria-live="polite"></p>' in dialogs
+    assert "statusEl.hidden" not in dialogs and 'statusEl.classList.toggle("hidden"' not in dialogs
+    # Two lines of room, and no more than two lines shown.
+    status = _declarations(".portal-dialog-status")
+    assert status["min-height"] == "42px" and status["line-height"] == "21px"
+    assert status["-webkit-line-clamp"] == "2" and status["overflow"] == "hidden"
+    # The confirm button is given the width of its busy label before the action starts.
+    assert "function reserveBusyWidth(button, label) {" in dialogs
+    assert "if (hasAction) reserveBusyWidth(confirmEl," in dialogs
 
 
 def test_the_pending_list_comes_back_at_the_height_it_had():

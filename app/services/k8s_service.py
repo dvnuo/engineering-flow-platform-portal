@@ -10,6 +10,7 @@ from uuid import uuid4
 from app.config import get_settings
 from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type
 from app.redaction import sanitize_exception_message
+from app.services.agent_trust import TRUST_TOKEN_ENV, agent_trust_token
 from app.utils.git_urls import normalize_git_repo_url
 from app.utils.k8s_quantity import cpu_millicores, format_cpu, format_memory, memory_bytes, percent_of
 
@@ -1290,6 +1291,11 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
             if getattr(agent, "name", None):
                 env.append(client.V1EnvVar(name="PORTAL_AGENT_NAME", value=str(agent.name)))
+            # The secret this assistant shares with the Portal: once the pod has
+            # it, the runtime wants it on every Portal request (the
+            # X-Portal-Trust-Token header) and sends it on its own calls to
+            # /api/internal/* (app/services/agent_trust.py).
+            env.append(client.V1EnvVar(name=TRUST_TOKEN_ENV, value=agent_trust_token(agent.id)))
             runtime_type = self._runtime_type(agent)
             workspace_dir = self._effective_mount_path(agent)
             profile_secret_name = self._profile_secret_name(agent)

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{# What /apps/launch/{slug} shows when it cannot send the visitor on to the
+   app: the app does not exist, the member may not open it, or the app host
+   has no public address. The look is the access page's (unauthorized.html). #}
+{% block content %}
+<div class="portal-access-shell">
+  <main class="portal-access-card" aria-labelledby="app-launch-title" data-app-launch="{{ kind }}">
+    <div class="portal-access-visual" aria-hidden="true">
+      <span class="portal-access-orbit"></span>
+      <span class="portal-access-pulse"></span>
+      <span class="portal-access-shield">
+        <i data-lucide="{{ 'lock' if kind == 'denied' else 'app-window' }}" class="w-10 h-10"></i>
+      </span>
+    </div>
+
+    {% if kind == "denied" %}
+    <div class="portal-access-eyebrow">{{ t("No access") }}</div>
+    <h1 id="app-launch-title">{{ t("You do not have access to this app") }}</h1>
+    {#- The names keep their emphasis inside the translated sentence: each
+        block escapes its name, so the filled sentence is safe to output. -#}
+    {% set app_html %}<strong>{{ app_name }}</strong>{% endset %}
+    {% set owner_html %}<strong>{{ owner_name }}</strong>{% endset %}
+    <p class="portal-access-copy">
+      {{ t("{app} belongs to {owner}. Ask them to share it with you.", app=app_html, owner=owner_html)|safe }}
+    </p>
+    {% set username_html %}<strong>{{ username }}</strong>{% endset %}
+    <p class="portal-access-help">{{ t("You are signed in as {name}.", name=username_html)|safe }}</p>
+    {% elif kind == "unavailable" %}
+    <div class="portal-access-eyebrow">{{ t("Not available") }}</div>
+    <h1 id="app-launch-title">{{ t("Apps are not available") }}</h1>
+    <p class="portal-access-copy">{{ t("Apps are not fully set up on this Portal yet. Ask an administrator.") }}</p>
+    {% else %}
+    <div class="portal-access-eyebrow">{{ t("Not found") }}</div>
+    <h1 id="app-launch-title">{{ t("This app does not exist") }}</h1>
+    <p class="portal-access-copy">{{ t("The address may be wrong, or the app was removed.") }}</p>
+    {% endif %}
+
+    <div class="portal-access-actions">
+      <a class="portal-btn is-primary" href="/app">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        <span>{{ t("Open the Portal") }}</span>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  window.lucide?.createIcons();
+});
+</script>
+{% endblock %}

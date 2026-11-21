@@ -34,6 +34,13 @@ A short recorded stretch of an app (logging in, choosing a currency) that
 scenarios reuse. Recorded once per platform; the assistant keeps it working
 when the app's layout moves.
 
+## App
+
+A small web app a member publishes from a GitHub repository. It runs at an
+address of its own and opens in a new tab. Its owner decides who may open it,
+and it uses its owner's model provider and connectors, never the visitor's.
+See [Using apps](#/help/using-apps) and [Building apps](#/help/building-apps).
+
 ## Connectors
 
 Everything an assistant can reach: the model provider, Jira, Confluence,

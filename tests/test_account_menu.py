@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from app.config import Settings
 from app.db import Base
 from app.models import User, UserAllowlistEntry
+from app.security.session_cookie import session_cookie_name
 from app.services.member_avatar import avatar_initials, avatar_photo_url
 
 REPO = Path(__file__).resolve().parents[1]
@@ -102,7 +103,7 @@ def _app_page(monkeypatch, *, username, nickname, role="user", photo_host=""):
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     monkeypatch.setattr(web_module.get_settings(), "avatar_photo_host", photo_host)
     client = TestClient(app)
-    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+    client.cookies.set(session_cookie_name(), issue_session_token(user.id))
     try:
         response = client.get("/app", follow_redirects=False)
     finally:
@@ -138,6 +139,8 @@ def test_rail_bottom_is_connectors_plus_the_account_button():
     rail_bottom = APP_HTML[start:APP_HTML.index("</nav>", start)]
     assert rail_bottom.count('class="portal-rail-btn') == 2
     assert 'id="connectors-menu-btn"' in rail_bottom
+    # Apps is a section of its own and lives in the top group.
+    assert 'id="apps-menu-btn"' not in rail_bottom
     for marker in (
         'id="account-menu-btn"',
         'aria-haspopup="menu"',

@@ -19,7 +19,9 @@ class UsageDailyRollup(Base):
 
     __tablename__ = "usage_daily_rollups"
     __table_args__ = (
-        UniqueConstraint("day", "user_id", "agent_id", "runtime_type", "kind", "model", name="uq_usage_daily_rollups_dims"),
+        UniqueConstraint(
+            "day", "user_id", "agent_id", "app_id", "runtime_type", "kind", "model", name="uq_usage_daily_rollups_dims"
+        ),
         Index("ix_usage_daily_rollups_day", "day"),
         Index("ix_usage_daily_rollups_user_day", "user_id", "day"),
     )
@@ -28,6 +30,8 @@ class UsageDailyRollup(Base):
     day: Mapped[date] = mapped_column(Date, nullable=False)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     agent_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    # The app whose SDK calls these are (runtime_type "app"); "" for an assistant's runs.
+    app_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
     runtime_type: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     kind: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(128), nullable=False, default="")

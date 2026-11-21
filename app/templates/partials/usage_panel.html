@@ -18,7 +18,9 @@
   {% if member_usage %}
   {# The member's own runs across every assistant, from the Portal's records: this needs no runtime. #}
   <div class="portal-panel-section portal-my-usage" data-my-usage>
-    <div class="portal-detail-label">{{ t("Your usage across assistants") }}</div>
+    {# An app of the member's spends the same model provider: its row stands with the assistants', marked as an app. #}
+    {% set has_app_rows = (member_usage.by_agent or [])|selectattr("app_id")|list|length > 0 %}
+    <div class="portal-detail-label">{% if has_app_rows %}{{ t("Your usage across assistants and apps") }}{% else %}{{ t("Your usage across assistants") }}{% endif %}</div>
     {% if credit_notice.over %}
     <div class="portal-callout is-warning" data-my-usage-notice>{{ t("You have used {credits} credits this month, above the {threshold}-credit guideline. See the cost guide for ways to spend less.", credits='%.1f'|format(credit_notice.credits), threshold='%.0f'|format(credit_notice.threshold)) }}</div>
     {% endif %}
@@ -29,7 +31,7 @@
     {% if member_usage.by_agent %}
     <div class="portal-my-usage-agents">
       {% for row in member_usage.by_agent %}
-      <div class="portal-panel-note"><strong>{{ row.name }}</strong> · {{ '%.1f'|format(row.credits) }} {{ t("credits") }} · {{ tn(row.executions, "{n} run", "{n} runs") }}</div>
+      <div class="portal-panel-note"{% if row.app_id %} data-usage-app="{{ row.app_id }}"{% endif %}><strong>{{ row.name }}</strong>{% if row.app_id %} <span class="portal-admin-role-badge">{{ t("App") }}</span>{% endif %} &middot; {{ '%.1f'|format(row.credits) }} {{ t("credits") }} &middot; {{ tn(row.executions, "{n} run", "{n} runs") }}</div>
       {% endfor %}
     </div>
     {% endif %}

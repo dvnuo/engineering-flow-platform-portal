@@ -1,0 +1,8 @@
+{# Shared by the usage panels: the kind of a run and the runtime it ran on, as words.
+
+   Most values are shown as the rollups store them (chat, task, native ...).
+   An app's model calls are stored as kind "app_llm" on the runtime "app"
+   (app/services/usage_rollup_service.py): an app is neither a kind of run a
+   member starts nor a runtime, so both get a name of their own. #}
+{% macro kind_label(value) %}{% if value == "app_llm" %}{{ t("App model call") }}{% elif value %}{{ tv(value) }}{% else %}{{ t("(unknown)") }}{% endif %}{% endmacro %}
+{% macro runtime_label(value) %}{% if value == "app" %}{{ t("Apps") }}{% elif value %}{{ value }}{% else %}{{ t("(unknown)") }}{% endif %}{% endmacro %}

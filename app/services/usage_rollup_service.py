@@ -10,6 +10,14 @@ harmless), the worker does this hourly for the last few days, and
 the sums outlive the rows. Credits are Copilot's own charge where the runtime
 reported one, the estimate otherwise (``credit_value``), which is also how the
 member table counts them.
+
+The model calls of apps (``app_executions`` of kind ``llm``, written by the SDK
+API) are rolled up next to the assistants' runs: one row per day, app and
+model for the app's owner, with ``runtime_type = "app"``, ``kind = "app_llm"``
+and ``app_id`` set (``agent_id`` is ""). Credits are the provider's own
+charge; a provider that reports none counts none. They are pruned by
+``prune_app_executions`` with the same retention, after their days are rolled
+up; the connector requests in the same table go with them.
 """
 
 from __future__ import annotations
@@ -27,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
 from app.models.agent_execution import AgentExecution
+from app.models.app import App, AppExecution
 from app.models.usage_daily_rollup import UsageDailyRollup
 from app.models.user import User
 from app.repositories.agent_execution_repo import TERMINAL_EXECUTION_STATUSES
@@ -38,6 +47,10 @@ DEFAULT_ROLLUP_WINDOW_DAYS = 3
 DEFAULT_RETENTION_DAYS = 365
 PERIOD_DAYS_OPTIONS = (7, 30, 90)
 RECENT_REFRESH_SECONDS = 300
+# How an app's model calls appear in the rollups.
+APP_RUNTIME_TYPE = "app"
+APP_LLM_KIND = "app_llm"
+APP_EXECUTION_KIND_LLM = "llm"
 
 _recent_refresh_lock = threading.Lock()
 _recent_refreshed_at: float = 0.0
@@ -143,7 +156,8 @@ class UsageRollupService:
             if row.started_at and row.finished_at and row.finished_at >= row.started_at:
                 bucket.duration_seconds += (row.finished_at - row.started_at).total_seconds()
 
-        self.db.execute(delete(UsageDailyRollup).where(UsageDailyRollup.day == day))
+        # The assistants' rows only: an app's rows are recomputed below, from their own table.
+        self.db.execute(delete(UsageDailyRollup).where(UsageDailyRollup.day == day, UsageDailyRollup.app_id == ""))
         now = datetime.utcnow()
         for (user_id, agent_id, runtime_type, kind, model), bucket in buckets.items():
             self.db.add(
@@ -168,7 +182,75 @@ class UsageRollupService:
                     updated_at=now,
                 )
             )
+        app_rows = self._rollup_app_day(day, start, end, now)
         self.db.commit()
+        return len(buckets) + app_rows
+
+    def _rollup_app_day(self, day: date, start: datetime, end: datetime, now: datetime) -> int:
+        """Recompute the day's rows of apps' model calls (not committed); returns the row count.
+
+        A day without such calls is left as it is: its rows, if it has any,
+        were built before the calls were pruned and are all that is left of them.
+        """
+        rows = self.db.execute(
+            select(
+                AppExecution.owner_user_id,
+                AppExecution.app_id,
+                AppExecution.model,
+                AppExecution.status,
+                AppExecution.input_tokens,
+                AppExecution.output_tokens,
+                AppExecution.credits,
+                AppExecution.duration_ms,
+            ).where(
+                AppExecution.kind == APP_EXECUTION_KIND_LLM,
+                AppExecution.created_at >= start,
+                AppExecution.created_at < end,
+            )
+        ).all()
+        if not rows:
+            return 0
+        buckets: dict[tuple, _Bucket] = defaultdict(_Bucket)
+        for row in rows:
+            bucket = buckets[(int(row.owner_user_id or 0), str(row.app_id or ""), str(row.model or "")[:128])]
+            bucket.executions += 1
+            status = str(row.status or "").lower()
+            if status == "succeeded":
+                bucket.succeeded += 1
+            elif status in FAILED_EXECUTION_STATUSES:
+                bucket.failed += 1
+            bucket.input_tokens += _int(row.input_tokens)
+            bucket.output_tokens += _int(row.output_tokens)
+            charged = _float(row.credits) if row.credits is not None else 0.0
+            bucket.actual_credits += charged
+            bucket.credits += charged
+            bucket.duration_seconds += _int(row.duration_ms) / 1000.0
+
+        self.db.execute(delete(UsageDailyRollup).where(UsageDailyRollup.day == day, UsageDailyRollup.app_id != ""))
+        for (user_id, app_id, model), bucket in buckets.items():
+            self.db.add(
+                UsageDailyRollup(
+                    day=day,
+                    user_id=user_id,
+                    agent_id="",
+                    app_id=app_id,
+                    runtime_type=APP_RUNTIME_TYPE,
+                    kind=APP_LLM_KIND,
+                    model=model,
+                    executions=bucket.executions,
+                    succeeded=bucket.succeeded,
+                    failed=bucket.failed,
+                    input_tokens=bucket.input_tokens,
+                    output_tokens=bucket.output_tokens,
+                    cached_input_tokens=0,
+                    reasoning_tokens=0,
+                    estimated_credits=0.0,
+                    actual_credits=round(bucket.actual_credits, 6),
+                    credits=round(bucket.credits, 6),
+                    duration_seconds=round(bucket.duration_seconds, 3),
+                    updated_at=now,
+                )
+            )
         return len(buckets)
 
     def rollup_days(self, days: Iterable[date]) -> dict[str, int]:
@@ -220,6 +302,37 @@ class UsageRollupService:
         deleted = int(result.rowcount or 0)
         logger.info("usage rollups: pruned %s executions older than %s after rolling up %s days", deleted, cutoff_day, len(days))
         return {"rolled_up_days": len(days), "deleted": deleted}
+
+    def prune_app_executions(self, retention_days: int = DEFAULT_RETENTION_DAYS, *, today: date | None = None) -> dict[str, int]:
+        """Delete apps' SDK call rows older than ``retention_days`` after rolling their model calls up.
+
+        0 keeps everything. Only the apps' rows of those days are recomputed,
+        so nothing the assistants' runs left there is touched. Connector
+        requests are not rolled up anywhere: they go with the rows.
+        """
+        retention = int(retention_days or 0)
+        if retention <= 0:
+            return {"rolled_up_days": 0, "deleted": 0}
+        today = today or datetime.utcnow().date()
+        cutoff_day = today - timedelta(days=retention)
+        cutoff = datetime(cutoff_day.year, cutoff_day.month, cutoff_day.day)
+        oldest = self.db.execute(select(func.min(AppExecution.created_at)).where(AppExecution.created_at < cutoff)).scalar()
+        if oldest is None:
+            return {"rolled_up_days": 0, "deleted": 0}
+        now = datetime.utcnow()
+        days = 0
+        day = oldest.date()
+        while day < cutoff_day:
+            start = datetime(day.year, day.month, day.day)
+            self._rollup_app_day(day, start, start + timedelta(days=1), now)
+            self.db.commit()
+            days += 1
+            day += timedelta(days=1)
+        result = self.db.execute(delete(AppExecution).where(AppExecution.created_at < cutoff))
+        self.db.commit()
+        deleted = int(result.rowcount or 0)
+        logger.info("usage rollups: pruned %s app SDK calls older than %s after rolling up %s days", deleted, cutoff_day, days)
+        return {"rolled_up_days": days, "deleted": deleted}
 
     # ------------------------------------------------------------- reading
 
@@ -317,9 +430,26 @@ class UsageRollupService:
             .limit(10)
         ).all()
         top_assistants = [
-            {"agent_id": row[0], "name": row[1] or row[0], "agent_type": row[2] or "", **_row_dict(row[3:])}
+            {"agent_id": row[0], "app_id": "", "name": row[1] or row[0], "agent_type": row[2] or "", **_row_dict(row[3:])}
             for row in agent_rows
         ]
+        # Apps spend their owners' provider like assistants do: they stand in
+        # the same list, under their own names.
+        app_rows = self.db.execute(
+            select(R.app_id, App.name, *sums)
+            .select_from(R)
+            .outerjoin(App, App.id == R.app_id)
+            .where(in_period, R.app_id != "")
+            .group_by(R.app_id, App.name)
+            .order_by(func.sum(R.credits).desc(), func.sum(R.executions).desc())
+            .limit(10)
+        ).all()
+        top_assistants += [
+            {"agent_id": "", "app_id": row[0], "name": row[1] or row[0], "agent_type": APP_RUNTIME_TYPE, **_row_dict(row[2:])}
+            for row in app_rows
+        ]
+        top_assistants.sort(key=lambda item: (-item["credits"], -item["executions"]))
+        top_assistants = top_assistants[:10]
 
         return {
             "period_days": int(days),
@@ -340,14 +470,15 @@ class UsageRollupService:
         start = self.period_start(days, today=today)
         R = UsageDailyRollup
         rows = self.db.execute(
-            select(R, User.username)
+            select(R, User.username, App.name)
             .select_from(R)
             .outerjoin(User, User.id == R.user_id)
+            .outerjoin(App, App.id == R.app_id)
             .where(R.day >= start, R.day <= today)
             .order_by(R.day, R.user_id, R.kind, R.model)
         ).all()
         out = []
-        for rollup, username in rows:
+        for rollup, username, app_name in rows:
             out.append(
                 {
                     "day": rollup.day.isoformat(),
@@ -368,12 +499,19 @@ class UsageRollupService:
                     "actual_credits": rollup.actual_credits,
                     "credits": rollup.credits,
                     "duration_seconds": rollup.duration_seconds,
+                    # An app's model calls (runtime_type "app"): which app, by id and by name.
+                    "app_id": rollup.app_id,
+                    "app": (app_name or rollup.app_id) if rollup.app_id else "",
                 }
             )
         return out
 
     def execution_rows(self, days: int, *, today: date | None = None, limit: int = 50000) -> list[dict[str, Any]]:
-        """The executions of the period, one dict each, for the CSV export (newest first, capped)."""
+        """The executions of the period, one dict each, for the CSV export (newest first, capped).
+
+        Apps' model calls are among them, one row per call: the app's owner
+        as the member, the app's name where an assistant's would be.
+        """
         today = today or datetime.utcnow().date()
         start_day = self.period_start(days, today=today)
         start = datetime(start_day.year, start_day.month, start_day.day)
@@ -415,6 +553,46 @@ class UsageRollupService:
                     "duration_seconds": duration,
                     "session_id": execution.session_id or "",
                     "task_id": execution.task_id or "",
+                    "app_id": "",
                 }
             )
-        return out
+        app_calls = self.db.execute(
+            select(AppExecution, User.username, App.name)
+            .select_from(AppExecution)
+            .outerjoin(User, User.id == AppExecution.owner_user_id)
+            .outerjoin(App, App.id == AppExecution.app_id)
+            .where(AppExecution.kind == APP_EXECUTION_KIND_LLM, AppExecution.created_at >= start)
+            .order_by(AppExecution.created_at.desc())
+            .limit(limit)
+        ).all()
+        if not app_calls:
+            return out
+        for call, username, app_name in app_calls:
+            out.append(
+                {
+                    "created_at": call.created_at.isoformat(sep=" ", timespec="seconds") if call.created_at else "",
+                    "execution_id": "app-%s" % call.id,
+                    "username": username or "",
+                    "user_id": call.owner_user_id or "",
+                    "agent": app_name or call.app_id,
+                    "runtime_type": APP_RUNTIME_TYPE,
+                    "kind": APP_LLM_KIND,
+                    "status": call.status,
+                    "terminal_reason": call.error_code or "",
+                    "model": call.model or "",
+                    "input_tokens": call.input_tokens if call.input_tokens is not None else "",
+                    "output_tokens": call.output_tokens if call.output_tokens is not None else "",
+                    "cached_input_tokens": "",
+                    "reasoning_tokens": "",
+                    "estimated_credits": "",
+                    "actual_credits": call.credits if call.credits is not None else "",
+                    "credits": call.credits if call.credits is not None else "",
+                    "credits_source": "provider" if call.credits is not None else "",
+                    "duration_seconds": round(call.duration_ms / 1000.0, 1) if call.duration_ms is not None else "",
+                    "session_id": "",
+                    "task_id": "",
+                    "app_id": call.app_id,
+                }
+            )
+        out.sort(key=lambda item: item["created_at"], reverse=True)
+        return out[:limit]

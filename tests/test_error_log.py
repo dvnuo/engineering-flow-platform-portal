@@ -272,7 +272,7 @@ def test_overview_groups_the_same_problem_filters_and_lists_recent_then_prune_bo
         assert groups[0]["message"] == "Copilot returned 429" and groups[0]["members"] == 1 and groups[0]["assistants"] == 1
         assert [row["source"] for row in overview["recent"]] == ["execution", "execution", "execution", "connector_test", "portal"]
         assert overview["recent"][0]["member"] == "Alex" and overview["recent"][0]["agent_name"] == "Release assistant"
-        assert {item["source"]: item["events"] for item in overview["by_source"]} == {"execution": 3, "assistant": 0, "connector_test": 1, "portal": 1, "log": 0}
+        assert {item["source"]: item["events"] for item in overview["by_source"]} == {"execution": 3, "assistant": 0, "connector_test": 1, "portal": 1, "log": 0, "app": 0}
 
         assert service.overview(1)["totals"]["rows"] == 4, "24 hours: the Portal row is two days old"
         assert [row["message"] for row in service.overview(7, source="connector_test")["recent"]] == ["Jira answered 401"]

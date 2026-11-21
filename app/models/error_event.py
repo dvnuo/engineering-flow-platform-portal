@@ -10,10 +10,11 @@ from app.db import Base
 class ErrorEvent(Base):
     """One failure the Portal saw, kept for troubleshooting (Administration > Errors).
 
-    Written by ``app/services/error_log_service.py`` from five places: a run
+    Written by ``app/services/error_log_service.py`` from six places: a run
     that ended failed or stale, an assistant whose runtime failed, a connector
     Test that failed, a Portal response of 500 or more (or an unhandled
-    exception), and a warning or error from the Portal's own loggers. Messages
+    exception), a warning or error from the Portal's own loggers, and an app
+    whose deployment failed or that crashed on the app host. Messages
     and details pass through ``app.redaction`` first. ``fingerprint`` groups
     the same problem across members and assistants; a Portal or log event that
     repeats within a short window for the same member, assistant and path

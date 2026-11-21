@@ -6,12 +6,74 @@
  *   showConfirm({ title, message, confirmText, cancelText, danger }) -> Promise<boolean>
  *   showPrompt({ title, message, defaultValue, placeholder, confirmText, cancelText, required }) -> Promise<string|null>
  *   showAlert({ title, message, confirmText }) -> Promise<void>
+ *
+ * A confirmed action that takes time is given as `action`: the dialog then
+ * stays open while it runs, with the confirm button busy (`busyText`), a line
+ * that says what is happening (`busyMessage`), and nothing that closes it.
+ * It closes when the action is done; when the action fails its message is
+ * shown in the dialog and the member can try again or cancel. `validate`
+ * checks what was typed and returns what is wrong with it, shown in the same
+ * line. Without `action` the dialog closes on confirm, as before.
+ *
+ *   showConfirm({ ..., busyText, busyMessage, action: async () => {} })
+ *   showPrompt({ ..., validate: (value) => "" | "what is wrong", action: async (value) => {} })
+ *
+ * portalBusyButton(button, label) marks a button as working (disabled, a
+ * spinner, the label) and returns the function that puts it back.
  */
 (function () {
   "use strict";
 
   var FOCUSABLE = 'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])';
   var seq = 0;
+
+  // A button that is working: it turns, cannot be pressed twice, and keeps
+  // exactly the size it had, so nothing beside it moves. The label says what
+  // is happening when that fits in the button; when it does not, the spinner
+  // lies over the button's own label and the words go to assistive technology.
+  function busyButton(button, label) {
+    if (!button || button.classList.contains("is-busy")) return function () {};
+    var kept = { html: button.innerHTML, disabled: button.disabled, width: button.style.width, name: button.getAttribute("aria-label") };
+    var width = typeof button.getBoundingClientRect === "function" ? button.getBoundingClientRect().width : 0;
+    if (width) button.style.width = width + "px";
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.classList.add("is-busy");
+    if (label) {
+      button.textContent = label;
+      if (width && button.scrollWidth > button.clientWidth + 1) {
+        button.innerHTML = kept.html;
+        button.classList.add("is-busy-over");
+        button.setAttribute("aria-label", label);
+      }
+    } else {
+      button.classList.add("is-busy-over");
+    }
+    return function () {
+      if (!button.classList.contains("is-busy")) return;
+      button.innerHTML = kept.html;
+      button.disabled = kept.disabled;
+      button.style.width = kept.width;
+      if (kept.name === null) button.removeAttribute("aria-label");
+      else button.setAttribute("aria-label", kept.name);
+      button.removeAttribute("aria-busy");
+      button.classList.remove("is-busy", "is-busy-over");
+    };
+  }
+
+  // Room for the busy label from the start: the button is as wide as the
+  // wider of its two labels, so it does not grow when the action begins.
+  function reserveBusyWidth(button, label) {
+    if (!button || !label || typeof button.getBoundingClientRect !== "function") return;
+    var html = button.innerHTML;
+    var rest = button.getBoundingClientRect().width;
+    button.classList.add("is-busy");
+    button.textContent = label;
+    var working = button.getBoundingClientRect().width;
+    button.classList.remove("is-busy");
+    button.innerHTML = html;
+    if (working > rest) button.style.minWidth = Math.ceil(working) + "px";
+  }
 
   function openDialog(opts) {
     seq += 1;
@@ -43,6 +105,13 @@
         'placeholder="' + escapeHtml(opts.placeholder || "") + '" />';
     }
 
+    // The line for what is happening and for what went wrong. It is in the
+    // dialog from the start, empty, so the dialog keeps its size.
+    var hasAction = typeof opts.action === "function";
+    var statusHtml = hasAction || typeof opts.validate === "function"
+      ? '<p class="portal-dialog-status" data-dialog-status aria-live="polite"></p>'
+      : "";
+
     var cancelBtn =
       kind === "alert"
         ? ""
@@ -55,11 +124,14 @@
       escapeHtml(opts.confirmText || (kind === "alert" ? t("OK") : t("Confirm"))) +
       "</button>";
 
+    // A dialog that waits can take focus itself: while its action runs every
+    // control in it is held, and the keyboard must stay in it all the same.
     root.innerHTML =
-      '<div class="modal-card panel portal-dialog-card" data-dialog-card>' +
+      '<div class="modal-card panel portal-dialog-card" data-dialog-card' + (hasAction ? ' tabindex="-1"' : "") + ">" +
       titleHtml +
       messageHtml +
       inputHtml +
+      statusHtml +
       '<div class="portal-modal-actions">' + cancelBtn + confirmBtn + "</div>" +
       "</div>";
 
@@ -72,9 +144,35 @@
     var input = root.querySelector(".portal-dialog-input");
     var confirmEl = root.querySelector("[data-dialog-confirm]");
     var cancelEl = root.querySelector("[data-dialog-cancel]");
+    var statusEl = root.querySelector("[data-dialog-status]");
+    var cardEl = root.querySelector("[data-dialog-card]");
+    if (hasAction) reserveBusyWidth(confirmEl, opts.busyText || t("Working\u2026"));
 
     return new Promise(function (resolve) {
       var settled = false;
+      var busy = false;
+      var releaseConfirm = null;
+
+      function setStatus(text, isError) {
+        if (!statusEl) return;
+        statusEl.textContent = text || "";
+        statusEl.title = text || "";
+        statusEl.classList.toggle("is-error", !!isError);
+        if (isError) statusEl.setAttribute("role", "alert");
+        else statusEl.removeAttribute("role");
+      }
+
+      function setBusy(on) {
+        busy = on;
+        root.classList.toggle("is-busy", on);
+        if (on) releaseConfirm = busyButton(confirmEl, opts.busyText || t("Working\u2026"));
+        else if (releaseConfirm) { releaseConfirm(); releaseConfirm = null; }
+        if (cancelEl) cancelEl.disabled = on;
+        if (input) input.disabled = on;
+        // Focus was on a control that is now held: the dialog takes it, so
+        // the keys still reach this dialog and nothing behind it.
+        if (on && cardEl && typeof cardEl.focus === "function") cardEl.focus();
+      }
 
       function cleanup(result) {
         if (settled) return;
@@ -98,18 +196,39 @@
       }
 
       function confirmResult() {
-        if (kind === "prompt") {
-          var val = input ? input.value : "";
-          if (opts.required && !val.trim()) {
+        if (busy) return;
+        var val = kind === "prompt" && input ? input.value : "";
+        var result = kind === "prompt" ? val : kind === "alert" ? undefined : true;
+        if (kind === "prompt" && opts.required && !val.trim()) {
+          if (input) { input.focus(); input.classList.add("portal-dialog-input--invalid"); }
+          return;
+        }
+        if (typeof opts.validate === "function") {
+          var problem = opts.validate(val);
+          if (problem) {
+            setStatus(problem, true);
             if (input) { input.focus(); input.classList.add("portal-dialog-input--invalid"); }
             return;
           }
-          cleanup(val);
-        } else {
-          cleanup(kind === "alert" ? undefined : true);
         }
+        if (!hasAction) { cleanup(result); return; }
+        // The dialog waits with the member: it closes when the work is done.
+        setStatus(opts.busyMessage || "", false);
+        setBusy(true);
+        Promise.resolve()
+          .then(function () { return opts.action(kind === "prompt" ? val : true); })
+          .then(function () {
+            busy = false;
+            cleanup(result);
+          }, function (error) {
+            setBusy(false);
+            setStatus((error && error.message) || t("Request failed"), true);
+            var back = input || confirmEl;
+            if (back && typeof back.focus === "function") back.focus();
+          });
       }
       function cancelResult() {
+        if (busy) return;
         cleanup(kind === "prompt" ? null : kind === "alert" ? undefined : false);
       }
 
@@ -122,6 +241,7 @@
       if (input) {
         input.addEventListener("input", function () {
           input.classList.remove("portal-dialog-input--invalid");
+          if (statusEl && statusEl.classList.contains("is-error")) setStatus("", false);
         });
         input.addEventListener("keydown", function (e) {
           if (e.key === "Enter") { e.preventDefault(); confirmResult(); }
@@ -129,6 +249,12 @@
       }
 
       function onKeydown(e) {
+        // While the action runs nothing closes the dialog and nothing starts it twice.
+        if (busy && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); return; }
+        // Nor does Tab walk out of it: every control in it is held, so there
+        // is nowhere in the dialog to go, and what lies behind it is not to
+        // be reached while it waits.
+        if (busy && e.key === "Tab") { e.preventDefault(); return; }
         if (e.key === "Escape") { e.preventDefault(); cancelResult(); return; }
         if (e.key === "Enter" && kind !== "prompt" && document.activeElement !== cancelEl) {
           e.preventDefault();
@@ -168,6 +294,7 @@
   window.showConfirm = function (opts) { return openDialog(Object.assign({ kind: "confirm" }, opts || {})); };
   window.showPrompt = function (opts) { return openDialog(Object.assign({ kind: "prompt" }, opts || {})); };
   window.showAlert = function (opts) { return openDialog(Object.assign({ kind: "alert" }, opts || {})); };
+  window.portalBusyButton = busyButton;
 
   // Route htmx's hx-confirm through the styled dialog instead of window.confirm.
   // The element may name the dialog's title, its confirm button and whether

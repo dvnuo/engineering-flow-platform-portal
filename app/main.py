@@ -33,6 +33,7 @@ from app.i18n import bind_locale, reset_locale
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
 from app.services.locale_service import resolve_locale_for_request
 from app.logger import setup_logging
+from app.security import install_portal_security
 from app.services.access_control_service import AccessControlService
 from app.services.connector_defaults_sync import rollout_profiles
 from app.services.group_service import GroupService
@@ -59,6 +60,12 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 # exception is recorded while the request's log context (trace id) is still
 # bound (app/services/error_log_service.py).
 app.add_middleware(ErrorCaptureMiddleware, enabled=lambda: settings.error_log_enabled)
+
+# The cross-site request guard, the cluster-only API prefixes and the startup
+# checks on SECRET_KEY and the session cookie (app/security/). Here, ahead of
+# the request middlewares below, so a refused request is still logged with its
+# trace id, and ahead of on_startup, so nothing runs with the default key.
+install_portal_security(app, settings)
 
 
 @app.middleware("http")
@@ -234,3 +241,25 @@ app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)
 app.include_router(session_shares_router)
 app.include_router(share_pages_router)
+
+# Apps (APPS_PLAN.md): the owner API, the app host's API, the launch page, and
+# the deployments the last run left unfinished. All of it answers 404 and does
+# nothing while APPS_ENABLED is off.
+from app.api.app_host import router as app_host_router  # noqa: E402
+from app.api.app_sdk import router as app_sdk_router  # noqa: E402
+from app.api.apps import router as apps_router  # noqa: E402
+from app.api.apps_templates import router as apps_templates_router  # noqa: E402
+from app.api.apps_usage import router as apps_usage_router  # noqa: E402
+from app.apps_pages import router as apps_pages_router  # noqa: E402
+from app.services.apps.member_hooks import apps_shutdown, apps_startup  # noqa: E402
+
+# Before the owner API: "/api/apps/templates" and "/api/apps/admin/..." are not app ids.
+app.include_router(apps_templates_router)
+app.include_router(apps_usage_router)
+app.include_router(apps_router)
+app.include_router(app_host_router)
+# The SDK API (docs/CONTRACTS.md, section 9): an app's token, never a cookie.
+app.include_router(app_sdk_router)
+app.include_router(apps_pages_router)
+app.add_event_handler("startup", apps_startup)
+app.add_event_handler("shutdown", apps_shutdown)

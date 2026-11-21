@@ -85,6 +85,9 @@ def test_portal_hash_route_sections_are_declared():
 
     assert _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS") == {
         "assistants",
+        # Apps (members' web apps) is routable so an app's page, and each part
+        # of it, has an address; the section exists only while Apps is enabled.
+        "apps",
         "tasks",
         # Help is routable so a connection guide can be deep-linked from
         # Connectors and survive a reload or a new tab.
@@ -153,6 +156,7 @@ def test_rail_clicks_use_section_only_navigation():
     bind_events = _extract_js_function(js, "bindEvents")
 
     assert 'dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"))' in bind_events
+    assert 'dom.appsMenuBtn?.addEventListener("click", () => openPortalSection("apps"))' in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"))' in bind_events
     assert 'dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"))' in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"))' in bind_events

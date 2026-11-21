@@ -11,8 +11,24 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
+    # Outside debug mode the Portal refuses to start with the default key above
+    # (app/security/startup_checks.py). True keeps an installation that never
+    # set SECRET_KEY running, with a warning at every start, until it has one.
+    allow_insecure_secret_key: bool = Field(default=False, validation_alias="ALLOW_INSECURE_SECRET_KEY")
     session_cookie_name: str = "portal_session"
+    # State-changing requests that carry the session cookie must come from the
+    # Portal's own pages, and the events WebSocket checks its Origin the same
+    # way (app/security/origin_guard.py). False switches both checks off.
+    origin_guard_enabled: bool = Field(default=True, validation_alias="ORIGIN_GUARD_ENABLED")
     portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
+    # The cluster-only APIs runtimes call at PORTAL_INTERNAL_BASE_URL
+    # (app/security/internal_api.py). AUTH_REQUIRED: /api/internal/* rejects a
+    # call without the assistant's trust token; false still serves it (a wrong
+    # token is rejected either way) while assistants are restarted onto runtime
+    # images that send one. BLOCK_FORWARDED: /api/internal/ and /api/app-host/
+    # answer 404 to a request that came through a reverse proxy.
+    internal_api_auth_required: bool = Field(default=False, validation_alias="INTERNAL_API_AUTH_REQUIRED")
+    internal_api_block_forwarded: bool = Field(default=True, validation_alias="INTERNAL_API_BLOCK_FORWARDED")
     # Preferred runtime-catalog alignment hook for Portal runtime compatibility metadata.
     # If this snapshot is missing/invalid, Portal falls back to deterministic local seed mappings.
     runtime_capability_catalog_snapshot_json: str = Field(
@@ -320,6 +336,38 @@ class Settings(BaseSettings):
     # has to be https when Portal is, or the browser blocks it as mixed content).
     # Empty shows the member's initials instead; so does a failed photo request.
     avatar_photo_host: str = Field(default="", validation_alias="AVATAR_PHOTO_HOST")
+
+    # Apps (app/services/apps/): members register a directory of a GitHub
+    # repository as a web app; the Portal reads it with the platform's service
+    # account and hands it to the app host, a separate service in the cluster
+    # that installs and runs it under APPS_PUBLIC_BASE_URL/{slug}/. Everything
+    # is off (every route answers 404) unless APPS_ENABLED is true.
+    # APPS_PUBLIC_BASE_URL is the app host as browsers reach it (a sibling
+    # hostname of the Portal's), APPS_HOST_INTERNAL_URL its manager API as the
+    # Portal reaches it inside the cluster, and APPS_HOST_API_TOKEN the one
+    # shared secret used as a bearer token in both directions (empty rejects
+    # every call from the host). APPS_ANYONE_ENABLED allows apps that need no
+    # sign-in, each one approved by a system administrator. The daily credits
+    # and tokens are what one app may spend of its owner's model provider
+    # unless the app carries its own figures; APPS_SDK_RATE_PER_MINUTE limits
+    # the SDK calls of one app token. APPS_GIT_AUTH_PAT reads the repositories
+    # (empty = GIT_REPO_AUTH_PAT) through the GitHub REST API at
+    # APPS_GITHUB_API_URL (https://<host>/api/v3 for GitHub Enterprise
+    # Server); a code bundle larger than APPS_MAX_BUNDLE_MB is refused. A
+    # deleted app's data stays on the host for APPS_DELETED_RETENTION_DAYS and
+    # is then removed (0 keeps it for good).
+    apps_enabled: bool = Field(default=False, validation_alias="APPS_ENABLED")
+    apps_public_base_url: str = Field(default="", validation_alias="APPS_PUBLIC_BASE_URL")
+    apps_host_internal_url: str = Field(default="", validation_alias="APPS_HOST_INTERNAL_URL")
+    apps_host_api_token: str = Field(default="", validation_alias="APPS_HOST_API_TOKEN")
+    apps_anyone_enabled: bool = Field(default=False, validation_alias="APPS_ANYONE_ENABLED")
+    apps_default_daily_credits: float = Field(default=50.0, validation_alias="APPS_DEFAULT_DAILY_CREDITS")
+    apps_default_daily_tokens: int = Field(default=2000000, validation_alias="APPS_DEFAULT_DAILY_TOKENS")
+    apps_sdk_rate_per_minute: int = Field(default=120, validation_alias="APPS_SDK_RATE_PER_MINUTE")
+    apps_git_auth_pat: str = Field(default="", validation_alias="APPS_GIT_AUTH_PAT")
+    apps_github_api_url: str = Field(default="https://api.github.com", validation_alias="APPS_GITHUB_API_URL")
+    apps_max_bundle_mb: int = Field(default=200, validation_alias="APPS_MAX_BUNDLE_MB")
+    apps_deleted_retention_days: int = Field(default=30, validation_alias="APPS_DELETED_RETENTION_DAYS")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
