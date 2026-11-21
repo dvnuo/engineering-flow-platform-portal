@@ -1,11 +1,11 @@
 import json
-import base64
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.services.connector_http import instance_auth_headers
 from app.services.delegation_source_config import normalize_delegation_source_scope, select_jira_instance
 
 
@@ -81,18 +81,9 @@ def _first_enabled_auth_instance(instances: list) -> dict | None:
 
 
 def _auth_headers_for_instance(instance: dict) -> dict:
-    username = str(instance.get("username") or "").strip()
-    token = str(instance.get("token") or "").strip()
-    if username and token:
-        encoded = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
-        return {"Authorization": f"Basic {encoded}"}
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    password = str(instance.get("password") or "").strip()
-    if username and password:
-        encoded = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-        return {"Authorization": f"Basic {encoded}"}
-    return {}
+    # The same choice the connector's Test button and the assistant make, so a
+    # rule that polls Jira signs in the way the member's Test proved.
+    return instance_auth_headers(instance)
 
 
 def resolve_jira_for_agent(db: Session, agent_id: str, source_scope: dict | None = None) -> JiraProviderConfig:
