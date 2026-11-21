@@ -847,3 +847,149 @@ def test_repo_refs(harness):
     body = harness.as_user("owner").get("/api/apps/repo-refs", params={"repo_url": REPO_URL}).json()
     assert body == {"repo": "acme/tools", "default_branch": "main", "branches": ["main"], "tags": ["v1.0.0"]}
     assert harness.as_user("owner").get("/api/apps/repo-refs", params={"repo_url": "nope"}).status_code == 422
+
+
+def test_a_manifest_nested_too_deeply_is_a_problem_of_the_file_not_an_error_of_the_portal(harness):
+    harness.source.manifest = b"[" * 60000
+    looked = harness.as_user("owner").post("/api/apps/inspect", json={"repo_url": REPO_URL, "ref": "main"})
+    assert looked.status_code == 422, looked.text
+    assert looked.json()["code"] == "manifest_invalid" and "nested too deeply" in looked.json()["detail"]
+    created = harness.as_user("owner").post("/api/apps", json={"repo_url": REPO_URL, "ref": "main"})
+    assert created.status_code == 422 and created.json()["code"] == "manifest_invalid"
+
+
+def test_reading_unregistered_repositories_is_limited_per_member(harness):
+    from app.services.apps.rate_limit import REPO_READS_PER_MINUTE
+
+    # The two routes share one allowance: both are calls of the platform's one service account.
+    for number in range(REPO_READS_PER_MINUTE):
+        if number % 2:
+            response = harness.as_user("owner").get("/api/apps/repo-refs", params={"repo_url": REPO_URL})
+        else:
+            response = harness.as_user("owner").post("/api/apps/inspect", json={"repo_url": REPO_URL, "ref": "main"})
+        assert response.status_code == 200, response.text
+    asked = len(harness.source.calls)
+
+    for response in (
+        harness.as_user("owner").get("/api/apps/repo-refs", params={"repo_url": REPO_URL}),
+        harness.as_user("owner").post("/api/apps/inspect", json={"repo_url": REPO_URL, "ref": "main"}),
+    ):
+        assert response.status_code == 429
+        body = response.json()
+        assert body["code"] == "rate_limited" and body["message_key"] == "You are reading repositories too often. Try again in {seconds} seconds."
+        assert 1 <= body["params"]["seconds"] <= 60
+    # Refused before GitHub was asked anything.
+    assert len(harness.source.calls) == asked
+
+    # Another member has an allowance of their own, and registering an app is not counted.
+    assert harness.as_user("mate").get("/api/apps/repo-refs", params={"repo_url": REPO_URL}).status_code == 200
+    assert harness.as_user("owner").post("/api/apps", json={"repo_url": REPO_URL, "ref": "main", "deploy": False}).status_code == 201
+
+
+# --- what a list carries and what only the app's own answer does ---------------------------------
+
+
+def test_lists_name_the_variables_and_only_the_apps_own_answer_carries_their_values(harness):
+    app_id = harness.create(deploy=True, visibility="platform")["app"]["id"]
+    secret = "s3cr3t-value-nobody-lists"
+    patched = harness.as_user("owner").patch(f"/api/apps/{app_id}", json={"env": {"API_KEY": secret, "API_BASE": "https://x"}})
+    # The answers about this one app carry the values: its change, its read, the answers of the other calls that change it.
+    assert patched.status_code == 200 and patched.json()["manage"]["env"] == {"API_KEY": secret, "API_BASE": "https://x"}
+    for reader in ("owner", "admin"):
+        manage = harness.as_user(reader).get(f"/api/apps/{app_id}").json()["manage"]
+        assert manage["env"] == {"API_KEY": secret, "API_BASE": "https://x"}
+        assert manage["env_names"] == ["API_BASE", "API_KEY"]
+    template = harness.as_user("owner").put(f"/api/apps/{app_id}/template", json={"is_template": True})
+    assert template.status_code == 200 and template.json()["manage"]["env"]["API_KEY"] == secret
+    disabled = harness.as_user("admin").post(f"/api/apps/{app_id}/disable", json={"reason": "Paused"})
+    assert disabled.json()["manage"]["env"]["API_KEY"] == secret
+    assert harness.as_user("admin").post(f"/api/apps/{app_id}/enable").json()["manage"]["env"]["API_KEY"] == secret
+
+    # Every list names the variables and leaves the values out, for the owner and for an administrator alike.
+    lists = (
+        harness.as_user("owner").get("/api/apps", params={"scope": "mine"}),
+        harness.as_user("admin").get("/api/apps", params={"scope": "all"}),
+        harness.as_user("admin").get("/api/apps/admin/overview"),
+    )
+    for response in lists:
+        assert response.status_code == 200, response.text
+        assert secret not in response.text
+        (item,) = response.json()["apps"]
+        assert item["manage"]["env"] is None and item["manage"]["env_names"] == ["API_BASE", "API_KEY"]
+    # A template's card is a list entry too.
+    harness.as_user("owner").post(f"/api/apps/{app_id}/template/versions", json={"tag": "v1.0.0"})
+    templates = harness.as_user("admin").get("/api/apps/templates")
+    assert templates.status_code == 200 and secret not in templates.text
+    assert templates.json()["templates"][0]["manage"]["env"] is None
+
+    # Whoever may not manage the app reads neither.
+    for reader in ("mate", "other"):
+        shared = harness.as_user(reader).get(f"/api/apps/{app_id}")
+        assert shared.status_code == 200 and shared.json()["manage"] is None and secret not in shared.text
+    available = harness.as_user("mate").get("/api/apps", params={"scope": "available"})
+    assert available.json()["apps"][0]["manage"] is None and secret not in available.text
+
+
+def test_the_commit_and_the_branch_that_run_are_for_whoever_may_manage_the_app(harness):
+    app_id = harness.create(deploy=True, visibility="public")["app"]["id"]
+    for manager in ("owner", "admin"):
+        body = harness.as_user(manager).get(f"/api/apps/{app_id}").json()
+        assert body["current_release"]["commit_sha"] == SHA_1 and body["current_release"]["ref"] == "main"
+
+    # A member the app is shared with opens it; what it was built from is not theirs to read.
+    body = harness.as_user("mate").get(f"/api/apps/{app_id}").json()
+    assert body["can_manage"] is False and body["deployed"] is True
+    assert body["current_release"] is None and body["manage"] is None
+    assert SHA_1 not in harness.as_user("mate").get(f"/api/apps/{app_id}").text
+    listed = harness.as_user("mate").get("/api/apps", params={"scope": "available"})
+    (item,) = listed.json()["apps"]
+    assert item["deployed"] is True and item["current_release"] is None and SHA_1 not in listed.text
+
+
+def test_the_icon_is_versioned_and_revalidated_without_its_bytes(harness):
+    import hashlib
+
+    from sqlalchemy import event
+
+    app = harness.create(visibility="public", deploy=True)["app"]
+    digest = hashlib.sha1(PNG).hexdigest()
+    assert app["has_icon"] is True and app["icon_url"] == f"/api/apps/{app['id']}/icon?v={digest[:12]}"
+    assert harness.row(app["id"]).icon_hash == digest
+
+    statements = []
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = harness.db.get_bind()
+    event.listen(engine, "before_cursor_execute", before)
+    try:
+        # A list draws the card, the version in its address included, without reading one icon.
+        listed = harness.as_user("mate").get("/api/apps", params={"scope": "available"}).json()["apps"][0]
+        assert listed["has_icon"] is True and listed["icon_url"] == app["icon_url"]
+        assert not any("icon_data" in statement for statement in statements)
+        # A browser that has the icon is told so from the stored hash.
+        unchanged = harness.as_user("mate").get(f"/api/apps/{app['id']}/icon", headers={"If-None-Match": f'"{digest}"'})
+        assert unchanged.status_code == 304 and unchanged.headers["etag"] == f'"{digest}"'
+        assert not any("icon_data" in statement for statement in statements)
+        # One that has not gets the bytes.
+        served = harness.as_user("mate").get(f"/api/apps/{app['id']}/icon")
+        assert served.status_code == 200 and served.content == PNG and served.headers["etag"] == f'"{digest}"'
+        assert any("icon_data" in statement for statement in statements)
+    finally:
+        event.remove(engine, "before_cursor_execute", before)
+
+
+def test_a_disabled_app_is_not_deployed_through_the_api(harness):
+    app_id = harness.create(deploy=True)["app"]["id"]
+    harness.source.refs["main"] = SHA_2
+    assert harness.as_user("owner").post(f"/api/apps/{app_id}/deploy").status_code == 202
+    assert harness.as_user("admin").post(f"/api/apps/{app_id}/disable", json={"reason": "Taken down"}).status_code == 200
+    harness.host.calls.clear()
+
+    for path in ("/deploy", "/deploy-latest", "/rollback", "/start", "/restart"):
+        response = harness.as_user("owner").post(f"/api/apps/{app_id}{path}")
+        assert response.status_code == 409, (path, response.text)
+        assert response.json()["code"] == "app_disabled" and response.json()["params"]["reason"] == "Taken down"
+    assert harness.host.calls == []
+    assert harness.db.query(AppRelease).filter(AppRelease.app_id == app_id).count() == 2

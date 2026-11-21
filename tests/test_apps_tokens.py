@@ -122,6 +122,24 @@ def test_last_use_is_recorded_at_most_once_a_minute(world, monkeypatch):
     assert world.app.token_last_used_source == "external"
 
 
+def test_noting_a_use_of_the_token_does_not_count_as_a_change_of_the_app(world):
+    # "updated_at" orders a member's own list and reads as "last changed". The
+    # bookkeeping of a call the app made is not a change, however often it runs.
+    changed = datetime(2026, 11, 1, 9, 0, 0)
+    world.app.updated_at = changed
+    world.db.commit()
+    assert note_token_use(world.db, world.app, "cluster", now=datetime(2026, 11, 15, 8, 0, 0)) is True
+    world.db.refresh(world.app)
+    assert world.app.token_last_used_at == datetime(2026, 11, 15, 8, 0, 0)
+    assert world.app.updated_at == changed
+
+    # A change of the app still moves it.
+    world.app.name = "Mind maps"
+    world.db.commit()
+    world.db.refresh(world.app)
+    assert world.app.updated_at > changed
+
+
 def test_reset_replaces_the_token_tells_the_host_and_is_audited(world):
     world.deploys.start_deploy(world.app, None, world.owner)
     world.db.refresh(world.app)

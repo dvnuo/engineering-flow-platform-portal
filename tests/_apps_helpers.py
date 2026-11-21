@@ -357,9 +357,10 @@ def make_deploy_service(session_factory, host: FakeHost, source: FakeSource, **k
 def reset_apps_state() -> None:
     """Forget what the feature keeps in memory between requests."""
     from app.services.apps.access import handoff_codes
+    from app.services.apps.deploy import forget_held
     from app.services.apps.error_events import reset_crash_throttle
     from app.services.apps.host_state import host_state
-    from app.services.apps.rate_limit import sdk_rate_limiter
+    from app.services.apps.rate_limit import repo_read_limiter, sdk_rate_limiter
     from app.services.apps.source import reset_account_cache
     from app.services.apps.tokens import reset_use_notes
 
@@ -368,7 +369,9 @@ def reset_apps_state() -> None:
     reset_account_cache()
     reset_use_notes()
     sdk_rate_limiter.reset()
+    repo_read_limiter.reset()
     reset_crash_throttle()
+    forget_held()
 
 
 def add_app(db, owner, *, slug: str = "mindmap", name: str = "Mind map", **fields: Any):

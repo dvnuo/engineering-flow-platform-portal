@@ -103,9 +103,21 @@ class AppReleaseRepository:
         return rows[0] if rows else None
 
     def active_for_app(self, app_id: str) -> Optional[AppRelease]:
-        """The deployment of this app that has not finished, if there is one."""
+        """The row of this app that is marked queued or running, if there is one.
+
+        The row as it is stored: whether anybody still works on it is the
+        deployments' question (``app.services.apps.deploy.active_release``).
+        """
         return self.db.scalars(
             select(AppRelease).where(AppRelease.app_id == app_id, AppRelease.status.in_(RELEASE_ACTIVE_STATUSES))
+        ).first()
+
+    def latest_with_sha(self, app_id: str, commit_sha: str) -> Optional[AppRelease]:
+        """The newest release of this app that was for ``commit_sha``, whatever its outcome."""
+        return self.db.scalars(
+            select(AppRelease)
+            .where(AppRelease.app_id == app_id, AppRelease.commit_sha == commit_sha)
+            .order_by(AppRelease.started_at.desc(), AppRelease.id.desc())
         ).first()
 
     def list_active(self) -> list[AppRelease]:

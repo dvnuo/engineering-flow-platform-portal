@@ -122,7 +122,7 @@ def create_from_template(payload: AppFromTemplateRequest, user=Depends(get_curre
             deploy_error = exc.to_payload()
     db.refresh(app)
     return AppCreateResponse(
-        app=apps_api._app_response(db, app, user),
+        app=apps_api._app_response(db, app, user, with_env=True),
         release=apps_api._release_response(db, app, release) if release is not None else None,
         deploy_error=deploy_error,
     )
@@ -136,7 +136,8 @@ def set_template(app_id: str, payload: AppTemplateRequest, user=Depends(get_curr
     """Offer the app as a template, or stop offering it."""
     app = apps_api._service(db).get_for_manage(app_id, user)
     _templates(db).set_template(app, user, payload.is_template)
-    return apps_api._app_response(db, app, user)
+    # The page takes this answer as the app it shows: it carries what the single-app read carries.
+    return apps_api._app_response(db, app, user, with_env=True)
 
 
 @router.get("/{app_id}/template/tags", response_model=AppTemplateTagsResponse)

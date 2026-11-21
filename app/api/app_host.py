@@ -17,7 +17,6 @@ is off. Errors use the contract's envelope: ``{"error": {"code", "message"}}``.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-import hashlib
 import hmac
 import json
 import logging
@@ -309,9 +308,10 @@ def _iso(moment: Optional[datetime]) -> Optional[str]:
 
 def icon_version(app: App) -> Optional[str]:
     """Changes whenever the icon does, so a page can cache the image for good under this name."""
-    if not app.icon_data or not app.icon_content_type:
+    if not app.icon_hash or not app.icon_content_type:
         return None
-    return hashlib.sha1(bytes(app.icon_data)).hexdigest()[:12]
+    # The hash kept beside the icon: the bytes themselves are not read for a list.
+    return app.icon_hash[:12]
 
 
 @router.post("/catalog")
@@ -370,13 +370,13 @@ def catalog(payload: Any = Body(default=None), db: Session = Depends(get_db)):
 def app_icon(app_id: str, db: Session = Depends(get_db)):
     """The icon as the last deployment read it: a raster image, never markup. The host decides who sees it."""
     app = AppRepository(db).get_by_id(app_id)
-    if app is None or not app.icon_data or not app.icon_content_type:
+    if app is None or not app.icon_hash or not app.icon_content_type or not app.icon_data:
         raise HostApiError("icon_not_found", "This app has no icon.", 404)
     return Response(
         content=bytes(app.icon_data),
         media_type=app.icon_content_type,
         headers={
-            "ETag": '"' + hashlib.sha1(bytes(app.icon_data)).hexdigest() + '"',
+            "ETag": '"' + app.icon_hash + '"',
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },

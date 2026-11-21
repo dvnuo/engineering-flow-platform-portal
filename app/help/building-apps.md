@@ -161,8 +161,9 @@ you first:
 ## Looking after it
 
 - **Environment variables**: settings and secrets your code reads from its
-  environment. Names may not start with `EFP_`; values are hidden until you
-  reveal them; saving restarts the app.
+  environment. Names may not start with `EFP_`, nor be one the system reads
+  to load programs (`LD_...`, `GCONV_PATH`, `GLIBC_TUNABLES`); values are
+  hidden until you reveal them; saving restarts the app.
 - **Logs**: what the app prints, followed live. Pause to read, download to
   keep.
 - **Usage**: requests, visitors, errors and response time; model calls and

@@ -92,7 +92,10 @@ def note_token_use(db: Session, app: App, source: str, *, now: Optional[datetime
         db.execute(
             update(App)
             .where(App.id == app.id)
-            .values(token_last_used_at=now or datetime.utcnow(), token_last_used_source=normalized)
+            # updated_at is named so that it keeps its value: left out, the
+            # column's own rule would stamp it with every use of the token and
+            # "last changed" would come to mean "last called".
+            .values(token_last_used_at=now or datetime.utcnow(), token_last_used_source=normalized, updated_at=App.updated_at)
             .execution_options(synchronize_session=False)
         )
         db.commit()

@@ -2071,7 +2071,9 @@
           ? t("of {ref}, deployed {when}", { ref: refName(current.ref || manage.repo_ref), when: formatAgo(current.finished_at || current.started_at) })
           : t("deployed {when}", { when: formatAgo(current.finished_at || current.started_at) }))
       ));
-    } else {
+    } else if (!app.deployed) {
+      // An app that runs and names no release: the commit and the branch are
+      // for whoever may manage it, so a visitor's page has no such line.
       facts.push(factHtml(t("Running release"), esc(t("Nothing deployed yet"))));
     }
     const repoUrl = manage.repo_web_url || manage.repo_url || "";

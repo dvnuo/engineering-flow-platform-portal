@@ -259,6 +259,9 @@ def parse_manifest(content: bytes | str) -> Manifest:
             raise ManifestError([(N_("The file is not UTF-8 text."), {})]) from None
     try:
         data = json.loads(content)
+    except RecursionError:
+        # Thousands of brackets inside one another fit in 64 KB: a problem of the file, not an error of the Portal.
+        raise ManifestError([(N_("The file is nested too deeply to be read."), {})]) from None
     except ValueError as exc:
         position = f"line {exc.lineno}, column {exc.colno}" if isinstance(exc, json.JSONDecodeError) else ""
         raise ManifestError([(N_("The file is not valid JSON ({position})."), {"position": position or "unknown position"})]) from None

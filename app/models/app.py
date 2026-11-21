@@ -112,8 +112,13 @@ class App(Base):
     template_version_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     anyone_approved_by: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     disabled_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    icon_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    # Deferred: up to 256 KB a row that only the icon route serves. A list of
+    # apps must not read every icon to draw its cards.
+    icon_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
     icon_content_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # SHA-1 of icon_data in hex, written with it: the icon's version in URLs and
+    # its ETag, and whether there is an icon at all, without reading the bytes.
+    icon_hash: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     # What the app may spend a day of its owner's provider; None = the platform default.
     daily_credits: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     daily_tokens: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

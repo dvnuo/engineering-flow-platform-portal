@@ -7,8 +7,9 @@
   current standing; this makes the host act on it at once, which is what
   counts for an app open to anyone.)
 - The Portal starts: deployments the last run left unfinished are picked up
-  or failed, and the worker that removes the data of long-deleted apps starts;
-  it stops when the Portal does.
+  or failed, the worker that removes the data of long-deleted apps starts (it
+  stops when the Portal does), and the host is told again what every app is
+  (app/services/apps/host_sync.py), in the background.
 
 Everything here is best effort and off the request's path: a host that is
 down must never fail a sign-out or an administrator's change. Nothing runs
@@ -161,8 +162,20 @@ def member_access_changed(username: Any) -> None:
 # --- startup ------------------------------------------------------------------------
 
 
+def sync_host_after_start() -> None:
+    """Tell the host what every app is now: what changed while the Portal was down, or by its configuration, reaches it."""
+    from app.services.apps.host_sync import sync_host_apps
+
+    sync_host_apps(after_start=True)
+
+
 def apps_startup() -> None:
-    """Called once when the Portal starts: finish or fail the deployments the last run left behind, start the purge worker."""
+    """Called once when the Portal starts: finish or fail the deployments the last run left behind, start the purge
+    worker, and tell the host again what every app is.
+
+    The last of these is a round of calls to the host, so it runs on a thread
+    of its own: a host that is down or slow must not hold the Portal's start.
+    """
     try:
         if not apps_settings.apps_enabled():
             return
@@ -177,6 +190,10 @@ def apps_startup() -> None:
         apps_purge_worker_singleton.start()
     except Exception:  # noqa: BLE001
         logger.exception("apps: the purge worker could not be started")
+    try:
+        _spawn(sync_host_after_start, "apps-host-sync")
+    except Exception:  # noqa: BLE001 - housekeeping: the purge worker's first round says it again
+        logger.exception("apps: the host sync could not be started")
 
 
 def apps_shutdown() -> None:

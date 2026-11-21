@@ -149,7 +149,12 @@ class AppManageFields(BaseModel):
     # A branch or a tag; for an app created from a template, the commit it is pinned to.
     repo_ref: str
     entry_dir: str
-    env: dict[str, str]
+    # The names of the owner's environment variables, in every answer.
+    env_names: list[str]
+    # Their values, in an answer about one app only. A list of apps (mine,
+    # all, the administration's overview, the templates) carries null here:
+    # the values may be secrets, and a list is not where anyone reads them.
+    env: Optional[dict[str, str]] = None
     llm_enabled: bool
     connectors_enabled: list[str]
     connectors_write: list[str]
@@ -193,6 +198,8 @@ class AppResponse(BaseModel):
     has_icon: bool
     icon_url: Optional[str] = None
     deployed: bool
+    # The commit and the branch that run: for whoever may manage the app. Null
+    # for anybody else, deployed or not (``deployed`` says which).
     current_release: Optional[AppReleaseSummary] = None
     # The host's last known state of the app (docs/CONTRACTS.md, section 4.6); None when unknown.
     state: Optional[str] = None

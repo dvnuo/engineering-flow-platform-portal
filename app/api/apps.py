@@ -7,6 +7,11 @@ owner and system administrators; the card itself is for whoever may open
 the app. An app a member may not open answers 404, like one that does not
 exist. Every route answers 404 while ``APPS_ENABLED`` is off.
 
+The values of an app's environment variables may be secrets. They are in the
+answers about one app (its read, and the answers of the calls that change
+it), for whoever may manage it; a list of apps names the variables and
+leaves their values out.
+
 Errors carry ``detail`` (English, placeholders filled), ``code``,
 ``message_key`` and ``params`` so a page can show them in the member's
 language (app/services/apps/errors.py).
@@ -16,7 +21,6 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack
 from datetime import datetime
-import hashlib
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -72,12 +76,14 @@ from app.services.apps.access import (
     user_payload,
 )
 from app.services.apps.app_service import UNSET, AppService
+from app.services.apps.deploy import active_release
 from app.services.apps.deploy import deploy_service as default_deploy_service
 from app.services.apps.errors import AppError, AppForbidden, AppHostError, AppNotFound, AppValidationError
 from app.services.apps.host_client import HOST_APP_NOT_FOUND, AppHostClient
 from app.services.apps.host_spec import current_sha
 from app.services.apps.host_state import host_state
 from app.services.apps.names import APP_CONNECTOR_TYPES, APP_TYPES, APP_VISIBILITIES, RESERVED_SLUGS, RELEASE_RUNNING
+from app.services.apps.rate_limit import REPO_READS_PER_MINUTE, repo_read_limiter
 from app.services.apps.source import AppSourceService, parse_repo_url, source_for, web_host_of
 from app.services.apps.templates import template_info
 from app.services.authorization import is_system_admin
@@ -136,6 +142,18 @@ def _require_system_admin(user: Any) -> None:
         raise AppForbidden(N_("Only a system administrator can do this"))
 
 
+def _limit_repository_reads(user: Any) -> None:
+    """One member's reads of repositories nobody registered, per minute (app/services/apps/rate_limit.py)."""
+    wait = repo_read_limiter.check(f"member:{getattr(user, 'id', '')}", REPO_READS_PER_MINUTE)
+    if wait is not None:
+        raise AppError(
+            N_("You are reading repositories too often. Try again in {seconds} seconds."),
+            code="rate_limited",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            seconds=wait,
+        )
+
+
 # --- serialising -------------------------------------------------------------------
 
 
@@ -158,10 +176,10 @@ def _release_summary(release: Optional[AppRelease]) -> Optional[AppReleaseSummar
 
 
 def _icon_url(app: App) -> Optional[str]:
-    if not app.icon_data:
+    # From the stored hash: the bytes are not read to say where the icon is.
+    if not app.icon_hash:
         return None
-    version = hashlib.sha1(app.icon_data).hexdigest()[:12]
-    return f"/api/apps/{app.id}/icon?v={version}"
+    return f"/api/apps/{app.id}/icon?v={app.icon_hash[:12]}"
 
 
 def _repo_links(app: App) -> tuple[Optional[str], Optional[str]]:
@@ -188,24 +206,40 @@ def _template_info(db: Session, app: App) -> Optional[AppTemplateInfo]:
     )
 
 
-def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional[datetime] = None) -> AppResponse:
+def _app_response(
+    db: Session,
+    app: App,
+    user: Any,
+    *,
+    last_visited_at: Optional[datetime] = None,
+    with_env: bool = False,
+) -> AppResponse:
+    """The app as ``user`` may see it.
+
+    ``with_env`` is for an answer about this one app: it carries the values of
+    the owner's environment variables for whoever may manage the app. A list
+    of apps leaves them out and carries the names only.
+    """
     owner = db.get(User, app.owner_user_id)
     manage = can_manage(user, app)
     enabled, disabled_reason = app_enabled(db, app)
     releases = AppReleaseRepository(db)
-    current = releases.get(app.current_release_id) if app.current_release_id else None
+    # The commit and the branch are the repository's business: for whoever may manage the app.
+    current = releases.get(app.current_release_id) if manage and app.current_release_id else None
     view = host_state.status_of(app.id)
     state = (view.status or {}).get("state")
     manage_fields = None
     if manage:
         repo_web_url, fork_url = _repo_links(app)
+        env = app.env
         manage_fields = AppManageFields(
             repo_url=app.repo_url,
             repo_web_url=repo_web_url,
             fork_url=fork_url,
             repo_ref=app.repo_ref,
             entry_dir=app.entry_dir or "",
-            env=app.env,
+            env_names=sorted(env),
+            env=env if with_env else None,
             llm_enabled=bool(app.llm_enabled),
             connectors_enabled=list(app.connectors_enabled or []),
             connectors_write=list(app.connectors_write or []),
@@ -216,7 +250,7 @@ def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional
             token_last_used_at=app.token_last_used_at,
             token_last_used_source=app.token_last_used_source,
             anyone_approved_by=app.anyone_approved_by,
-            active_release=_release_summary(releases.active_for_app(app.id)),
+            active_release=_release_summary(active_release(db, app.id)),
             latest_release=_release_summary(releases.latest_for_app(app.id)),
         )
     return AppResponse(
@@ -239,7 +273,7 @@ def _app_response(db: Session, app: App, user: Any, *, last_visited_at: Optional
         template_app_id=app.template_app_id,
         template_version_id=app.template_version_id,
         template=_template_info(db, app),
-        has_icon=bool(app.icon_data),
+        has_icon=bool(app.icon_hash),
         icon_url=_icon_url(app),
         deployed=bool(app.current_release_id),
         current_release=_release_summary(current),
@@ -284,7 +318,7 @@ def _status_response(db: Session, app: App, service: AppService) -> AppStatusRes
     result = service.status(app)
     host_status = result["status"] if isinstance(result["status"], dict) else None
     enabled, disabled_reason = app_enabled(db, app)
-    active = AppReleaseRepository(db).active_for_app(app.id)
+    active = active_release(db, app.id)
     return AppStatusResponse(
         host_reachable=bool(result["host_reachable"]),
         live=bool(result["live"]),
@@ -331,7 +365,11 @@ def get_apps_settings(user=Depends(get_current_user), db: Session = Depends(get_
 
 @router.post("/inspect", response_model=AppInspectResponse)
 def inspect_repository(payload: AppInspectRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Read a repository directory the way registering it would, without registering it: the same errors, and the manifest."""
+    """Read a repository directory the way registering it would, without registering it: the same errors, and the manifest.
+
+    429 ``rate_limited`` when one member asks too often.
+    """
+    _limit_repository_reads(user)
     service = _service(db)
     inspection = service.inspect(user, repo_url=payload.repo_url, ref=payload.ref, entry_dir=payload.entry_dir)
     manifest = inspection.manifest
@@ -362,7 +400,11 @@ def inspect_repository(payload: AppInspectRequest, user=Depends(get_current_user
 
 @router.get("/repo-refs", response_model=AppRepoRefsResponse)
 def list_repository_refs(repo_url: str = Query(..., min_length=1), user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """The branches and tags of a repository the service account can read (one page of each)."""
+    """The branches and tags of a repository the service account can read (one page of each).
+
+    429 ``rate_limited`` when one member asks too often.
+    """
+    _limit_repository_reads(user)
     source = source_client(db)
     repo = source.parse(repo_url)
     record = source.ensure_readable(repo)
@@ -432,7 +474,7 @@ def create_app(payload: AppCreateRequest, user=Depends(get_current_user), db: Se
             deploy_error = exc.to_payload()
     db.refresh(app)
     return AppCreateResponse(
-        app=_app_response(db, app, user),
+        app=_app_response(db, app, user, with_env=True),
         release=_release_response(db, app, release) if release is not None else None,
         deploy_error=deploy_error,
     )
@@ -443,7 +485,7 @@ def get_app(app_id: str, user=Depends(get_current_user), db: Session = Depends(g
     service = _service(db)
     app = service.get_for_view(app_id, user)
     visits = AppTrafficRepository(db).last_visits_of_user(user.id, [app.id])
-    return _app_response(db, app, user, last_visited_at=visits.get(app.id))
+    return _app_response(db, app, user, last_visited_at=visits.get(app.id), with_env=True)
 
 
 @router.patch("/{app_id}", response_model=AppResponse)
@@ -472,7 +514,7 @@ def update_app(app_id: str, payload: AppUpdateRequest, user=Depends(get_current_
         daily_credits=field("daily_credits", nullable=True),
         daily_tokens=field("daily_tokens", nullable=True),
     )
-    return _app_response(db, app, user)
+    return _app_response(db, app, user, with_env=True)
 
 
 @router.delete("/{app_id}")
@@ -694,9 +736,9 @@ def reset_token(app_id: str, user=Depends(get_current_user), db: Session = Depen
 def get_icon(app_id: str, request: Request, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """The app's icon as the last deployment read it: a raster image, never markup."""
     app = _service(db).get_for_view(app_id, user)
-    if not app.icon_data or not app.icon_content_type:
+    if not app.icon_hash or not app.icon_content_type:
         raise AppNotFound(N_("This app has no icon"), code="icon_not_found")
-    etag = '"' + hashlib.sha1(app.icon_data).hexdigest() + '"'
+    etag = '"' + app.icon_hash + '"'
     headers = {
         "Cache-Control": "private, max-age=86400",
         "ETag": etag,
@@ -704,8 +746,12 @@ def get_icon(app_id: str, request: Request, user=Depends(get_current_user), db: 
         "Content-Security-Policy": "default-src 'none'; sandbox",
     }
     if request.headers.get("if-none-match") == etag:
+        # Answered from the stored hash: the bytes are read only when they are sent.
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-    return Response(content=bytes(app.icon_data), media_type=app.icon_content_type, headers=headers)
+    data = app.icon_data
+    if not data:
+        raise AppNotFound(N_("This app has no icon"), code="icon_not_found")
+    return Response(content=bytes(data), media_type=app.icon_content_type, headers=headers)
 
 
 @router.get("/{app_id}/data", response_model=AppDataResponse)
@@ -773,7 +819,7 @@ def disable_app(app_id: str, payload: AppDisableRequest, user=Depends(get_curren
     service = _service(db)
     app = service.get(app_id)
     service.disable(app, user, payload.reason)
-    return _app_response(db, app, user)
+    return _app_response(db, app, user, with_env=True)
 
 
 @router.post("/{app_id}/enable", response_model=AppResponse)
@@ -782,7 +828,7 @@ def enable_app(app_id: str, user=Depends(get_current_user), db: Session = Depend
     service = _service(db)
     app = service.get(app_id)
     service.enable(app, user)
-    return _app_response(db, app, user)
+    return _app_response(db, app, user, with_env=True)
 
 
 @router.post("/{app_id}/anyone-approval", response_model=AppResponse)
@@ -794,7 +840,7 @@ def set_anyone_approval(
     service = _service(db)
     app = service.get(app_id)
     service.set_anyone_approval(app, user, payload.approved)
-    return _app_response(db, app, user)
+    return _app_response(db, app, user, with_env=True)
 
 
 @router.post("/{app_id}/transfer", response_model=AppResponse)
@@ -807,4 +853,4 @@ def transfer_app(app_id: str, payload: AppTransferRequest, user=Depends(get_curr
     if new_owner is None:
         raise AppValidationError(N_("No member has the username {username}."), code="owner_invalid", username=payload.username)
     service.transfer_owner(app, user, new_owner)
-    return _app_response(db, app, user)
+    return _app_response(db, app, user, with_env=True)

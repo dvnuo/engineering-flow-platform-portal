@@ -9,6 +9,12 @@ for an app it no longer runs) and stamps ``apps.data_purged_at``. A host
 that cannot be reached, or that refuses, is asked again on the next round.
 The app's row stays: its address is never given to another app.
 
+The same round runs the feature's two other hourly errands, because one
+thread that wakes once an hour is enough for all three: the host is told
+again what every app is (app/services/apps/host_sync.py), and releases that
+are marked running although nobody works on them any more are ended
+(``DeployService.settle_abandoned``).
+
 Started with the Portal when ``APPS_ENABLED`` is on
 (app/services/apps/member_hooks.py).
 """
@@ -70,12 +76,35 @@ class AppsPurgeWorker:
         if self._initial_delay and self._stop_event.wait(self._initial_delay):
             return
         while not self._stop_event.is_set():
-            try:
-                self.run_once()
-            except Exception:  # noqa: BLE001 - the loop must survive a bad iteration
-                logger.exception("apps purge worker iteration failed")
+            # The round's three errands, each on its own: one that fails does not cost the others their turn.
+            for errand in (self.run_once, self.sync_host, self.settle_releases):
+                if self._stop_event.is_set():
+                    return
+                try:
+                    errand()
+                except Exception:  # noqa: BLE001 - the loop must survive a bad iteration
+                    logger.exception("apps purge worker iteration failed")
             if self._stop_event.wait(max(60.0, float(self._interval))):
                 return
+
+    def sync_host(self) -> dict[str, int]:
+        """Tell the host again what every app is (app/services/apps/host_sync.py)."""
+        from app.services.apps.host_sync import sync_host_apps
+
+        return sync_host_apps(session_factory=self._session, host=self._host_factory())
+
+    def settle_releases(self) -> dict[str, int]:
+        """End the releases that are marked running although nobody works on them (``DeployService.settle_abandoned``)."""
+        summary = {"resumed": 0, "failed": 0}
+        if not apps_settings.apps_enabled():
+            return summary
+        from app.services.apps import deploy
+
+        db = self._session()
+        try:
+            return deploy.deploy_service.settle_abandoned(db)
+        finally:
+            db.close()
 
     def _session(self) -> Any:
         if self._session_factory is not None:

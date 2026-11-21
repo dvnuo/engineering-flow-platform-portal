@@ -437,6 +437,30 @@ def test_env_rules_and_audit_without_values(world):
     assert check_env(None) == {}
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_ANYTHING_AT_ALL", "LD_", "ld_preload", "Ld_Library_Path", "GCONV_PATH", "GLIBC_TUNABLES", "glibc_tunables"],
+)
+def test_env_names_the_loader_reads_are_refused(world, name):
+    # The dynamic loader and the C library read these before any code of the
+    # app runs, in whatever process of the host is started with them. The host
+    # refuses the same names; the owner reads why here, before anything is sent.
+    with pytest.raises(AppValidationError) as caught:
+        check_env({name: "/tmp/evil.so"})
+    assert caught.value.code == "env_name_unsafe" and caught.value.status_code == 422
+    assert caught.value.message == f"{name} changes how the system loads programs and cannot be set for an app."
+
+    app = world.create()
+    with pytest.raises(AppValidationError):
+        world.service.update(app, world.users["owner"], env={"API_BASE": "https://x", name: "1"})
+    assert app.env == {} and world.host.calls == []
+
+
+def test_env_names_that_only_look_like_the_loaders_are_fine():
+    harmless = {"LDFLAGS": "-L/x", "LD": "ld", "MY_LD_PRELOAD": "1", "GCONV": "1", "GCONV_PATHS": "1", "GLIBC": "2.39", "BUILD_LD_PATH": "/x"}
+    assert check_env(harmless) == harmless
+
+
 def test_daily_limits_are_a_system_administrators(world):
     app = world.create()
     with pytest.raises(AppForbidden):
@@ -575,6 +599,109 @@ def test_delete_waits_for_a_running_deployment(world):
     world.db.commit()
     with pytest.raises(DeployInProgress):
         world.service.delete(app, world.users["owner"])
+
+
+def test_delete_is_not_held_up_by_a_release_nobody_works_on_any_more(world):
+    from datetime import datetime, timedelta
+
+    from app.models import AppRelease
+
+    app = world.create()
+    # Marked running for hours, held by no thread of this Portal: its thread died.
+    world.db.add(AppRelease(app_id=app.id, kind="deploy", status="running", steps_json="[]", started_at=datetime.utcnow() - timedelta(hours=5)))
+    world.db.commit()
+    world.service.delete(app, world.users["owner"])
+    assert app.deleted_at is not None
+
+
+def test_no_deployment_can_start_while_an_app_is_being_deleted(world):
+    """The host takes up to a minute and a half to remove an app. A deployment
+    started in that time put the app back on the host under a row that said
+    it was deleted."""
+    from app.models import AppRelease
+
+    app = world.deployed()
+    app_id = app.id
+    seen = {}
+    original = world.host.delete_app
+
+    def delete_app(target_id, *, purge_data=False):
+        # While the host is still busy, another request (a second tab, an administrator) presses Deploy.
+        other = world.factory()
+        try:
+            row = other.get(App, target_id)
+            seen["marked"] = row.deleted_at is not None
+            seen["found"] = AppService(other, host=world.host, source=world.source).apps.get_by_id(target_id) is not None
+            with pytest.raises(AppNotFound):
+                world.deploys.start_deploy(row, None, world.users["owner"].id)
+            with pytest.raises(AppNotFound):
+                world.deploys.start_rollback(row, world.users["owner"].id)
+        finally:
+            other.close()
+        return original(target_id, purge_data=purge_data)
+
+    world.host.delete_app = delete_app
+    rows = world.db.query(AppRelease).count()
+    world.host.calls.clear()
+    world.service.delete(app, world.users["owner"])
+
+    # Marked before the host was called, so nothing found the app any more.
+    assert seen == {"marked": True, "found": False}
+    assert app.deleted_at is not None
+    assert world.db.query(AppRelease).count() == rows
+    assert app_id not in world.host.specs and world.host.names() == ["delete_app"]
+
+
+def test_a_deletion_the_host_refuses_takes_its_mark_back(world):
+    app = world.deployed()
+    world.service.stop(app, world.users["owner"])
+    world.service.start(app, world.users["owner"])
+    assert app.desired_state == "running"
+    marked = []
+    original = world.host.delete_app
+
+    def delete_app(target_id, *, purge_data=False):
+        other = world.factory()
+        marked.append(other.get(App, target_id).deleted_at is not None)
+        other.close()
+        raise AppHostUnavailable()
+
+    world.host.delete_app = delete_app
+    with pytest.raises(AppHostUnavailable):
+        world.service.delete(app, world.users["owner"], purge_data=True)
+    world.db.refresh(app)
+    # It was marked while the host was asked, and is as it was now: found, running, its data not called purged.
+    assert marked == [True]
+    assert app.deleted_at is None and app.data_purged_at is None and app.desired_state == "running"
+    assert world.service.get_for_manage(app.id, world.users["owner"]).id == app.id
+    assert _actions(world.db, app)[-1] != "app.deleted"
+
+    # Anything else that goes wrong during the call takes the mark back too.
+    def broken(target_id, *, purge_data=False):
+        raise RuntimeError("boom")
+
+    world.host.delete_app = broken
+    with pytest.raises(RuntimeError):
+        world.service.delete(app, world.users["owner"])
+    world.db.refresh(app)
+    assert app.deleted_at is None
+
+    world.host.delete_app = original
+    world.service.delete(app, world.users["owner"])
+    assert app.deleted_at is not None
+
+
+def test_an_app_cannot_be_deleted_twice(world):
+    app = world.deployed()
+    stale = world.factory()
+    try:
+        copy = stale.get(App, app.id)  # another request read the app before it was deleted
+        world.service.delete(app, world.users["owner"])
+        with pytest.raises(AppNotFound):
+            AppService(stale, host=world.host, source=world.source).delete(copy, world.users["owner"])
+    finally:
+        stale.close()
+    assert world.host.deleted == [(app.id, False)]
 
 
 def test_clear_data(world):

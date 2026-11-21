@@ -67,6 +67,18 @@ def test_migrated_schema_is_the_models_schema(migrated):
         assert {item["name"] for item in inspector.get_unique_constraints(name)} == modeled, name
 
 
+def test_the_icon_keeps_its_hash_in_a_column_and_its_bytes_out_of_every_row_read(migrated):
+    from app.models import App
+
+    engine, _config = migrated
+    columns = {column["name"]: column for column in inspect(engine).get_columns("apps")}
+    # The icon's version and ETag come from this column, written with the bytes.
+    assert columns["icon_hash"]["nullable"] is True
+    # Up to 256 KB each: read when the icon is served, not whenever an app is.
+    assert App.__mapper__.column_attrs["icon_data"].deferred is True
+    assert App.__mapper__.column_attrs["icon_hash"].deferred is False
+
+
 def test_rollups_take_an_app_dimension_with_the_empty_sentinel(migrated):
     engine, _config = migrated
     inspector = inspect(engine)

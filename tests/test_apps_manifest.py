@@ -70,9 +70,13 @@ def test_a_byte_order_mark_is_not_a_syntax_error():
         (b"[1, 2]", "one JSON object"),
         (b"\xff\xfe\x00", "not UTF-8"),
         (b" " * (64 * 1024 + 1), "larger than 64 KB"),
+        # Brackets inside one another, as many as fit under the size limit: the
+        # parser gives up with a RecursionError, which was a 500 for the member.
+        (b"[" * 60000, "nested too deeply"),
+        (b'{"a":' * 12000, "nested too deeply"),
     ],
     # Named: the default id would be the content itself, 64 KB of it.
-    ids=["not-json", "not-an-object", "not-utf8", "too-large"],
+    ids=["not-json", "not-an-object", "not-utf8", "too-large", "nested-arrays", "nested-objects"],
 )
 def test_unreadable_files(content, expected):
     with pytest.raises(ManifestError) as caught:

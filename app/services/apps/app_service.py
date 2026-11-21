@@ -36,6 +36,7 @@ from app.services.apps.access import (
     is_member_active,
     openable_clause,
 )
+from app.services.apps.deploy import active_release, adopt_host_release, start_lock
 from app.services.apps.errors import (
     AppConflict,
     AppError,
@@ -55,6 +56,8 @@ from app.services.apps.names import (
     APP_VISIBILITIES,
     DESIRED_RUNNING,
     DESIRED_STOPPED,
+    ENV_LOADER_NAMES,
+    ENV_LOADER_PREFIX,
     ENV_MAX_VALUE_LENGTH,
     ENV_MAX_VARIABLES,
     ENV_NAME_RE,
@@ -143,6 +146,13 @@ def check_env(value: Any) -> dict[str, str]:
         if name.upper().startswith(ENV_RESERVED_PREFIX) or name.upper() in ENV_RESERVED_NAMES:
             raise AppValidationError(
                 N_("{name} is set by the platform and cannot be used as a variable name."), code="env_name_reserved", name=name
+            )
+        if name.upper().startswith(ENV_LOADER_PREFIX) or name.upper() in ENV_LOADER_NAMES:
+            # LD_PRELOAD and its kin are read by the loader of every process
+            # started with them, before the app's own code and whoever the
+            # process runs as. The host refuses the same names.
+            raise AppValidationError(
+                N_("{name} changes how the system loads programs and cannot be set for an app."), code="env_name_unsafe", name=name
             )
         if raw_value is None or isinstance(raw_value, (dict, list)):
             raise AppValidationError(N_("The value of {name} must be text."), code="env_value_invalid", name=name)
@@ -540,20 +550,43 @@ class AppService:
         too: it registers every app the Portal lists when it boots, so it may
         hold a record of one nobody deployed (and answers "ok" for an id it
         does not know).
+
+        The app is marked deleted first, under the lock deployments start
+        under, and the host is called after: the call may take a minute and a
+        half, and a deployment started in that time would put the app back on
+        the host under a row that says it is gone. From the mark on nothing
+        finds the app any more; when the host refuses, the mark is taken back.
         """
-        if self.releases.active_for_app(app.id) is not None:
-            raise DeployInProgress()
+        with start_lock:
+            self.db.refresh(app)
+            if app.deleted_at is not None:
+                raise AppNotFound()
+            if active_release(self.db, app.id) is not None:
+                raise DeployInProgress()
+            desired_before = app.desired_state
+            app.deleted_at = datetime.utcnow()
+            app.desired_state = DESIRED_STOPPED
+            self.db.add(app)
+            self.db.commit()
+        app_id = app.id
         try:
-            self.host.delete_app(app.id, purge_data=purge_data)
-        except AppHostError as exc:
-            if exc.host_code != HOST_APP_NOT_FOUND:
-                raise
-        app.deleted_at = datetime.utcnow()
+            try:
+                self.host.delete_app(app_id, purge_data=purge_data)
+            except AppHostError as exc:
+                if exc.host_code != HOST_APP_NOT_FOUND:
+                    raise
+        except BaseException:
+            # The host did not take the app off: it is not deleted.
+            self.db.rollback()
+            app.deleted_at = None
+            app.desired_state = desired_before
+            self.db.add(app)
+            self.db.commit()
+            raise
         if purge_data:
             app.data_purged_at = app.deleted_at
-        app.desired_state = DESIRED_STOPPED
-        self.db.add(app)
-        self.db.commit()
+            self.db.add(app)
+            self.db.commit()
         self.db.refresh(app)
         host_state.forget(app.id)
         audit.record_app_event(
@@ -611,6 +644,12 @@ class AppService:
             error = exc
         else:
             host_state.record_status(live)
+            try:
+                # A deployment the Portal gave up on and the host finished shows here first.
+                adopt_host_release(self.db, app, live, host=self.host)
+            except Exception:  # noqa: BLE001 - reading a status must not fail over bookkeeping
+                logger.warning("apps: taking over a finished release failed", exc_info=True)
+                self.db.rollback()
             return {"host_reachable": True, "live": True, "status": live, "reported_at": datetime.utcnow(), "error": None}
         view = host_state.status_of(app.id)
         return {

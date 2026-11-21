@@ -169,6 +169,14 @@ class AppHostError(AppError):
         """The host's own error code (``app_not_found``, ``slug_taken`` ...); empty when it gave none."""
         return str(self.params.get("host_code") or "")
 
+    @property
+    def host_status(self) -> int:
+        """The HTTP status the host answered with; 0 when it did not answer at all."""
+        try:
+            return int(self.params.get("host_status") or 0)
+        except (TypeError, ValueError):
+            return 0
+
 
 class AppHostUnavailable(AppHostError):
     """The app host could not be reached at all: nothing was changed there."""

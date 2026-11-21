@@ -41,6 +41,11 @@ DISABLED_OWNER_INACTIVE = "owner_inactive"
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ENV_RESERVED_NAMES = frozenset({"PORT", "HOME", "TMPDIR", "PATH"})
 ENV_RESERVED_PREFIX = "EFP_"
+# Names the dynamic loader and the C library read before any code of the app
+# runs: with one of them an owner chooses what a process of the host loads,
+# whichever user that process runs as. The host refuses the same list.
+ENV_LOADER_PREFIX = "LD_"
+ENV_LOADER_NAMES = frozenset({"GCONV_PATH", "GLIBC_TUNABLES"})
 ENV_MAX_VARIABLES = 100
 ENV_MAX_VALUE_LENGTH = 8192
 APP_TOKEN_ENV = "EFP_APP_TOKEN"

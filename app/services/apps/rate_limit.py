@@ -1,10 +1,15 @@
-"""A sliding one-minute window of SDK calls per app.
+"""A sliding one-minute window of SDK calls per app, and of repository reads per member.
 
 The Portal is one process, so the windows live in memory: per app, the times
 of the calls that were let through in the last minute. A call is refused when
 the window is full and is told how long until the oldest call leaves it.
 Refused calls do not count. Nothing survives a restart, which only ever makes
 the limit more generous for a moment.
+
+The same window, keyed by member, limits the two routes that read a
+repository nobody registered yet (inspecting a directory, listing branches and
+tags): every such read is a call of the platform's one service account, whose
+GitHub allowance the rest of the Portal shares.
 """
 
 from __future__ import annotations
@@ -58,3 +63,8 @@ class SlidingWindowLimiter:
 
 
 sdk_rate_limiter = SlidingWindowLimiter()
+
+# What one member may ask of unregistered repositories in a minute. The
+# dialogs that register an app make a handful of such reads; a loop makes many.
+REPO_READS_PER_MINUTE = 30
+repo_read_limiter = SlidingWindowLimiter()

@@ -94,6 +94,7 @@ def _create_apps() -> None:
         sa.Column("disabled_reason", sa.String(length=255), nullable=True),
         sa.Column("icon_data", sa.LargeBinary(), nullable=True),
         sa.Column("icon_content_type", sa.String(length=64), nullable=True),
+        sa.Column("icon_hash", sa.String(length=40), nullable=True),
         sa.Column("daily_credits", sa.Float(), nullable=True),
         sa.Column("daily_tokens", sa.BigInteger(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(), nullable=True),
