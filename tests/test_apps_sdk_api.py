@@ -1103,8 +1103,8 @@ def test_a_connector_request_is_signed_forwarded_recorded_and_logged_without_its
     (request,) = upstream.requests
     assert request.method == "GET"
     assert str(request.url) == "https://jira.example.test/rest/api/2/issue/ABC-1?expand=names&fields=summary&jql=password%3Dhunter2"
-    # The connector's own sign-in, never the caller's.
-    expected = "Basic " + base64.b64encode(f"svc:{CONNECTOR_TOKEN}".encode("utf-8")).decode("ascii")
+    # The connector's own sign-in, never the caller's: on a company-hosted Jira a token is sent as Bearer.
+    expected = f"Bearer {CONNECTOR_TOKEN}"
     assert request.headers["authorization"] == expected
 
     (row,) = sdk.executions()

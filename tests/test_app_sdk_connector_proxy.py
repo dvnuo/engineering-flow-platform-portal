@@ -205,12 +205,14 @@ def test_a_connector_that_lacks_what_the_call_needs_is_not_configured(kind, conf
 @pytest.mark.parametrize(
     ("kind", "config", "expected"),
     [
-        # Jira and Confluence: a username with a token is Basic, a token alone a Bearer PAT, a username with a password Basic.
-        ("jira", instances("jira", {"url": BASE_URLS["jira"], "username": "svc", "token": TOKEN}), basic("svc", TOKEN)),
+        # Jira and Confluence on a company-hosted site: a token is a personal access token and signs in as
+        # Bearer, with the username left out (Data Center answers 401 to it as Basic); only a row without a
+        # token signs in with its username and password. Atlassian Cloud has its own test below.
+        ("jira", instances("jira", {"url": BASE_URLS["jira"], "username": "svc", "token": TOKEN}), f"Bearer {TOKEN}"),
         ("jira", instances("jira", {"url": BASE_URLS["jira"], "token": TOKEN}), f"Bearer {TOKEN}"),
         ("jira", instances("jira", {"url": BASE_URLS["jira"], "username": "svc", "password": PASSWORD}), basic("svc", PASSWORD)),
-        ("jira", instances("jira", {"url": BASE_URLS["jira"], "username": "svc", "token": TOKEN, "password": PASSWORD}), basic("svc", TOKEN)),
-        ("confluence", instances("confluence", {"url": BASE_URLS["confluence"], "username": "svc", "token": TOKEN}), basic("svc", TOKEN)),
+        ("jira", instances("jira", {"url": BASE_URLS["jira"], "username": "svc", "token": TOKEN, "password": PASSWORD}), f"Bearer {TOKEN}"),
+        ("confluence", instances("confluence", {"url": BASE_URLS["confluence"], "username": "svc", "token": TOKEN}), f"Bearer {TOKEN}"),
         ("confluence", instances("confluence", {"url": BASE_URLS["confluence"], "token": TOKEN}), f"Bearer {TOKEN}"),
         ("confluence", instances("confluence", {"url": BASE_URLS["confluence"], "username": "svc", "password": PASSWORD}), basic("svc", PASSWORD)),
         # GitHub: the API token as Bearer.
@@ -238,6 +240,34 @@ def test_each_connector_signs_the_request_the_way_its_test_button_does(kind, con
     request = upstream.last
     assert request.headers.get("authorization") == expected
     assert str(request.url) == f"{BASE_URLS[kind]}/probe"
+
+
+@pytest.mark.parametrize(
+    ("kind", "url"),
+    [
+        ("jira", "https://acme.atlassian.net"),
+        ("confluence", "https://acme.atlassian.net/wiki"),
+        ("jira", "https://acme.jira.com"),
+    ],
+)
+def test_an_atlassian_cloud_token_signs_in_as_basic_with_the_account_email(kind, url):
+    # On Atlassian Cloud a token is an API token: Basic, together with the account's email.
+    upstream = Upstream()
+    send(upstream, config=instances(kind, {"url": url, "username": "svc@example.test", "token": TOKEN}), connector_type=kind, path="/probe")
+    assert upstream.last.headers.get("authorization") == basic("svc@example.test", TOKEN)
+    assert str(upstream.last.url) == f"{url}/probe"
+
+    # Without an email there is nothing to pair it with: Bearer, as everywhere.
+    upstream = Upstream()
+    send(upstream, config=instances(kind, {"url": url, "token": TOKEN}), connector_type=kind, path="/probe")
+    assert upstream.last.headers.get("authorization") == f"Bearer {TOKEN}"
+
+
+def test_the_proxy_signs_with_the_function_the_test_button_uses():
+    # One rule for the Test button, the assistants and the apps: when it changes, all three follow.
+    import inspect
+
+    assert "connector_http.instance_auth_headers(instance)" in inspect.getsource(connector_proxy)
 
 
 def test_jira_uses_the_first_row_that_is_on_and_complete():
@@ -584,7 +614,7 @@ def test_only_accept_content_type_and_harmless_x_headers_travel():
         "x-github-api-version": "2022-11-28",
         "x-requested-with": "XMLHttpRequest",
         "x-experimentalapi": "opt-in",
-        "authorization": basic("svc", TOKEN),
+        "authorization": f"Bearer {TOKEN}",
     }
     assert sent["host"] == "jira.example.test"
     assert sent["user-agent"] != "mine"
@@ -608,7 +638,7 @@ def test_a_json_body_is_sent_as_json():
     request = upstream.last
     assert request.headers["content-type"] == "application/json"
     assert json.loads(request.content) == {"fields": {"summary": "\u6587"}}
-    assert request.headers["authorization"] == basic("svc", TOKEN)
+    assert request.headers["authorization"] == f"Bearer {TOKEN}"
 
 
 def test_a_raw_body_is_sent_as_given_with_the_callers_content_type():
@@ -982,15 +1012,20 @@ def test_errors_never_carry_a_credential():
     assert error.__cause__ is None and error.__context__ is None
 
 
+CLOUD_JIRA = instances("jira", {"name": "cloud", "url": "https://acme.atlassian.net", "username": "svc@example.test", "token": TOKEN})
+
+
 @pytest.mark.parametrize(
-    ("kind", "secrets"),
+    ("kind", "config", "secrets"),
     [
-        ("jira", [TOKEN, basic("svc", TOKEN).split(" ", 1)[1]]),
-        ("nexus", [PASSWORD, basic("svc", PASSWORD).split(" ", 1)[1]]),
-        ("github", [TOKEN]),
+        # Every form the proxy sent: the token itself, and the Basic value it was packed into.
+        ("jira", CONFIGS["jira"], [TOKEN]),
+        ("jira", CLOUD_JIRA, [TOKEN, basic("svc@example.test", TOKEN).split(" ", 1)[1]]),
+        ("nexus", CONFIGS["nexus"], [PASSWORD, basic("svc", PASSWORD).split(" ", 1)[1]]),
+        ("github", CONFIGS["github"], [TOKEN]),
     ],
 )
-def test_a_credential_the_upstream_echoes_is_not_returned(kind, secrets):
+def test_a_credential_the_upstream_echoes_is_not_returned(kind, config, secrets):
     def echo(request):
         return httpx.Response(
             200,
@@ -998,7 +1033,7 @@ def test_a_credential_the_upstream_echoes_is_not_returned(kind, secrets):
             headers={"link": f'<{request.url}?access_token={secrets[0]}>; rel="next"', "x-total": "1"},
         )
 
-    result = send(Upstream(echo), config=CONFIGS[kind], connector_type=kind, path="/debug/echo")
+    result = send(Upstream(echo), config=config, connector_type=kind, path="/debug/echo")
 
     returned = json.dumps(result)
     for secret in secrets:
@@ -1010,7 +1045,7 @@ def test_a_credential_the_upstream_echoes_is_not_returned(kind, secrets):
     def echo_as_text(request):
         return httpx.Response(200, headers={"content-type": "text/plain"}, text="you sent " + request.headers["authorization"])
 
-    result = send(Upstream(echo_as_text), config=CONFIGS[kind], connector_type=kind, path="/debug/echo")
+    result = send(Upstream(echo_as_text), config=config, connector_type=kind, path="/debug/echo")
     text = base64.b64decode(result["body_base64"]).decode("utf-8")
     assert all(secret not in text for secret in secrets)
     assert "[redacted]" in text
