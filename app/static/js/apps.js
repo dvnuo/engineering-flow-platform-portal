@@ -41,6 +41,51 @@
     }
   }
 
+  // Waiting. Every action that asks the server shows that it is running, where
+  // the member pressed: a button turns busy (dialogs.js), a switch or a choice
+  // is held while it is saved, and a dialog that asked "are you sure" stays
+  // open until the work is done (the `action` of showConfirm / showPrompt).
+  function busy(button, label) {
+    if (typeof window === "undefined" || typeof window.portalBusyButton !== "function") return function () {};
+    return window.portalBusyButton(button, label);
+  }
+
+  function savingControl(input) {
+    if (!input) return function () {};
+    // The row of a switch, or the option of a choice: where "saving" is shown.
+    const holder = (input.closest && (input.closest(".portal-app-switch-row") || input.closest("label"))) || input.parentElement;
+    input.disabled = true;
+    if (holder) {
+      holder.classList.add("is-saving");
+      holder.setAttribute("aria-busy", "true");
+    }
+    return function () {
+      input.disabled = false;
+      if (holder) {
+        holder.classList.remove("is-saving");
+        holder.removeAttribute("aria-busy");
+      }
+    };
+  }
+
+  // A button drawn from the page's state: busy while its own action runs,
+  // disabled while any other does. It keeps its label, and with it its
+  // size: the spinner lies over the label, and what is happening is said to
+  // assistive technology.
+  function stateButtonHtml(action, classes, attrs, label, busyLabel, running) {
+    const working = running === action;
+    return (
+      '<button type="button" class="portal-btn ' + classes + (working ? " is-busy is-busy-over" : "") + '" ' + attrs +
+      (working ? ' aria-busy="true" aria-label="' + esc(busyLabel) + '"' : "") + (running ? " disabled" : "") + ">" +
+      "<span>" + esc(label) + "</span></button>"
+    );
+  }
+
+  // The action that holds the page busy; "" when none does.
+  function runningAction() {
+    return page.busy ? page.busyAction || "other" : "";
+  }
+
   function drawIcons(scope) {
     if (typeof window === "undefined" || !window.lucide || typeof window.lucide.createIcons !== "function") return;
     if (scope) window.lucide.createIcons({ root: scope });
@@ -1468,6 +1513,8 @@
     dialog.submitting = true;
     syncCreateSubmit();
     setCreateMessage(t("Creating the app\u2026"));
+    const modal = createModal();
+    const submitted = busy(modal && modal.querySelector("[data-app-create-submit]"), t("Creating\u2026"));
     try {
       const created = await request(path, { method: "POST", json: body });
       const app = (created && created.app) || created || {};
@@ -1487,6 +1534,7 @@
         drawInspectProblem(dialog.problem);
       }
     } finally {
+      submitted();
       dialog.submitting = false;
       syncCreateSubmit();
     }
@@ -1526,6 +1574,8 @@
       statusError: "",
       statusTimer: 0,
       busy: false,
+      // Which action holds the page busy, for the button that says so.
+      busyAction: "",
       overviewDrawn: "",
       // Deployments
       releases: null,
@@ -1797,7 +1847,21 @@
     return "<dt>" + esc(label) + "</dt><dd>" + valueHtml + "</dd>";
   }
 
-  function lifecycleButtonHtml(verb, icon, label, disabled) {
+  function lifecycleBusyLabel(verb) {
+    if (verb === "start") return t("Starting\u2026");
+    if (verb === "stop") return t("Stopping\u2026");
+    return t("Restarting\u2026");
+  }
+
+  function lifecycleButtonHtml(verb, icon, label, disabled, running) {
+    // The one that was pressed turns busy: the spinner takes the icon's place
+    // and the label stays, so the three buttons stay where they are.
+    if (running === verb) {
+      return (
+        '<button type="button" class="portal-btn is-busy is-busy-icon" data-app-lifecycle="' + verb + '" aria-busy="true" aria-label="' +
+        esc(lifecycleBusyLabel(verb)) + '" disabled><span>' + esc(label) + "</span></button>"
+      );
+    }
     return (
       '<button type="button" class="portal-btn" data-app-lifecycle="' + verb + '"' + (disabled ? " disabled" : "") + ">" +
       '<i data-lucide="' + icon + '" class="w-4 h-4"></i><span>' + esc(label) + "</span></button>"
@@ -1811,7 +1875,7 @@
     const status = page.status;
     const manage = app.manage || {};
     const state = pageState();
-    const signature = JSON.stringify([app, status, page.statusError, page.busy]);
+    const signature = JSON.stringify([app, status, page.statusError, page.busy, page.busyAction]);
     if (signature === page.overviewDrawn) return;
     page.overviewDrawn = signature;
 
@@ -1849,7 +1913,7 @@
     if (!deployed && !deploying && enabled) {
       callouts.push(
         '<div class="portal-app-callout"><span>' + esc(t("Deploy {ref} to bring the app to its address.", { ref: manage.repo_ref || "" })) + "</span>" +
-        '<button type="button" class="portal-btn is-primary" data-app-deploy-latest' + (page.busy ? " disabled" : "") + ">" + esc(t("Deploy")) + "</button></div>"
+        stateButtonHtml("deploy", "is-primary", "data-app-deploy-latest", t("Deploy"), t("Starting\u2026"), runningAction()) + "</div>"
       );
     }
     const behind = status && typeof status.commits_behind === "number" ? status.commits_behind : 0;
@@ -1857,7 +1921,7 @@
       callouts.push(
         '<div class="portal-app-callout"><span>' +
         esc(tn(behind, "{n} commit behind {ref}", "{n} commits behind {ref}", { ref: (status && status.repo_ref) || manage.repo_ref || "" })) + "</span>" +
-        '<button type="button" class="portal-btn is-primary" data-app-deploy-latest' + (page.busy ? " disabled" : "") + ">" + esc(t("Deploy latest")) + "</button></div>"
+        stateButtonHtml("deploy", "is-primary", "data-app-deploy-latest", t("Deploy latest"), t("Starting\u2026"), runningAction()) + "</div>"
       );
     }
     const template = app.template || null;
@@ -1869,8 +1933,7 @@
           template: template.app_name || t("the template"),
           current: (template.version && template.version.tag) || "?",
         })) + "</span>" +
-        '<button type="button" class="portal-btn is-primary" data-app-upgrade="' + esc(template.update_available.id) + '"' + (page.busy ? " disabled" : "") + ">" +
-        esc(t("Upgrade")) + "</button></div>"
+        stateButtonHtml("upgrade", "is-primary", 'data-app-upgrade="' + esc(template.update_available.id) + '"', t("Upgrade"), t("Starting\u2026"), runningAction()) + "</div>"
       );
     }
 
@@ -1931,9 +1994,9 @@
       '<div class="portal-app-status-copy"><div class="portal-app-status-title"><span class="portal-row-status-dot is-' + esc(state.tone) + '"></span><strong>' + esc(state.label) + "</strong></div>" +
       (state.reason ? "<p>" + esc(state.reason) + "</p>" : "") + "</div></div>" +
       '<div class="portal-app-status-actions">' +
-      lifecycleButtonHtml("start", "play", t("Start"), !idle || running) +
-      lifecycleButtonHtml("restart", "rotate-cw", t("Restart"), !idle) +
-      lifecycleButtonHtml("stop", "square", t("Stop"), !idle || state.key === "stopped") +
+      lifecycleButtonHtml("start", "play", t("Start"), !idle || running, runningAction()) +
+      lifecycleButtonHtml("restart", "rotate-cw", t("Restart"), !idle, runningAction()) +
+      lifecycleButtonHtml("stop", "square", t("Stop"), !idle || state.key === "stopped", runningAction()) +
       "</div></div>" +
       notes.join("") +
       "</section>" +
@@ -1947,6 +2010,7 @@
     if (page.busy || ["start", "stop", "restart"].indexOf(verb) < 0) return;
     const token = page.token;
     page.busy = true;
+    page.busyAction = verb;
     drawOverview();
     try {
       const status = await request(appPath(page.appId, "/" + verb), { method: "POST" });
@@ -1962,6 +2026,7 @@
     } finally {
       if (pageLive(token)) {
         page.busy = false;
+        page.busyAction = "";
         onStatusChanged();
         scheduleStatus();
       }
@@ -2309,8 +2374,10 @@
     const typed = deployRefValue();
     const latest = Boolean(options && options.latest) || !typed || typed === manage.repo_ref;
     page.busy = true;
+    page.busyAction = options && options.upgradeTo !== undefined ? "upgrade" : "deploy";
     syncDeployControls();
     if (page.tab === "overview") drawOverview();
+    const pressed = busy(page.tab === "deployments" && page.root ? page.root.querySelector("[data-app-deploy]") : null, t("Starting\u2026"));
     try {
       let release;
       if (options && options.upgradeTo !== undefined) {
@@ -2334,11 +2401,15 @@
       syncHeader();
       scheduleStatus();
     } catch (error) {
+      // Asked from a dialog: the dialog is still open and shows what went wrong.
+      if (options && options.rethrow) throw error;
       if (!pageLive(token)) return;
       toast(error.message, "error");
     } finally {
+      pressed();
       if (pageLive(token)) {
         page.busy = false;
+        page.busyAction = "";
         syncDeployControls();
         if (page.tab === "overview") drawOverview();
       }
@@ -2351,49 +2422,62 @@
     if (page.busy || !page.app || !page.app.template) return;
     const token = page.token;
     const template = page.app.template;
-    const confirmed = await window.showConfirm({
+    await window.showConfirm({
       title: t("Upgrade {name} to version {tag}?", { name: page.app.name, tag: (template.update_available && template.update_available.tag) || "?" }),
       message: t("The app is deployed again from that version of {template}. If it does not work out, Roll back returns to the version it runs now.", {
         template: template.app_name || t("its template"),
       }),
       confirmText: t("Upgrade"),
+      busyText: t("Starting\u2026"),
+      action: function () {
+        return pageLive(token) ? startDeploy({ upgradeTo: versionId, rethrow: true }) : null;
+      },
     });
-    if (confirmed && pageLive(token)) startDeploy({ upgradeTo: versionId });
   }
 
   async function runRollback() {
     if (page.busy || !page.app) return;
     const token = page.token;
     const target = (page.releases || []).filter(function (release) { return release.id === page.rollbackReleaseId; })[0];
+    let release = null;
+    let failed = false;
     const confirmed = await window.showConfirm({
       title: t("Roll back {name}?", { name: page.app.name }),
       message: target && target.commit_sha
         ? t("The app switches back to the release that ran before ({sha}) and restarts.", { sha: shortSha(target.commit_sha) })
         : t("The app switches back to the release that ran before and restarts."),
       confirmText: t("Roll back"),
-    });
-    if (!confirmed || !pageLive(token)) return;
-    page.busy = true;
-    syncDeployControls();
-    try {
-      const release = await request(appPath(page.appId, "/rollback"), { method: "POST" });
-      if (!pageLive(token)) return;
-      page.release = release;
-      page.shownReleaseId = release.id;
-      page.releaseLogLive = false;
-      drawRelease();
-      page.busy = false;
-      await onReleaseEnded(release);
-    } catch (error) {
-      if (!pageLive(token)) return;
-      toast(error.message, "error");
-      loadReleases();
-    } finally {
-      if (pageLive(token)) {
-        page.busy = false;
+      busyText: t("Rolling back\u2026"),
+      busyMessage: t("Switching to the release that ran before and restarting the app."),
+      // The dialog stays until the host has switched; what fails is said in it.
+      action: async function () {
+        page.busy = true;
+        page.busyAction = "rollback";
         syncDeployControls();
-      }
+        try {
+          release = await request(appPath(page.appId, "/rollback"), { method: "POST" });
+        } catch (error) {
+          failed = true;
+          throw error;
+        } finally {
+          if (pageLive(token)) {
+            page.busy = false;
+            page.busyAction = "";
+            syncDeployControls();
+          }
+        }
+      },
+    });
+    if (!pageLive(token)) return;
+    if (!confirmed || !release) {
+      if (failed) loadReleases();
+      return;
     }
+    page.release = release;
+    page.shownReleaseId = release.id;
+    page.releaseLogLive = false;
+    drawRelease();
+    await onReleaseEnded(release);
   }
 
   // ---- Logs ----
@@ -2592,7 +2676,7 @@
   }
 
   async function downloadLog(button) {
-    button.disabled = true;
+    const fetched = busy(button, t("Preparing\u2026"));
     try {
       const data = await request(appPath(page.appId, "/logs?tail=" + LOG_MAX_LINES));
       const lines = Array.isArray(data && data.lines) ? data.lines : [];
@@ -2601,7 +2685,7 @@
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      button.disabled = false;
+      fetched();
     }
   }
 
@@ -3059,35 +3143,52 @@
     const restore = function () {
       if (pageLive(token)) redrawSettingsSection("audience", audienceSectionHtml());
     };
+    let updated = null;
+    let asked = false;
+    const save = async function () {
+      page.busy = true;
+      try {
+        return await patchApp({ visibility: next });
+      } finally {
+        page.busy = false;
+      }
+    };
     if (audienceWidens(previous, next)) {
       // More people in: said again what their use costs the owner.
       const warnings = [];
       if (manage.llm_enabled) warnings.push(llmWarning());
       if ((manage.connectors_enabled || []).length) warnings.push(connectorWarning());
       if (warnings.length) {
+        // The dialog stays until the audience is saved, and says so when it is not.
         const confirmed = await window.showConfirm({
           title: t("Open {name} to more people?", { name: app.name }),
           message: warnings.join(" "),
           confirmText: t("Change audience"),
+          busyText: t("Saving\u2026"),
+          action: async function () { updated = await save(); },
         });
         if (!confirmed) {
           restore();
           return;
         }
+        asked = true;
       }
     }
-    page.busy = true;
-    try {
-      const updated = await patchApp({ visibility: next });
-      if (!pageLive(token)) return;
+    if (!asked) {
+      const saved = savingControl(input);
+      try {
+        updated = await save();
+      } catch (error) {
+        if (pageLive(token)) toast(error.message, "error");
+      } finally {
+        saved();
+      }
+    }
+    if (updated && pageLive(token)) {
       if (updated.anyone_pending_approval) toast(t("An administrator has to approve it before anyone can open the app without signing in. Until then every member can open it."));
       else toast(t("{audience} can open {name} now.", { audience: audienceLabel(updated.visibility), name: updated.name }), "success");
-    } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
-    } finally {
-      page.busy = false;
-      restore();
     }
+    restore();
   }
 
   async function changeCapability(input) {
@@ -3127,17 +3228,21 @@
       }
     }
     if (question) {
-      const confirmed = await window.showConfirm(question);
-      if (!confirmed) {
-        restore();
-        return;
-      }
+      // The dialog stays until the change is saved, and says so when it is not.
+      await window.showConfirm(Object.assign(question, {
+        busyText: t("Saving\u2026"),
+        action: function () { return patchApp(changes); },
+      }));
+      restore();
+      return;
     }
+    const saved = savingControl(input);
     try {
       await patchApp(changes);
     } catch (error) {
       if (pageLive(token)) toast(error.message, "error");
     } finally {
+      saved();
       restore();
     }
   }
@@ -3148,6 +3253,8 @@
     const token = page.token;
     page.busy = true;
     syncEnvSave();
+    const section = settingsSection("env");
+    const saved = busy(section && section.querySelector("[data-app-env-save]"), t("Saving\u2026"));
     try {
       await patchApp({ env: result.env });
       if (!pageLive(token)) return;
@@ -3162,6 +3269,7 @@
         message.classList.add("is-error");
       }
     } finally {
+      saved();
       page.busy = false;
       if (pageLive(token)) syncEnvSave();
     }
@@ -3179,8 +3287,10 @@
     return page.token_value;
   }
 
-  async function revealToken() {
+  async function revealToken(button) {
     const token = page.token;
+    // The token is asked for the first time it is shown; the button waits with the member.
+    const fetched = !page.tokenShown && !page.token_value ? busy(button, t("Loading\u2026")) : function () {};
     try {
       if (!page.tokenShown && !page.token_value) await fetchToken();
       if (!pageLive(token)) return;
@@ -3188,51 +3298,56 @@
       redrawSettingsSection("token", tokenSectionHtml());
     } catch (error) {
       if (pageLive(token)) toast(error.message, "error");
+    } finally {
+      fetched();
     }
   }
 
-  async function copyToken() {
+  async function copyToken(button) {
     const token = page.token;
+    const fetched = page.token_value ? function () {} : busy(button, t("Copying\u2026"));
     try {
       const value = page.token_value || (await fetchToken());
       if (!pageLive(token)) return;
       toast((await copyToClipboard(value)) ? t("Token copied") : t("Copy failed"));
     } catch (error) {
       if (pageLive(token)) toast(error.message, "error");
+    } finally {
+      fetched();
     }
   }
 
   async function resetToken() {
     const token = page.token;
+    let data = null;
     const confirmed = await window.showConfirm({
       title: t("Reset the token of {name}?", { name: page.app.name }),
       message: t("The old token stops working at once and the app restarts with the new one. A copy in a .env file on someone's machine has to be replaced."),
       confirmText: t("Reset token"),
+      busyText: t("Resetting\u2026"),
       danger: true,
+      action: async function () {
+        data = await request(appPath(page.appId, "/token/reset"), { method: "POST" });
+      },
     });
     if (!confirmed || !pageLive(token)) return;
-    try {
-      const data = await request(appPath(page.appId, "/token/reset"), { method: "POST" });
-      if (!pageLive(token)) return;
-      page.token_value = String((data && data.token) || "");
-      page.tokenShown = true;
-      if (page.app.manage) {
-        page.app.manage.token_last_used_at = null;
-        page.app.manage.token_last_used_source = null;
-      }
-      redrawSettingsSection("token", tokenSectionHtml());
-      if (data && data.host_synced === false) {
-        toast(t("The token is reset, but the app host could not be told: {error} The app gets the new token the next time it starts.", { error: errorText(data.host_error, 0) }), "error");
-      } else {
-        toast(t("The token is reset. The app restarts with the new one."), "success");
-      }
-    } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
+    page.token_value = String((data && data.token) || "");
+    page.tokenShown = true;
+    if (page.app.manage) {
+      page.app.manage.token_last_used_at = null;
+      page.app.manage.token_last_used_source = null;
+    }
+    redrawSettingsSection("token", tokenSectionHtml());
+    if (data && data.host_synced === false) {
+      toast(t("The token is reset, but the app host could not be told: {error} The app gets the new token the next time it starts.", { error: errorText(data.host_error, 0) }), "error");
+    } else {
+      toast(t("The token is reset. The app restarts with the new one."), "success");
     }
   }
 
   async function toggleTemplate(input) {
     const token = page.token;
+    const saved = savingControl(input);
     try {
       const answer = await request(appPath(page.appId, "/template"), { method: "PUT", json: { is_template: input.checked } });
       if (!pageLive(token)) return;
@@ -3242,6 +3357,7 @@
     } catch (error) {
       if (pageLive(token)) toast(error.status === 404 ? t("Templates are not available on this Portal yet.") : error.message, "error");
     }
+    saved();
     if (!pageLive(token)) return;
     page.templateTags = null;
     page.templateVersions = null;
@@ -3256,14 +3372,14 @@
     const notes = section.querySelector("[data-app-template-notes]").value.trim();
     if (!tag) return;
     const token = page.token;
-    button.disabled = true;
+    const published = busy(button, t("Publishing\u2026"));
     try {
       await request(appPath(page.appId, "/template/versions"), { method: "POST", json: { tag: tag, notes: notes } });
-      if (!pageLive(token)) return;
-      toast(t("Version {tag} is published.", { tag: tag }), "success");
+      if (pageLive(token)) toast(t("Version {tag} is published.", { tag: tag }), "success");
     } catch (error) {
       if (pageLive(token)) toast(error.message, "error");
     }
+    published();
     if (pageLive(token)) {
       loadTemplateDetails();
       // The first version puts the app on the Templates list.
@@ -3278,14 +3394,13 @@
       title: t("Remove version {tag}?", { tag: tag }),
       message: t("Nobody can start a new app from this version any more. Apps already made from it keep running."),
       confirmText: t("Remove"),
+      busyText: t("Removing\u2026"),
       danger: true,
+      action: function () {
+        return request(appPath(page.appId, "/template/versions/" + encodeURIComponent(button.dataset.appTemplateRemove)), { method: "DELETE" });
+      },
     });
-    if (!confirmed || !pageLive(token)) return;
-    try {
-      await request(appPath(page.appId, "/template/versions/" + encodeURIComponent(button.dataset.appTemplateRemove)), { method: "DELETE" });
-    } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
-    }
+    if (!confirmed) return;
     if (pageLive(token)) {
       loadTemplateDetails();
       refreshNavCounts();
@@ -3295,27 +3410,32 @@
   async function deleteApp() {
     const app = page.app;
     const token = page.token;
-    const typed = await window.showPrompt({
+    // Deleting takes a while: the host stops the app and removes what it has.
+    // The dialog waits with the member, says what is happening, and closes
+    // when the list without the app is on the screen.
+    await window.showPrompt({
       title: t("Delete {name}?", { name: app.name }),
       message: t("This cannot be undone. Type the app's address name, {slug}, to confirm.", { slug: app.slug }),
       placeholder: app.slug,
       confirmText: t("Delete app"),
+      busyText: t("Deleting\u2026"),
+      busyMessage: t("Stopping the app and removing what it has on the host. This can take a moment."),
       danger: true,
       required: true,
+      validate: function (typed) {
+        return String(typed).trim() === app.slug ? "" : t("What you typed is not {slug}. Nothing was deleted.", { slug: app.slug });
+      },
+      action: async function () {
+        await request(appPath(app.id), { method: "DELETE" });
+        center.lists.mine = null;
+        try {
+          if (shell() && pageLive(token)) await shell().openCenter("mine");
+        } catch (_error) {
+          /* the app is gone; the list is read again when it is opened */
+        }
+        toast(t("{name} is deleted.", { name: app.name }), "success");
+      },
     });
-    if (typed === null || !pageLive(token)) return;
-    if (String(typed).trim() !== app.slug) {
-      await window.showAlert({ title: t("Nothing was deleted"), message: t("What you typed is not {slug}.", { slug: app.slug }) });
-      return;
-    }
-    try {
-      await request(appPath(page.appId), { method: "DELETE" });
-      toast(t("{name} is deleted.", { name: app.name }), "success");
-      center.lists.mine = null;
-      if (shell()) await shell().openCenter("mine");
-    } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
-    }
   }
 
   // ---- Data ----
@@ -3358,17 +3478,15 @@
       title: t("Clear the data of {name}?", { name: page.app.name }),
       message: t("Everything the app saved is removed and cannot be brought back. The app itself keeps running."),
       confirmText: t("Clear data"),
+      busyText: t("Clearing\u2026"),
       danger: true,
+      action: function () {
+        return request(appPath(page.appId, "/data"), { method: "DELETE" });
+      },
     });
-    if (!confirmed || !pageLive(token)) return;
-    try {
-      await request(appPath(page.appId, "/data"), { method: "DELETE" });
-      if (!pageLive(token)) return;
-      toast(t("The data of {name} is cleared.", { name: page.app.name }), "success");
-    } catch (error) {
-      if (pageLive(token)) toast(error.message, "error");
-    }
-    if (pageLive(token) && page.tab === "data") drawData();
+    if (!pageLive(token)) return;
+    if (confirmed) toast(t("The data of {name} is cleared.", { name: page.app.name }), "success");
+    if (page.tab === "data") drawData();
   }
 
   // ---- Activity ----
@@ -3638,81 +3756,90 @@
     });
   }
 
-  async function adminAct(appId, run, done) {
-    try {
-      await run();
-      toast(done, "success");
-    } catch (error) {
-      await window.showAlert({ title: t("That did not work"), message: error.message });
-    }
-    await loadAdminApps();
+  // An administrator's action. The dialog that asked stays open while it runs
+  // and shows what went wrong; the table is read again once something was tried.
+  async function adminAct(ask, question, run, done) {
+    let tried = false;
+    const answer = await ask(Object.assign({}, question, {
+      action: function (value) {
+        tried = true;
+        return run(value);
+      },
+    }));
+    if (answer !== null && answer !== false) toast(done(answer), "success");
+    if (tried) await loadAdminApps();
   }
 
   async function adminTakeDown(appId) {
     const app = adminApp(appId);
     if (!app) return;
-    const reason = await window.showPrompt({
+    await adminAct(window.showPrompt, {
       title: t("Take {name} down?", { name: app.name }),
       message: t("Nobody can open the app until it is restored. Visitors read this reason instead of the app, so write it for them."),
       placeholder: t("Why it is taken down"),
       confirmText: t("Take down"),
+      busyText: t("Taking down\u2026"),
       danger: true,
       required: true,
-    });
-    if (reason === null || !String(reason).trim()) return;
-    await adminAct(appId, function () {
+    }, function (reason) {
       return request(appPath(appId, "/disable"), { method: "POST", json: { reason: String(reason).trim() } });
-    }, t("{name} is taken down.", { name: app.name }));
+    }, function () {
+      return t("{name} is taken down.", { name: app.name });
+    });
   }
 
   async function adminRestore(appId) {
     const app = adminApp(appId);
     if (!app) return;
-    const confirmed = await window.showConfirm({
+    await adminAct(window.showConfirm, {
       title: t("Restore {name}?", { name: app.name }),
       message: t("The app can be opened again by everyone it is open to."),
       confirmText: t("Restore"),
-    });
-    if (!confirmed) return;
-    await adminAct(appId, function () {
+      busyText: t("Restoring\u2026"),
+    }, function () {
       return request(appPath(appId, "/enable"), { method: "POST" });
-    }, t("{name} is restored.", { name: app.name }));
+    }, function () {
+      return t("{name} is restored.", { name: app.name });
+    });
   }
 
   async function adminApprove(appId, approved) {
     const app = adminApp(appId);
     if (!app) return;
-    const confirmed = await window.showConfirm(approved
+    await adminAct(window.showConfirm, approved
       ? {
           title: t("Open {name} to anyone?", { name: app.name }),
           message: t("Nobody has to sign in to use it from then on. Its code runs inside the cluster and may use {owner}'s model provider and connectors, so approve only what you have looked at.", { owner: ownerName(app) }),
           confirmText: t("Approve"),
+          busyText: t("Saving\u2026"),
         }
       : {
           title: t("Withdraw the approval of {name}?", { name: app.name }),
           message: t("Only signed-in members can open it from then on."),
           confirmText: t("Withdraw approval"),
-        });
-    if (!confirmed) return;
-    await adminAct(appId, function () {
+          busyText: t("Saving\u2026"),
+        }, function () {
       return request(appPath(appId, "/anyone-approval"), { method: "POST", json: { approved: approved } });
-    }, approved ? t("{name} is open to anyone.", { name: app.name }) : t("{name} asks for sign-in again.", { name: app.name }));
+    }, function () {
+      return approved ? t("{name} is open to anyone.", { name: app.name }) : t("{name} asks for sign-in again.", { name: app.name });
+    });
   }
 
   async function adminTransfer(appId) {
     const app = adminApp(appId);
     if (!app) return;
-    const username = await window.showPrompt({
+    await adminAct(window.showPrompt, {
       title: t("Transfer {name}", { name: app.name }),
       message: t("Enter the new owner's Portal username. The app gets a new token, and its model provider and connectors are switched off: from then on it would use the new owner's."),
       placeholder: t("Portal username"),
       confirmText: t("Transfer"),
+      busyText: t("Transferring\u2026"),
       required: true,
-    });
-    if (username === null || !String(username).trim()) return;
-    await adminAct(appId, function () {
+    }, function (username) {
       return request(appPath(appId, "/transfer"), { method: "POST", json: { username: String(username).trim() } });
-    }, t("{name} now belongs to {username}.", { name: app.name, username: String(username).trim() }));
+    }, function (username) {
+      return t("{name} now belongs to {username}.", { name: app.name, username: String(username).trim() });
+    });
   }
 
   // ---- what the shell calls ---------------------------------------------------
@@ -3812,8 +3939,8 @@
         return;
       }
       if ((el = hit("[data-app-env-save]"))) { saveEnv(); return; }
-      if ((el = hit("[data-app-token-reveal]"))) { revealToken(); return; }
-      if ((el = hit("[data-app-token-copy]"))) { copyToken(); return; }
+      if ((el = hit("[data-app-token-reveal]"))) { revealToken(el); return; }
+      if ((el = hit("[data-app-token-copy]"))) { copyToken(el); return; }
       if ((el = hit("[data-app-token-reset]"))) { resetToken(); return; }
       if ((el = hit("[data-app-template-publish]"))) { publishTemplateVersion(el); return; }
       if ((el = hit("[data-app-template-remove]"))) { removeTemplateVersion(el); return; }
@@ -3827,7 +3954,11 @@
       if ((el = hit("[data-admin-app-transfer]"))) { closeRowMenus(); adminTransfer(el.dataset.adminAppTransfer); return; }
       if ((el = hit("[data-admin-app-restore]"))) { closeRowMenus(); adminRestore(el.dataset.adminAppRestore); return; }
       if ((el = hit("[data-admin-app-takedown]"))) { closeRowMenus(); adminTakeDown(el.dataset.adminAppTakedown); return; }
-      if ((el = hit("[data-admin-apps-refresh]"))) { loadAdminApps(); return; }
+      if ((el = hit("[data-admin-apps-refresh]"))) {
+        const refreshed = busy(el, t("Refreshing\u2026"));
+        Promise.resolve(loadAdminApps()).then(refreshed, refreshed);
+        return;
+      }
       if ((el = hit("[data-admin-apps-panel] th[data-sort-key]"))) {
         const key = el.dataset.sortKey;
         if (admin.sortKey === key) admin.sortDir = -admin.sortDir;
@@ -3950,6 +4081,7 @@
       eventText: eventText,
       formatBytes: formatBytes,
       inspectProblem: inspectProblem,
+      lifecycleButtonHtml: lifecycleButtonHtml,
       matchesQuery: matchesQuery,
       needsAttention: needsAttention,
       parseTime: parseTime,
@@ -3959,6 +4091,7 @@
       slugify: slugify,
       sortAvailable: sortAvailable,
       sortMine: sortMine,
+      stateButtonHtml: stateButtonHtml,
       stepLabel: stepLabel,
       stepNote: stepNote,
     };

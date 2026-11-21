@@ -371,14 +371,23 @@ def test_the_three_warnings_are_said_at_the_moment_of_the_action():
     # Turning the model provider on, and turning a connector on, ask first.
     assert "message: llmWarning()" in capability
     assert "message: connectorWarning()" in capability
-    assert "await window.showConfirm(question)" in capability
-    assert capability.index("await window.showConfirm(question)") < capability.index("await patchApp(changes)")
+    # The dialog that asks is also the one that saves: nothing is changed
+    # unless it is confirmed, and it stays open until the change is saved.
+    assert "await window.showConfirm(Object.assign(question, {" in capability
+    asked = capability.split("if (question) {", 1)[1].split("const saved = savingControl(input);", 1)[0]
+    assert "action: function () { return patchApp(changes); }," in asked and "return;" in asked
+    assert capability.count("patchApp(changes)") == 2  # in the dialog, or directly when nothing has to be asked
 
     audience = _extract_js_function(APPS_JS, "changeAudience")
     # Letting more people in repeats what their use costs the owner.
     assert "if (audienceWidens(previous, next)) {" in audience
     assert "if (manage.llm_enabled) warnings.push(llmWarning());" in audience
-    assert audience.index("window.showConfirm(") < audience.index("patchApp({ visibility: next })")
+    # With a warning to give, the audience is saved by the dialog and by nothing else.
+    assert "action: async function () { updated = await save(); }," in audience
+    assert audience.count("await save()") == 2
+    direct = audience.split("if (!asked) {", 1)[1]
+    assert "updated = await save();" in direct
+    assert audience.index("window.showConfirm(") < audience.index("if (!asked) {")
 
 
 def test_destructive_actions_ask_in_words_that_say_what_happens():
@@ -387,11 +396,15 @@ def test_destructive_actions_ask_in_words_that_say_what_happens():
     delete = _extract_js_function(APPS_JS, "deleteApp")
     # A typed confirmation: the app's address name.
     assert "window.showPrompt(" in delete and "required: true" in delete
-    assert "String(typed).trim() !== app.slug" in delete
+    assert "validate: function (typed) {" in delete
+    assert 'return String(typed).trim() === app.slug ? ""' in delete
+    # Nothing is sent before the name was typed right: the request is the dialog's action.
+    assert delete.index("validate: function (typed) {") < delete.index("action: async function () {") < delete.index("await request(")
     clear = _extract_js_function(APPS_JS, "clearData")
     assert "window.showConfirm(" in clear and "cannot be brought back" in clear
     takedown = _extract_js_function(APPS_JS, "adminTakeDown")
-    assert "window.showPrompt(" in takedown and "required: true" in takedown
+    # Asked through adminAct, which keeps the dialog open while the app is taken down.
+    assert "adminAct(window.showPrompt, {" in takedown and "required: true" in takedown
 
 
 def test_the_token_is_read_only_when_asked_for():

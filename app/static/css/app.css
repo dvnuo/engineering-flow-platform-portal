@@ -6188,6 +6188,69 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-dialog-card .portal-modal-actions { margin-top: 20px; }
 .portal-btn.portal-dialog-danger { background: var(--portal-danger); border-color: transparent; color: #fff; }
 .portal-btn.portal-dialog-danger:hover { background: color-mix(in srgb, var(--portal-danger), #000 12%); }
+/* Waiting. A button that is working says so and turns; a dialog whose action
+   takes time has one line for what is happening and for what went wrong. The
+   line is there from the start, empty, so the dialog keeps its size. */
+.portal-btn.is-busy,
+.portal-btn.is-busy:disabled { opacity: .85; cursor: progress; justify-content: center; }
+.portal-btn.is-busy::before {
+  content: "";
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: portal-spin 900ms linear infinite;
+}
+/* In the place of a 16px icon: the button is as wide as it was. */
+.portal-btn.is-busy.is-busy-icon::before { margin: 0 1px; }
+/* Over the button's own label, when the busy label would not fit: the label
+   keeps its room and is not shown, and the spinner sits in the middle. */
+.portal-btn.is-busy.is-busy-over { position: relative; -webkit-text-fill-color: transparent; }
+.portal-btn.is-busy.is-busy-over > * { visibility: hidden; }
+.portal-btn.is-busy.is-busy-over::before { position: absolute; left: calc(50% - 7px); top: calc(50% - 7px); }
+.portal-dialog-status {
+  min-height: 42px;
+  margin: 10px 0 0;
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  line-height: 21px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.portal-dialog-status.is-error { color: var(--portal-danger); }
+.portal-dialog-card .portal-dialog-status + .portal-modal-actions { margin-top: 10px; }
+.portal-dialog.is-busy { cursor: progress; }
+/* A switch or a choice that is being saved: held, dimmed, with the same spinner
+   beside its name. */
+.portal-app-switch-row.is-saving,
+.portal-share-option.is-saving { cursor: progress; }
+.portal-app-switch-row.is-saving .toggle-switch,
+.portal-app-switch-row.is-saving .portal-checkbox-row,
+.portal-share-option.is-saving > input { opacity: .55; }
+.portal-app-switch-row.is-saving .portal-app-switch-copy strong::after,
+.portal-share-option.is-saving strong::after {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-left: 8px;
+  vertical-align: -1px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  opacity: .7;
+  animation: portal-spin 900ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-btn.is-busy::before,
+  .portal-app-switch-row.is-saving .portal-app-switch-copy strong::after,
+  .portal-share-option.is-saving strong::after { animation-duration: 2.4s; }
+}
 @media (prefers-reduced-motion: reduce) {
   .portal-dialog, .portal-dialog-card { transition: none; }
 }
