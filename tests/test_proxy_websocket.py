@@ -259,6 +259,8 @@ def test_events_ws_proxy_forwards_query_string_including_last_event_at(monkeypat
 # A browser sends the session cookie on a WebSocket handshake to the Portal
 # from any page of the same site, a sibling subdomain's included, and states
 # that page's origin. Only the Portal's own pages may open the events stream.
+# The rule is the HTTP guard's: Sec-Fetch-Site decides when the handshake
+# carries it, the Origin (against Host and BASE_URI) when it does not.
 
 
 def _ws_harness(monkeypatch, captured):
@@ -352,6 +354,97 @@ def test_proxy_websocket_accepts_the_origin_named_by_base_uri(monkeypatch):
     client.cookies.set("portal_session", "valid-session")
     with client.websocket_connect("/a/agent-1/api/events", headers={"Origin": "http://portal.example.test"}) as websocket:
         assert websocket.receive_text() == '{"event_type":"heartbeat"}'
+
+
+def test_proxy_websocket_accepts_a_same_origin_page_behind_a_proxy_that_replaces_host(monkeypatch):
+    from app.main import app
+
+    captured = {}
+    proxy_module = _ws_harness(monkeypatch, captured)
+    # A reverse proxy handed the handshake on under its own Host, and BASE_URI
+    # does not name the address members type: Origin matches nothing the
+    # Portal knows. What the browser says about the page still decides.
+    monkeypatch.setattr(proxy_module.settings, "base_uri", "")
+    client = TestClient(app)
+    client.cookies.set("portal_session", "valid-session")
+    headers = {
+        "Host": "efp-portal-service.default.svc.cluster.local",
+        "Origin": "https://portal.example.test",
+        "Sec-Fetch-Site": "same-origin",
+    }
+    with client.websocket_connect("/a/agent-1/api/events?session_id=s1", headers=headers) as websocket:
+        assert websocket.receive_text() == '{"event_type":"heartbeat"}'
+    assert captured["url"] == "ws://runtime.local:8000/api/events?session_id=s1"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Sec-Fetch-Site": "same-site", "Origin": "http://app.testserver"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example.test"},
+        {"Sec-Fetch-Site": "cross-site"},
+        # Sec-Fetch-Site decides when the handshake carries it, whatever Origin says.
+        {"Sec-Fetch-Site": "same-site", "Origin": "http://testserver"},
+    ],
+)
+def test_proxy_websocket_refuses_a_handshake_the_browser_calls_same_site_or_cross_site(monkeypatch, headers):
+    from app.main import app
+
+    captured = {}
+    _ws_harness(monkeypatch, captured)
+    client = TestClient(app)
+    client.cookies.set("portal_session", "valid-session")
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/a/agent-1/api/events", headers=headers):
+            pass
+    assert exc_info.value.code == 4403
+    assert "db_opened" not in captured
+    assert "url" not in captured
+
+
+def test_proxy_websocket_falls_back_to_the_origin_when_the_handshake_has_no_sec_fetch_site(monkeypatch):
+    from app.main import app
+
+    captured = {}
+    proxy_module = _ws_harness(monkeypatch, captured)
+    monkeypatch.setattr(proxy_module.settings, "base_uri", "")
+    client = TestClient(app)
+    client.cookies.set("portal_session", "valid-session")
+    # Without the header the proxy's Host is all there is to compare with:
+    # this is the case BASE_URI exists for (k8s/README.md).
+    headers = {"Host": "efp-portal-service.default.svc.cluster.local", "Origin": "http://portal.example.test"}
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/a/agent-1/api/events", headers=headers):
+            pass
+    assert exc_info.value.code == 4403
+
+    # (An http address: with an https one the session cookie would be the
+    # host-bound one, which this client does not hold.)
+    monkeypatch.setattr(proxy_module.settings, "base_uri", "http://portal.example.test")
+    with client.websocket_connect("/a/agent-1/api/events", headers=headers) as websocket:
+        assert websocket.receive_text() == '{"event_type":"heartbeat"}'
+
+
+def test_proxy_websocket_refusal_logs_what_the_browser_and_the_proxy_said(monkeypatch, caplog):
+    import logging
+
+    from app.main import app
+
+    captured = {}
+    _ws_harness(monkeypatch, captured)
+    client = TestClient(app)
+    client.cookies.set("portal_session", "valid-session")
+    headers = {"Host": "internal.name:8000", "Origin": "https://portal.example.test forged=1", "Sec-Fetch-Site": "same-site"}
+    with caplog.at_level(logging.WARNING, logger="app.api.proxy"):
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/a/agent-1/api/events", headers=headers):
+                pass
+    (message,) = [record.getMessage() for record in caplog.records if "WebSocket handshake refused" in record.getMessage()]
+    assert "agent_id=agent-1" in message
+    assert "sec_fetch_site=same-site" in message
+    assert "host=internal.name:8000" in message
+    # A space in a header cannot start a field of the caller's own.
+    assert "origin=https://portal.example.test_forged=1" in message
 
 
 def test_proxy_websocket_origin_check_follows_the_guard_setting(monkeypatch):

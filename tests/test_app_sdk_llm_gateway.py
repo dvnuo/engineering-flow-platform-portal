@@ -1334,6 +1334,11 @@ def test_the_level_is_clamped_to_what_the_model_takes():
 # ---------------------------------------------------------------- the output cap a provider refuses
 
 
+COPILOT_RESPONSES = COPILOT_API + "/responses"
+AI_CHAT = "https://ai.example.test/v1/api/v1/chat/completions"
+AI_RESPONSES = "https://ai.example.test/v1/uc-apps/responses"
+
+
 def refusal(message, status=400, **error):
     return httpx.Response(status, json={"error": {"message": message, **error}})
 
@@ -1371,11 +1376,16 @@ def test_copilot_refusing_the_cap_is_asked_again_without_it_and_never_sent_it_ag
 
     warnings = [record for record in caplog.records if "max_output_tokens" in record.getMessage()]
     assert len(warnings) == 1, "one warning, the first time"
-    assert "github_copilot" in warnings[0].getMessage()
-    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is False
-    # AI Platform is another provider: it is still sent its own.
-    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is True
-    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is True
+    assert "github_copilot" in warnings[0].getMessage() and COPILOT_RESPONSES in warnings[0].getMessage()
+    # What is remembered is the address that refused (it was the provider's
+    # name before, which every address of that provider shared).
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is False
+    same_address = COPILOT_RESPONSES.replace("https://api.", "HTTPS://API.") + "/?x=1"
+    assert llm_wire.cap_accepted(same_address, "max_output_tokens") is False, "one address, however its host is written"
+    # Another plan's address, and AI Platform's, are still sent theirs.
+    assert llm_wire.cap_accepted("https://api.individual.githubcopilot.com/responses", "max_output_tokens") is True
+    assert llm_wire.cap_accepted(AI_CHAT, "max_completion_tokens") is True
+    assert llm_wire.cap_accepted(AI_CHAT, "max_output_tokens") is True
 
 
 def test_a_stream_refused_for_the_cap_starts_again_without_it():
@@ -1413,7 +1423,7 @@ def test_other_refusals_are_not_taken_for_an_unsupported_cap(response):
 
     assert error.code == "provider_error"
     assert len(upstream.to("api.business.githubcopilot.com")) == 1, "not tried again"
-    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is True
 
 
 def test_a_request_without_a_cap_is_never_repeated_for_it():
@@ -1423,7 +1433,7 @@ def test_a_request_without_a_cap_is_never_repeated_for_it():
 
     assert error.code == "provider_error"
     assert len(upstream.to("api.business.githubcopilot.com")) == 1
-    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is True
 
 
 def test_a_second_refusal_after_the_cap_was_dropped_is_the_callers_error():
@@ -1470,10 +1480,10 @@ def test_ai_platform_chat_refusing_its_cap_is_asked_again_without_it(caplog):
         assert len(upstream.to("ai.example.test")) == 3
 
     assert len([record for record in caplog.records if "max_completion_tokens" in record.getMessage()]) == 1
-    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is False
-    # The Responses endpoint names its cap differently and has not been asked yet; Copilot neither.
-    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is True
-    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+    assert llm_wire.cap_accepted(AI_CHAT, "max_completion_tokens") is False
+    # The Responses endpoint is another address (and names its cap differently): not asked yet; Copilot neither.
+    assert llm_wire.cap_accepted(AI_RESPONSES, "max_output_tokens") is True
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is True
 
 
 def test_ai_platform_responses_refusing_its_cap_is_asked_again_without_it(monkeypatch):
@@ -1488,9 +1498,10 @@ def test_ai_platform_responses_refusing_its_cap_is_asked_again_without_it(monkey
 
     assert complete(ai_config(), upstream, max_output_tokens=32).text == "Hello"
     assert len(upstream.to("ai.example.test")) == 2
-    assert llm_wire.cap_accepted("ai_platform", "max_output_tokens") is False
-    assert llm_wire.cap_accepted("ai_platform", "max_completion_tokens") is True
-    assert llm_wire.cap_accepted("github_copilot", "max_output_tokens") is True
+    assert str(upstream.to("ai.example.test")[0].url) == AI_RESPONSES
+    assert llm_wire.cap_accepted(AI_RESPONSES, "max_output_tokens") is False
+    assert llm_wire.cap_accepted(AI_CHAT, "max_completion_tokens") is True
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is True
 
 
 def test_a_refused_jwt_and_a_refused_cap_are_each_retried_once_on_ai_platform():
@@ -1509,3 +1520,150 @@ def test_a_refused_jwt_and_a_refused_cap_are_each_retried_once_on_ai_platform():
 
     assert complete(ai_config(), upstream, max_output_tokens=64).text == "Hello"
     assert seen == [True, True, False]
+
+
+OTHER_GITHUB_TOKEN = "ghu_anotherOwnersDeviceFlowToken9876"
+INDIVIDUAL_TOKEN = "tid=def456;exp=4102444800;sku=individual;proxy-ep=proxy.individual.githubcopilot.com;st=dotcom"
+
+
+def test_what_one_address_refuses_is_not_held_against_another():
+    # Two owners on two Copilot plans: each plan has an address of its own.
+    def exchange(request):
+        token = INDIVIDUAL_TOKEN if OTHER_GITHUB_TOKEN in request.headers["authorization"] else COPILOT_TOKEN
+        return httpx.Response(200, json={"token": token, "expires_at": FAR_FUTURE})
+
+    def answer(request):
+        if request.url.host == "api.business.githubcopilot.com" and "max_output_tokens" in json.loads(request.content):
+            return refusal("Unsupported parameter: max_output_tokens")
+        return sse_response(*responses_events("ok"))
+
+    upstream = copilot_upstream(answer, exchange=exchange)
+    business, individual = copilot_config(), copilot_config(api_key=OTHER_GITHUB_TOKEN)
+
+    assert complete(business, upstream, max_output_tokens=64).text == "ok"
+    assert len(upstream.to("api.business.githubcopilot.com")) == 2, "refused with the cap, answered without"
+
+    # The other plan's address was never asked: it is sent the cap, and takes it.
+    assert complete(individual, upstream, max_output_tokens=64).text == "ok"
+    (sent,) = upstream.to("api.individual.githubcopilot.com")
+    assert json.loads(sent.content)["max_output_tokens"] == 64
+
+    # And the address that refused is not sent it again.
+    assert complete(business, upstream, max_output_tokens=64).text == "ok"
+    calls = upstream.to("api.business.githubcopilot.com")
+    assert len(calls) == 3 and "max_output_tokens" not in json.loads(calls[-1].content)
+
+
+def test_an_address_from_a_members_own_settings_teaches_nothing(caplog):
+    # A member's own llm.base_url answers whatever its owner makes it answer.
+    # Its refusal is honoured for that one request and remembered for nobody.
+    def answer(request):
+        if request.url.host == "llm.member.example.test" and "max_output_tokens" in json.loads(request.content):
+            return refusal("Unsupported parameter: max_output_tokens")
+        return sse_response(*responses_events("ok"))
+
+    upstream = copilot_upstream(answer)
+    member = copilot_config(api_key="tid=member;exp=9", base_url="https://llm.member.example.test")
+    # The same address as everybody's, named by a member: still nothing is learnt from it.
+    named = copilot_config(base_url=COPILOT_API)
+
+    with caplog.at_level("WARNING", logger="app.services.app_sdk.llm_wire"):
+        for _ in range(2):
+            assert complete(member, upstream, max_output_tokens=64).text == "ok"
+    sent = [("max_output_tokens" in json.loads(request.content)) for request in upstream.to("llm.member.example.test")]
+    assert sent == [True, False, True, False], "asked with the cap each time, repeated without it each time"
+    assert llm_wire.cap_accepted("https://llm.member.example.test/responses", "max_output_tokens") is True
+    assert not [record for record in caplog.records if "max_output_tokens" in record.getMessage()]
+
+    # Another owner's request still carries its cap.
+    assert complete(copilot_config(), upstream, max_output_tokens=64).text == "ok"
+    assert json.loads(upstream.to("api.business.githubcopilot.com")[-1].content)["max_output_tokens"] == 64
+
+    upstream = copilot_upstream(lambda request: refusal("Unsupported parameter: max_output_tokens") if "max_output_tokens" in json.loads(request.content) else sse_response(*responses_events("ok")))
+    assert complete(named, upstream, max_output_tokens=64).text == "ok"
+    assert llm_wire.cap_accepted(COPILOT_RESPONSES, "max_output_tokens") is True
+
+
+# ---------------------------------------------------------------- an address that is never called
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        {"base_url": "http://127.0.0.1:8000"},
+        {"base_url": "http://localhost:11434/v1"},
+        {"api_base": "http://[::1]:8000"},
+        {"baseURL": "http://169.254.169.254/latest"},
+        {"endpoint": "http://2130706433"},
+        {"base_url": "http://0.0.0.0:8000"},
+        {"base_url": "http://metadata.google.internal"},
+    ],
+)
+def test_a_base_url_that_means_this_machine_or_a_metadata_service_is_refused_before_anything_is_sent(setting):
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("never")))
+
+    for call in (complete, stream):
+        error = failure(call, copilot_config(**setting), upstream, max_output_tokens=64)
+        # The address is the owner's setting: theirs to correct, like a provider that is not connected.
+        assert (error.code, error.status) == ("provider_auth_failed", 424)
+        assert "may not call" in error.message and GITHUB_TOKEN not in error.message
+    assert upstream.requests == [], "not even the token exchange"
+
+
+def test_a_base_url_in_a_private_range_is_called():
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+
+    assert complete(copilot_config(base_url="https://10.20.30.40/copilot"), upstream).text == "ok"
+
+    assert str(upstream.requests[-1].url) == "https://10.20.30.40/copilot/responses"
+
+
+# ---------------------------------------------------------------- how much one request may carry
+
+
+def test_the_bounds_of_a_request():
+    # docs/CONTRACTS.md of the app repository states these; change the two together.
+    assert (llm_gateway.MAX_INPUT_CHARS, llm_gateway.MAX_MESSAGES, llm_gateway.MAX_OUTPUT_TOKENS) == (4_000_000, 1_000, 128_000)
+
+
+def test_the_messages_and_the_system_text_have_an_upper_bound_together(monkeypatch):
+    monkeypatch.setattr(llm_gateway, "MAX_INPUT_CHARS", 50)
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+    turns = [{"role": "user", "content": "x" * 20}, {"role": "assistant", "content": "y" * 10}, {"role": "user", "content": "z" * 5}]
+
+    # 35 characters of messages and 15 of system text: exactly the bound.
+    assert complete(copilot_config(), upstream, messages=turns, system="s" * 15).text == "ok"
+    sent = len(upstream.requests)
+
+    for call in (complete, stream):
+        for extra in ({"system": "s" * 16}, {"messages": [*turns, {"role": "user", "content": "w" * 16}]}):
+            error = failure(call, copilot_config(), upstream, **{"messages": turns, **extra})
+            assert (error.code, error.status) == ("invalid_request", 400)
+            assert "50" in error.message and "51" in error.message
+    assert len(upstream.requests) == sent, "nothing was sent for a request over the bound"
+
+
+def test_the_number_of_messages_has_an_upper_bound(monkeypatch):
+    monkeypatch.setattr(llm_gateway, "MAX_MESSAGES", 3)
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+    turns = [{"role": "user", "content": "a"}, {"role": "assistant", "content": ""}, {"role": "user", "content": ""}]
+
+    assert complete(copilot_config(), upstream, messages=turns).text == "ok"
+    sent = len(upstream.requests)
+
+    error = failure(complete, copilot_config(), upstream, messages=[*turns, {"role": "assistant", "content": ""}])
+    assert (error.code, error.status) == ("invalid_request", 400) and "3" in error.message
+    assert len(upstream.requests) == sent
+
+
+def test_max_output_tokens_has_an_upper_bound():
+    upstream = copilot_upstream(lambda request: sse_response(*responses_events("ok")))
+
+    assert complete(copilot_config(), upstream, max_output_tokens=llm_gateway.MAX_OUTPUT_TOKENS).text == "ok"
+    assert json.loads(upstream.requests[-1].content)["max_output_tokens"] == 128_000
+    sent = len(upstream.requests)
+
+    for call in (complete, stream):
+        error = failure(call, copilot_config(), upstream, max_output_tokens=llm_gateway.MAX_OUTPUT_TOKENS + 1)
+        assert (error.code, error.status) == ("invalid_request", 400) and "128000" in error.message
+    assert len(upstream.requests) == sent

@@ -15,6 +15,7 @@ import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, AsyncIterator, Iterable, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -63,8 +64,8 @@ _ERROR_BODY_LIMIT = 4096
 
 # The cap on the answer's length, under the name each wire format gives it.
 # Neither runtime ever sends it, so nobody knows whether a provider takes it:
-# it is sent until a provider refuses it by name, and then left out for that
-# provider and endpoint for the rest of the process (see cap_refused).
+# it is sent until an endpoint refuses it by name, and then left out for that
+# endpoint for the rest of the process (see cap_refused).
 RESPONSES_CAP_PARAMETER = "max_output_tokens"
 CHAT_CAP_PARAMETER = "max_completion_tokens"
 # What a provider says about a parameter it does not take.
@@ -79,7 +80,10 @@ _UNSUPPORTED_PARAMETER_MARKERS = (
     "not allowed",
 )
 _UNSUPPORTED_PARAMETER_CODES = ("unsupported_parameter", "unknown_parameter", "unrecognized_parameter")
-# (provider, parameter) pairs that were refused once.
+# (endpoint, parameter) pairs that were refused once. The endpoint is the
+# address the request went to, not the provider's name: what one plan's or
+# one deployment's address takes says nothing about another's, and every
+# owner's calls to the same address share what is remembered about it.
 _caps_refused: set[tuple[str, str]] = set()
 
 
@@ -152,29 +156,54 @@ def chat_body(
 # ---------------------------------------------------------------- the output cap
 
 
-def cap_accepted(provider: str, parameter: str) -> bool:
-    """Whether ``parameter`` is still sent to ``provider``: true until the provider refused it once."""
-    return (provider, parameter) not in _caps_refused
+def endpoint_key(endpoint: Any) -> str:
+    """An endpoint's address as the refused-cap memory names it: scheme, host, port and path, nothing after."""
+    text = str(endpoint or "").strip()
+    try:
+        parts = urlsplit(text)
+    except ValueError:
+        return text.lower()
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path.rstrip('/')}"
 
 
-def cap_refused(provider: str, parameter: str, status: int, body_text: str) -> bool:
-    """Whether a provider's error answer says it does not take ``parameter``; remembers it when it does.
+def cap_accepted(endpoint: str, parameter: str) -> bool:
+    """Whether ``parameter`` is still sent to ``endpoint``: true until that address refused it once."""
+    return (endpoint_key(endpoint), parameter) not in _caps_refused
+
+
+def cap_refused(
+    endpoint: str,
+    parameter: str,
+    status: int,
+    body_text: str,
+    *,
+    provider: str = "",
+    remember: bool = True,
+) -> bool:
+    """Whether an endpoint's error answer says it does not take ``parameter``; remembers it when it does.
 
     Only an HTTP 400 whose message names the parameter together with a word
     like "unsupported", "unknown" or "unrecognized" (or an error object that
     points at it as an unsupported parameter) counts: a cap the provider
     merely finds too small or too large is the caller's to fix. The caller
-    sends the request once more without the parameter; later requests leave
-    it out from the start. One warning is logged, the first time.
+    sends the request once more without the parameter; later requests to the
+    same address leave it out from the start. One warning is logged, the
+    first time.
+
+    ``remember=False`` is for an address a member's own settings name: the
+    request is still repeated without the parameter, but nothing is kept.
+    What such an address answers is its owner's to decide, and must not
+    change what other owners' requests carry.
     """
     if status != 400 or not names_unsupported_parameter(body_text, parameter):
         return False
-    key = (provider, parameter)
-    if key not in _caps_refused:
+    key = (endpoint_key(endpoint), parameter)
+    if remember and key not in _caps_refused:
         _caps_refused.add(key)
         logger.warning(
-            "app sdk: %s does not accept %s; requests are sent without it from now on",
-            provider,
+            "app sdk: %s at %s does not accept %s; requests to it are sent without it from now on",
+            provider or "the provider",
+            key[0],
             parameter,
         )
     return True
@@ -576,6 +605,7 @@ __all__ = [
     "cap_accepted",
     "cap_refused",
     "chat_body",
+    "endpoint_key",
     "chat_done",
     "error_body",
     "names_unsupported_parameter",

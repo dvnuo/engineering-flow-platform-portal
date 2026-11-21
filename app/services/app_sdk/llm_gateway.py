@@ -55,6 +55,22 @@ MAX_TEMPERATURE = 2.0
 APP_REASONING_EFFORTS = ("low", "medium", "high")
 DEFAULT_APP_REASONING_EFFORT = "low"
 
+# The most one request may carry, and the longest answer it may ask for.
+# Without them a single call could bring any amount of text into the Portal's
+# memory and onto the owner's bill, and a call in flight could not be counted
+# as anything against the daily budget (app/services/apps/budget.py).
+# - MAX_INPUT_CHARS, the messages and the system text together: about a
+#   million tokens at four characters to a token, the largest context window
+#   among the models the Portal offers (llm_catalog.CONTEXT_SIZE_PRESETS).
+#   More than this no model would take.
+# - MAX_MESSAGES: no conversation an app replays is this long; the count has
+#   a bound of its own because empty messages weigh nothing in characters.
+# - MAX_OUTPUT_TOKENS: the longest answer any of those models writes (the
+#   GPT-5 line reports 128,000 output tokens).
+MAX_INPUT_CHARS = 4_000_000
+MAX_MESSAGES = 1_000
+MAX_OUTPUT_TOKENS = 128_000
+
 
 # ---------------------------------------------------------------- models
 
@@ -248,6 +264,8 @@ def _request(
     """The request, validated; ``invalid_request`` or ``model_not_allowed`` otherwise."""
     if not isinstance(messages, list) or not messages:
         raise LlmGatewayError("invalid_request", "messages must be a non-empty list.")
+    if len(messages) > MAX_MESSAGES:
+        raise LlmGatewayError("invalid_request", f"messages may hold at most {MAX_MESSAGES} items.")
     turns: list[dict] = []
     for index, item in enumerate(messages):
         if not isinstance(item, dict):
@@ -261,10 +279,18 @@ def _request(
         raise LlmGatewayError("invalid_request", "messages carry no text.")
     if system is not None and not isinstance(system, str):
         raise LlmGatewayError("invalid_request", "system must be a string.")
+    size = sum(len(turn["content"]) for turn in turns) + len(system or "")
+    if size > MAX_INPUT_CHARS:
+        raise LlmGatewayError(
+            "invalid_request",
+            f"The messages and the system text may hold {MAX_INPUT_CHARS} characters together at most; these hold {size}.",
+        )
     if max_output_tokens is not None and (
         isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int) or max_output_tokens < 1
     ):
         raise LlmGatewayError("invalid_request", "max_output_tokens must be a positive whole number.")
+    if max_output_tokens is not None and max_output_tokens > MAX_OUTPUT_TOKENS:
+        raise LlmGatewayError("invalid_request", f"max_output_tokens may be {MAX_OUTPUT_TOKENS} at most.")
     if temperature is not None and (
         isinstance(temperature, bool)
         or not isinstance(temperature, (int, float))
@@ -321,6 +347,9 @@ __all__ = [
     "LlmGatewayError",
     "LlmResult",
     "LlmUsage",
+    "MAX_INPUT_CHARS",
+    "MAX_MESSAGES",
+    "MAX_OUTPUT_TOKENS",
     "available_models",
     "complete",
     "default_model",

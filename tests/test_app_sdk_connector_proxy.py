@@ -307,6 +307,141 @@ def test_named_instance_connectors_use_the_default_instance(kind):
     assert upstream.last.url.host == "second.example.test"
 
 
+@pytest.mark.parametrize("kind", ["jenkins", "nexus", "splunk"])
+@pytest.mark.parametrize("section", [{}, {"default_instance": "only"}, {"default_instance": "gone"}])
+def test_a_row_the_owner_switched_off_is_never_called(kind, section):
+    # The section is on and its one row (or every row) is off: the Test button
+    # still names that row, but its credentials are not an app's to send.
+    rows = (
+        {"name": "only", "url": "https://only.example.test", "username": "svc", "token": TOKEN, "password": PASSWORD, "enabled": False},
+        {"name": "other", "url": "https://other.example.test", "username": "svc", "token": TOKEN, "enabled": False},
+    )
+    for config in (instances(kind, rows[0], **section), instances(kind, *rows, **section)):
+        upstream = Upstream()
+
+        error = refused(upstream, config=config, connector_type=kind, path="/x")
+
+        assert (error.code, error.status) == ("connector_not_configured", 424)
+        assert upstream.requests == []
+        assert connector_proxy.describe(config, kind) is None
+
+    # One row switched back on is the one that is called.
+    upstream = Upstream()
+    send(upstream, config=instances(kind, rows[0], {**rows[1], "enabled": True}, **section), connector_type=kind, path="/x")
+    assert upstream.last.url.host == "other.example.test"
+
+
+# ---------------------------------------------------------------- addresses that are never called
+
+OFF_LIMITS = [
+    # This machine, as an address ...
+    "http://127.0.0.1:8000",
+    "http://127.0.0.53",
+    "http://[::1]:8000",
+    "http://[::ffff:127.0.0.1]:8000",
+    "http://0.0.0.0:8000",
+    "http://[::]",
+    # ... in the spellings a resolver takes for one ...
+    "http://127.1",
+    "http://2130706433",
+    "http://0x7f.0.0.1",
+    "http://0x7f000001:8000",
+    "http://017700000001",
+    "http://0",
+    # ... and by name.
+    "http://localhost:8000",
+    "https://LOCALHOST",
+    "http://localhost.",
+    "http://portal.localhost:8000",
+    "http://localhost.localdomain",
+    "http://ip6-localhost",
+    # Link-local, where the cloud's metadata service answers.
+    "http://169.254.169.254",
+    "http://169.254.170.2",
+    "http://[fe80::1]",
+    "http://[fd00:ec2::254]",
+    "http://metadata.google.internal",
+]
+
+MAY_BE_CALLED = [
+    # The company's own systems live in the private ranges.
+    "https://10.1.2.3",
+    "http://172.16.0.9:8081",
+    "http://192.168.8.233:8081",
+    "http://100.64.0.1",
+    "http://[fd12:3456:789a::1]",
+    "https://203.0.113.9",
+    "https://jira.example.test",
+    # Names that only look like the ones above.
+    "https://localhost.example.test",
+    "https://notlocalhost",
+    "https://metadata.example.test",
+    "https://127.example.test",
+]
+
+
+@pytest.mark.parametrize("address", OFF_LIMITS)
+def test_an_address_that_means_this_machine_or_a_metadata_service_is_refused(address):
+    assert _outbound.refused_target(address) is not None
+    assert _outbound.refused_target(address + "/rest/api/2/myself?x=1") is not None
+
+
+@pytest.mark.parametrize("address", MAY_BE_CALLED)
+def test_private_ranges_and_ordinary_names_may_be_called(address):
+    assert _outbound.refused_target(address) is None
+    assert _outbound.refused_target(address + "/rest/api/2/myself") is None
+
+
+@pytest.mark.parametrize("value", ["", None, "not a url", "/only/a/path", "https://", 7])
+def test_something_that_is_no_address_is_not_judged(value):
+    assert _outbound.refused_target(value) is None
+
+
+def test_the_words_say_what_kind_of_address_it_is():
+    assert _outbound.refused_target("http://127.0.0.1") == _outbound.TARGET_LOOPBACK
+    assert _outbound.refused_target("http://localhost") == _outbound.TARGET_LOOPBACK
+    assert _outbound.refused_target("http://0.0.0.0") == _outbound.TARGET_UNSPECIFIED
+    assert _outbound.refused_target("http://169.254.10.10") == _outbound.TARGET_LINK_LOCAL
+    assert _outbound.refused_target("http://[fd00:ec2::254]") == _outbound.TARGET_METADATA
+    assert _outbound.refused_target("http://metadata.google.internal") == _outbound.TARGET_METADATA
+
+
+@pytest.mark.parametrize("address", OFF_LIMITS)
+@pytest.mark.parametrize("kind", ["jenkins", "jira"])
+def test_a_connector_at_such_an_address_is_not_called_and_not_offered(kind, address):
+    config = instances(kind, {"name": "main", "url": address, "username": "svc", "token": TOKEN})
+    upstream = Upstream()
+
+    error = refused(upstream, config=config, connector_type=kind, path="/api/internal/agents/a1/sessions/metadata")
+
+    # The address is the owner's setting: theirs to correct, like a connector that is not set up.
+    assert (error.code, error.status) == ("connector_not_configured", 424)
+    assert "may not call" in error.message and TOKEN not in error.message
+    assert upstream.requests == []
+    assert connector_proxy.describe(config, kind) is None
+
+
+def test_github_at_such_an_address_is_refused_too():
+    config = {"github": {"enabled": True, "api_token": TOKEN, "base_url": "http://127.0.0.1:8000/api/v3"}}
+    upstream = Upstream()
+
+    error = refused(upstream, config=config, connector_type="github", path="/user")
+
+    assert error.code == "connector_not_configured"
+    assert upstream.requests == [] and connector_proxy.describe(config, "github") is None
+
+
+@pytest.mark.parametrize("address", ["https://10.1.2.3", "http://192.168.8.233:8081"])
+def test_a_connector_in_a_private_range_is_called_as_before(address):
+    config = instances("nexus", {"name": "repo", "url": address, "username": "svc", "password": PASSWORD})
+    upstream = Upstream()
+
+    send(upstream, config=config, connector_type="nexus", path="/service/rest/v1/status")
+
+    assert str(upstream.last.url) == address + "/service/rest/v1/status"
+    assert connector_proxy.describe(config, "nexus") == {"type": "nexus", "base_url": address}
+
+
 def test_github_enterprise_requests_stay_under_its_api_path():
     config = {"github": {"enabled": True, "api_token": TOKEN, "base_url": "https://ghe.example.test/api/v3/"}}
     upstream = Upstream()
@@ -618,6 +753,27 @@ def test_only_accept_content_type_and_harmless_x_headers_travel():
     }
     assert sent["host"] == "jira.example.test"
     assert sent["user-agent"] != "mine"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "caf" + chr(0xE9),  # Latin-1
+        "tab" + chr(0x2192) + "arrow",  # beyond Latin-1
+        chr(0x4E2D) + chr(0x6587),  # CJK
+        "line" + chr(0x2028) + "separator",  # a line break that is not a control character
+    ],
+)
+def test_a_header_value_that_is_not_ascii_is_invalid_and_nothing_is_sent(value):
+    # httpx would refuse it when sending, which read as "the connector could not be reached" (502).
+    for name in ("X-Note", "Accept", "Content-Type"):
+        upstream = Upstream()
+
+        error = refused(upstream, headers={name: value})
+
+        assert (error.code, error.status) == ("invalid_request", 400), name
+        assert name.lower() in error.message and value not in error.message
+        assert upstream.requests == []
 
 
 def test_a_header_the_connector_signs_with_is_never_the_callers():

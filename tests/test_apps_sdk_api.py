@@ -11,11 +11,16 @@ import base64
 from datetime import datetime, timedelta
 import json
 import logging
+import threading
+import time
 from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from _apps_helpers import (
     add_app,
@@ -28,7 +33,7 @@ from _apps_helpers import (
     sign_visitor,
 )
 from app.config import get_settings
-from app.db import get_db
+from app.db import Base, get_db
 from app.security.session_cookie import session_cookie_name
 from app.models import App, AppExecution, RuntimeProfile
 from app.services import model_catalog_service
@@ -101,6 +106,7 @@ def sdk(monkeypatch):
 
     enable_apps(monkeypatch, apps_sdk_rate_per_minute=120, apps_default_daily_credits=50.0, apps_default_daily_tokens=2_000_000)
     reset_apps_state()
+    app_budget.in_flight.reset()
     model_catalog_service.reset_catalog_state()
     llm_copilot.reset_token_cache()
     llm_wire.reset_cap_state()
@@ -161,12 +167,17 @@ def sdk(monkeypatch):
         db.commit()
 
     h.auth, h.get, h.post, h.complete, h.executions, h.reload, h.change = auth, get, post, complete, executions, reload, change
+    app_id = row.id
     try:
         yield h
+        # Whatever a test's calls came to (answered, refused, failed, abandoned),
+        # none of them is still counted as under way once they have ended.
+        assert app_budget.in_flight.calls(app_id) == 0
     finally:
         app.dependency_overrides.clear()
         db.close()
         reset_apps_state()
+        app_budget.in_flight.reset()
         model_catalog_service.reset_catalog_state()
         llm_copilot.reset_token_cache()
         llm_wire.reset_cap_state()
@@ -769,6 +780,44 @@ def test_the_stream_generator_records_once_however_it_is_closed(sdk):
     assert [(row.status, row.error_code, row.output_tokens) for row in sdk.executions()] == [("cancelled", "client_closed", 1)]
 
 
+def test_a_stream_that_is_thrown_away_before_anybody_read_it_is_still_recorded(sdk):
+    import gc
+
+    import app.api.app_sdk as api
+
+    async def provider():
+        yield {"type": "delta", "text": "never read"}
+
+    def make(reservation):
+        with sdk.factory() as db:
+            call = api.SdkCall(app=sdk.app, app_id=sdk.app.id, owner_user_id=sdk.owner.id, source="cluster", visitor_user_id=None)
+            record = api._CallRecord(db, call, "llm", reservation=reservation)
+        record.model = "gpt-6-sol"
+        return record
+
+    # The request is torn down after its first event was read and before the
+    # answer began to be sent: the generator never runs, so it has no ending.
+    record = make(app_budget.in_flight.reserve(sdk.app.id, 500))
+    body = api._recorded_stream(provider(), {"type": "delta", "text": "Hello wo"}, record, request_chars=20)
+    assert app_budget.in_flight.calls(sdk.app.id) == 1
+    del body
+    gc.collect()
+
+    assert _until(lambda: app_budget.in_flight.calls(sdk.app.id) == 0, 10), "not counted as under way for the rest of the hour"
+    assert [(row.status, row.error_code, row.input_tokens, row.output_tokens) for row in sdk.executions()] == [("cancelled", "client_closed", 5, 2)]
+
+    # A body that did run records the call itself, once, as before.
+    async def read_to_the_end():
+        record = make(None)
+        body = api._recorded_stream(provider(), {"type": "done", "usage": {"input_tokens": 3, "output_tokens": 4, "credits": None}}, record, request_chars=20)
+        return [chunk async for chunk in body]
+
+    assert len(asyncio.run(read_to_the_end())) == 1
+    gc.collect()
+    time.sleep(0.2)
+    assert [(row.status, row.input_tokens) for row in sdk.executions()] == [("cancelled", 5), ("succeeded", 3)]
+
+
 # --- the real gateway behind the endpoint ------------------------------------------------------
 
 
@@ -1039,6 +1088,244 @@ def test_connector_requests_cost_nothing_of_the_budget(sdk, monkeypatch):
     assert sdk.post("/connectors/jira/request", {"method": "GET", "path": "/rest/api/2/myself"}).status_code == 200
 
 
+# --- calls under way count toward the budget ---------------------------------------------------------
+
+
+class _HeldProvider:
+    """Stands in for ``llm_gateway.complete``: a call waits until the test lets one answer.
+
+    One at a time, so that no two requests are ever in the database at once:
+    the tests' sessions share a single in-memory connection.
+    """
+
+    def __init__(self, result: LlmResult) -> None:
+        self.result = result
+        self.entered = threading.Semaphore(0)
+        self.hold = True
+        self.calls: list[dict] = []
+        # Threading primitives: every request of the test client runs on an event loop of its own.
+        self._answers = threading.Semaphore(0)
+
+    async def complete(self, **kwargs):
+        self.calls.append(kwargs)
+        self.entered.release()
+        if self.hold:
+            await asyncio.to_thread(self._answers.acquire, True, 30)
+        return self.result
+
+    def let_one_answer(self) -> None:
+        self._answers.release()
+
+
+def _until(condition, seconds: float = 30.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return bool(condition())
+
+
+def _in_the_background(sdk, body: dict):
+    """Start a completion on a thread of its own; ``(thread, responses)``."""
+    responses: list = []
+    client = TestClient(sdk.asgi)
+
+    def call():
+        responses.append(client.post(PREFIX + "/llm/complete", json={"messages": HELLO, **body}, headers=sdk.auth()))
+
+    thread = threading.Thread(target=call, daemon=True)
+    thread.start()
+    return thread, responses
+
+
+def test_a_call_under_way_is_counted_as_what_it_may_come_to(sdk, monkeypatch):
+    at(monkeypatch, NOON)
+    sdk.change(daily_tokens=1000)
+    provider = _HeldProvider(LlmResult("ok", "gpt-6-sol", "stop", LlmUsage(10, 20, None)))
+    monkeypatch.setattr(sdk.api.llm_gateway, "complete", provider.complete)
+
+    # Nothing is spent yet. The first call may write an answer of 1000 tokens, and has not ended.
+    thread, responses = _in_the_background(sdk, {"max_output_tokens": 1000})
+    assert provider.entered.acquire(timeout=30)
+    assert app_budget.in_flight.calls(sdk.app.id) == 1
+    assert app_budget.in_flight.tokens(sdk.app.id) == 1002, "two tokens of text and the answer it asked for"
+
+    # Before, a second call read "0 of 1000 used" and went through as well, and a third, and a hundredth.
+    for body in ({}, {"stream": True}):
+        refused = sdk.complete(body)
+        assert refused.status_code == 429
+        assert error_of(refused)["code"] == "rate_limited", "not spent: under way, and worth another try soon"
+        assert refused.headers["retry-after"] == str(app_budget.IN_FLIGHT_RETRY_SECONDS)
+    assert len(provider.calls) == 1, "the provider is not asked"
+    assert sdk.executions() == [], "a refused call is not recorded"
+    assert app_budget.in_flight.calls(sdk.app.id) == 1, "and is not counted either"
+    # The budget an app reads is what is spent, as before.
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 0
+
+    provider.let_one_answer()
+    thread.join(timeout=30)
+    assert [response.status_code for response in responses] == [200]
+
+    # It came to 30 tokens, not 1002: once its row is written it is counted as that.
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 30
+    provider.hold = False
+    assert sdk.complete().status_code == 200
+
+
+def test_calls_that_arrive_together_cannot_all_pass_on_the_same_spent_figure(sdk, monkeypatch):
+    at(monkeypatch, NOON)
+    sdk.change(daily_tokens=10_000)
+    provider = _HeldProvider(LlmResult("ok", "gpt-6-sol", "stop", LlmUsage(10, 20, None)))
+    monkeypatch.setattr(sdk.api.llm_gateway, "complete", provider.complete)
+
+    # A call that names no cap is counted as an answer of RESERVED_OUTPUT_TOKENS.
+    started = []
+    for _ in range(3):
+        started.append(_in_the_background(sdk, {}))
+        if len(started) < 3:
+            assert provider.entered.acquire(timeout=30)
+    per_call = app_budget.RESERVED_OUTPUT_TOKENS + 2
+    assert per_call == 4098
+
+    # Two are under way (8196 of 10000). The third is admitted: what is spent
+    # and under way is below the limit, whatever the third itself comes to.
+    assert provider.entered.acquire(timeout=30)
+    assert app_budget.in_flight.tokens(sdk.app.id) == 3 * per_call
+    # A fourth is not: 12294 of 10000 are spoken for.
+    refused = sdk.complete()
+    assert refused.status_code == 429 and error_of(refused)["code"] == "rate_limited"
+    assert len(provider.calls) == 3
+
+    for answered in (1, 2, 3):
+        provider.let_one_answer()
+        assert _until(lambda: sum(len(responses) for _thread, responses in started) == answered)
+    for thread, _responses in started:
+        thread.join(timeout=30)
+    assert [responses[0].status_code for _thread, responses in started] == [200, 200, 200]
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 90
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+
+
+def test_every_way_a_call_ends_gives_back_what_it_was_counted_as(sdk, monkeypatch):
+    at(monkeypatch, NOON)
+    counted = lambda: app_budget.in_flight.calls(sdk.app.id)  # noqa: E731
+
+    assert sdk.complete({"max_output_tokens": 500}).status_code == 200
+    assert sdk.complete({"stream": True}).status_code == 200
+    assert counted() == 0
+
+    # Refused at a gate.
+    assert sdk.complete({"model": "gpt-5.4"}).status_code == 400
+    sdk.config["llm"].pop("api_key")
+    assert sdk.complete().status_code == 424
+    sdk.config["llm"]["api_key"] = GITHUB_TOKEN
+    sdk.change(daily_tokens=0)
+    assert error_of(sdk.complete())["code"] == "budget_exceeded"
+    sdk.change(daily_tokens=None, llm_enabled=False)
+    assert error_of(sdk.complete())["code"] == "llm_disabled"
+    sdk.change(llm_enabled=True)
+    assert counted() == 0
+
+    # The provider failed, before and after the answer began.
+    sdk.gateway.error = LlmGatewayError("provider_error", "GitHub Copilot answered HTTP 500.")
+    assert sdk.complete().status_code == 502
+    sdk.gateway.error = RuntimeError("boom")
+    assert sdk.complete().status_code == 500
+    sdk.gateway.script = [LlmGatewayError("upstream_timeout", "GitHub Copilot did not answer in time.")]
+    assert sdk.complete({"stream": True}).status_code == 504
+    sdk.gateway.script = [{"type": "delta", "text": "Hel"}, {"type": "error", "error": {"code": "provider_error", "message": "gone"}}]
+    assert sdk.complete({"stream": True}).status_code == 200
+    assert counted() == 0
+
+    # The caller went away in the middle of a stream.
+    sdk.gateway.script = [{"type": "delta", "text": "Hello wor"}, HANG]
+    asyncio.run(_call_and_hang_up(sdk.asgi, PREFIX + "/llm/complete", sdk.auth(), {"messages": HELLO, "stream": True}))
+    assert counted() == 0
+    assert sdk.executions()[-1].status == "cancelled"
+
+
+def test_the_ledger_of_calls_under_way():
+    clock = {"now": 100.0}
+    ledger = app_budget.InFlightLedger(max_seconds=60, clock=lambda: clock["now"])
+
+    first = ledger.reserve("app-1", 500)
+    second = ledger.reserve("app-1", 500)
+    other = ledger.reserve("app-2", 70)
+    assert (ledger.tokens("app-1"), ledger.calls("app-1")) == (1000, 2)
+    # A call asks what the ones ahead of it are counted as: of two that arrive
+    # together with room for one, the first goes through and the second waits.
+    assert ledger.tokens("app-1", before=second) == 500
+    assert ledger.tokens("app-1", before=first) == 0
+    assert (ledger.tokens("app-2"), ledger.tokens("app-3")) == (70, 0)
+
+    # Two calls counted as the same figure are still two: giving one back leaves the other.
+    first.release()
+    first.release()
+    assert (ledger.tokens("app-1"), ledger.calls("app-1")) == (500, 1)
+    second.release()
+    assert (ledger.tokens("app-1"), ledger.calls("app-1")) == (0, 0)
+
+    # A reservation nobody gave back is forgotten after max_seconds, not kept for the rest of the day.
+    clock["now"] += 59
+    assert ledger.tokens("app-2") == 70
+    clock["now"] += 1
+    assert (ledger.tokens("app-2"), ledger.calls("app-2")) == (0, 0)
+    other.release()
+
+    assert app_budget.RESERVATION_MAX_SECONDS == 3600.0 and app_budget.IN_FLIGHT_RETRY_SECONDS == 5
+
+
+@pytest.mark.parametrize(
+    "input_tokens, max_output_tokens, expected",
+    [
+        (10, 256, 266),
+        (10, None, 10 + 4096),
+        (0, 1, 1),
+        # Anything that is not a positive whole number names no cap.
+        (10, 0, 10 + 4096),
+        (10, -5, 10 + 4096),
+        (10, True, 10 + 4096),
+        (10, "256", 10 + 4096),
+        (10, 2.5, 10 + 4096),
+        (None, None, 4096),
+        (-3, 7, 7),
+    ],
+)
+def test_what_a_call_under_way_is_counted_as(input_tokens, max_output_tokens, expected):
+    assert app_budget.RESERVED_OUTPUT_TOKENS == 4096
+    assert app_budget.reservation_tokens(input_tokens, max_output_tokens) == expected
+
+
+def test_a_request_is_never_counted_beyond_what_the_gateway_accepts(sdk):
+    api = sdk.api
+    most = api.estimate_tokens(api.llm_gateway.MAX_INPUT_CHARS) + api.llm_gateway.MAX_OUTPUT_TOKENS
+
+    assert api._in_flight_tokens(40, 256) == 10 + 256
+    assert api._in_flight_tokens(40, None) == 10 + app_budget.RESERVED_OUTPUT_TOKENS
+    assert api._in_flight_tokens(10**9, 10**12) == most == 1_128_000
+
+
+@pytest.mark.parametrize(
+    "used, daily, under_way, expected",
+    [
+        (0, 1000, 0, False),
+        # Nothing under way never refuses a call here, whatever is spent: that is ``exceeded``'s to say.
+        (1000, 1000, 0, False),
+        (0, 1000, 999, False),
+        (0, 1000, 1000, True),
+        (400, 1000, 599, False),
+        (400, 1000, 600, True),
+        (0, 0, 1, True),
+    ],
+)
+def test_the_calls_under_way_take_up_what_is_left(used, daily, under_way, expected):
+    budget = {"daily_credits": 50.0, "used_credits": 0.0, "daily_tokens": daily, "used_tokens": used}
+
+    assert app_budget.crowded(budget, under_way) is expected
+
+
 # --- 9.3 connectors ------------------------------------------------------------------------------
 
 
@@ -1248,3 +1535,223 @@ def test_the_log_line_cannot_be_broken_by_what_the_app_sends(sdk, upstream, capl
     line = [record.getMessage() for record in caplog.records if "connector request" in record.getMessage()][-1]
     assert "\n" not in line and "\r" not in line and len(line) < 400
     assert line.count(" status=") == 1 and line.endswith("status=method_not_allowed")
+
+
+def test_a_connector_at_an_address_apps_may_not_call_is_refused_and_not_listed(sdk, upstream):
+    # The owner's Jira "address" is the Portal's own port: asked through the
+    # proxy, the Portal would answer its cluster-only API to itself.
+    sdk.config["jira"]["instances"][0]["url"] = "http://127.0.0.1:8000"
+
+    response = sdk.post("/connectors/jira/request", {"method": "GET", "path": "/api/internal/agents/a1/sessions/metadata"})
+
+    assert response.status_code == 424
+    assert error_of(response)["code"] == "connector_not_configured" and "may not call" in error_of(response)["message"]
+    assert upstream.requests == []
+    assert [(row.status, row.error_code) for row in sdk.executions()] == [("failed", "connector_not_configured")]
+    assert sdk.get("/connectors").json() == {"connectors": [{"type": "github", "base_url": "https://api.github.com", "write": True}]}
+    assert sdk.get("/app").json()["connectors"] == [{"type": "github", "write": True}]
+
+
+def test_a_connector_header_that_is_not_ascii_is_a_400_not_an_unreachable_connector(sdk, upstream):
+    response = sdk.post("/connectors/jira/request", {"method": "GET", "path": "/x", "headers": {"X-Note": "caf" + chr(0xE9)}})
+
+    assert response.status_code == 400 and error_of(response)["code"] == "invalid_request"
+    assert upstream.requests == []
+
+
+# --- the database while a call waits -----------------------------------------------------------------
+
+
+@pytest.fixture
+def pooled(sdk, tmp_path):
+    """The SDK API on a database whose pool holds one connection: what a busy Portal's pool is to one more caller."""
+    engine = create_engine(
+        "sqlite:///" + (tmp_path / "pool.db").as_posix(),
+        connect_args={"check_same_thread": False},
+        poolclass=QueuePool,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.3,
+    )
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    with factory() as db:
+        add_group(db, "Default", is_default=True)
+        owner = add_user(db, "owner", nickname="Olive")
+        row = add_app(db, owner, llm_enabled=True, connectors_enabled=["jira"], connectors_write=[])
+        token, app_id = row.token_value, row.id
+
+    def override_db():
+        session = factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    def rows():
+        with factory() as db:
+            return [(row.kind, row.status) for row in db.query(AppExecution).order_by(AppExecution.id)]
+
+    def usable_by_others() -> bool:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("select 1"))
+            return True
+        except Exception:  # noqa: BLE001 - the pool gave no connection in time
+            return False
+
+    sdk.asgi.dependency_overrides[get_db] = override_db
+    sdk.token = token
+    try:
+        yield SimpleNamespace(engine=engine, app_id=app_id, rows=rows, usable_by_others=usable_by_others)
+    finally:
+        engine.dispose()
+
+
+def test_no_pooled_connection_is_held_while_a_provider_or_a_connector_is_waited_for(sdk, pooled, monkeypatch):
+    seen: dict[str, tuple] = {}
+
+    async def look(name: str) -> None:
+        # How many connections are out, and whether anybody else can have one.
+        seen[name] = (pooled.engine.pool.checkedout(), await asyncio.to_thread(pooled.usable_by_others))
+
+    async def complete(**kwargs):
+        await look("completion")
+        return sdk.gateway.result
+
+    async def stream(**kwargs):
+        await look("stream, before its first event")
+        yield {"type": "delta", "text": "Hel"}
+        await look("stream, while it is sent")
+        yield {"type": "done", "model": "gpt-6-sol", "finish_reason": "stop", "usage": {"input_tokens": 1, "output_tokens": 1, "credits": None}}
+
+    async def connector(**kwargs):
+        await look("connector")
+        return {"status": 200, "headers": {}, "json": {"ok": True}, "body_base64": None, "truncated": False}
+
+    monkeypatch.setattr(sdk.api.llm_gateway, "complete", complete)
+    monkeypatch.setattr(sdk.api.llm_gateway, "stream", stream)
+    monkeypatch.setattr(sdk.api.connector_proxy, "request", connector)
+
+    assert sdk.complete().status_code == 200
+    assert sdk.complete({"stream": True}).status_code == 200
+    assert sdk.post("/connectors/jira/request", {"method": "GET", "path": "/rest/api/2/myself"}).status_code == 200
+
+    # Before, each of the first, second and fourth held the pool's connection while it waited.
+    assert seen == {
+        "completion": (0, True),
+        "stream, before its first event": (0, True),
+        "stream, while it is sent": (0, True),
+        "connector": (0, True),
+    }
+    # And every call left its row: with the connection held, the row had none to be written through.
+    assert pooled.rows() == [("llm", "succeeded"), ("llm", "succeeded"), ("connector", "succeeded")]
+    assert app_budget.in_flight.calls(pooled.app_id) == 0
+
+
+def test_a_row_that_cannot_be_written_at_once_is_written_later_and_the_answer_does_not_wait(sdk, pooled, monkeypatch):
+    monkeypatch.setattr(sdk.api, "RECORD_RETRY_SECONDS", (0.2,) * 50)
+    held = {}
+
+    async def complete(**kwargs):
+        # While the provider answers, the rest of the Portal takes the pool's only connection and keeps it.
+        held["connection"] = pooled.engine.connect()
+        return sdk.gateway.result
+
+    monkeypatch.setattr(sdk.api.llm_gateway, "complete", complete)
+
+    response = sdk.complete({"max_output_tokens": 100})
+
+    try:
+        assert response.status_code == 200, "the call happened: its bookkeeping does not fail it"
+        # No row yet, so the call is still counted as under way: the budget sees it in one place or the other.
+        assert app_budget.in_flight.calls(pooled.app_id) == 1
+        assert app_budget.in_flight.tokens(pooled.app_id) == 102
+    finally:
+        held["connection"].close()
+
+    def written() -> bool:
+        try:
+            return pooled.rows() == [("llm", "succeeded")]
+        except Exception:  # noqa: BLE001 - the writer has the connection at this moment
+            return False
+
+    assert _until(written, 20), "the row is tried again until it is there"
+    assert _until(lambda: app_budget.in_flight.calls(pooled.app_id) == 0, 5)
+
+
+def test_a_row_that_can_never_be_written_gives_the_call_back_and_says_so(sdk, monkeypatch, caplog):
+    import app.api.app_sdk as api
+
+    monkeypatch.setattr(api, "RECORD_RETRY_SECONDS", (0.01, 0.01))
+    attempts = []
+    monkeypatch.setattr(api, "record_execution", lambda db, **fields: attempts.append(fields["status"]))
+    reservation = app_budget.in_flight.reserve(sdk.app.id, 500)
+    with sdk.factory() as db:
+        call = api.SdkCall(app=sdk.app, app_id=sdk.app.id, owner_user_id=sdk.owner.id, source="cluster", visitor_user_id=None)
+        record = api._CallRecord(db, call, "llm", reservation=reservation)
+
+    with caplog.at_level(logging.ERROR, logger="app.api.app_sdk"):
+        record.finish("succeeded", input_tokens=1, output_tokens=2)
+        record.finish("failed")
+        assert _until(lambda: app_budget.in_flight.calls(sdk.app.id) == 0, 10)
+
+    assert attempts == ["succeeded"] * 3, "at once, then after each pause; a second finish writes nothing"
+    assert [entry.getMessage() for entry in caplog.records if "is lost" in entry.getMessage()]
+
+
+def test_the_row_is_written_off_the_event_loop_however_the_call_ends(sdk, upstream, monkeypatch):
+    import app.api.app_sdk as api
+
+    written_on_a_loop: list[bool] = []
+    real = api.record_execution
+
+    def recording(db, **fields):
+        # A thread that runs an event loop has a running loop; a worker thread has none.
+        try:
+            asyncio.get_running_loop()
+            written_on_a_loop.append(True)
+        except RuntimeError:
+            written_on_a_loop.append(False)
+        return real(db, **fields)
+
+    monkeypatch.setattr(api, "record_execution", recording)
+
+    assert sdk.complete().status_code == 200
+    assert sdk.complete({"stream": True}).status_code == 200
+    sdk.gateway.error = LlmGatewayError("provider_error", "GitHub Copilot answered HTTP 500.")
+    assert sdk.complete().status_code == 502
+    assert sdk.post("/connectors/jira/request", {"method": "GET", "path": "/rest/api/2/myself"}).status_code == 200
+    assert sdk.post("/connectors/jira/request", {"method": "GET", "path": "/../x"}).status_code == 400
+    # A caller that goes away: the request is being cancelled when its row is written.
+    sdk.gateway.script = [{"type": "delta", "text": "Hello wor"}, HANG]
+    asyncio.run(_call_and_hang_up(sdk.asgi, PREFIX + "/llm/complete", sdk.auth(), {"messages": HELLO, "stream": True}))
+
+    assert [row.status for row in sdk.executions()] == ["succeeded", "succeeded", "failed", "succeeded", "failed", "cancelled"]
+    # A write waits for the database, which the event loop must never do.
+    assert written_on_a_loop == [False] * 6
+
+
+def test_the_endpoint_refuses_a_request_over_the_bounds(sdk, monkeypatch):
+    monkeypatch.undo()
+    enable_apps(monkeypatch)
+    seen, client = _copilot(lambda request: _answer("ok"))
+    monkeypatch.setattr(sdk.api, "owner_config", lambda _db, _app: sdk.config)
+    monkeypatch.setattr(sdk.api, "llm_client", client)
+    monkeypatch.setattr(sdk.api.llm_gateway, "MAX_INPUT_CHARS", 40)
+
+    assert sdk.complete({"max_output_tokens": 128_000, "system": "s" * 35}).status_code == 200
+    asked = len(seen)
+
+    for body in (
+        {"max_output_tokens": 128_001},
+        {"system": "s" * 36},
+        {"messages": [{"role": "user", "content": "x" * 41}]},
+        {"stream": True, "max_output_tokens": 10**12},
+        {"messages": [{"role": "user", "content": ""}] * 1000 + HELLO},
+    ):
+        refused = sdk.post("/llm/complete", {"messages": HELLO, **body})
+        assert refused.status_code == 400 and error_of(refused)["code"] == "invalid_request", body
+    assert len(seen) == asked, "nothing was sent for them"
+    assert [row.error_code for row in sdk.executions()] == [None] + ["invalid_request"] * 5
+    assert app_budget.in_flight.calls(sdk.app.id) == 0

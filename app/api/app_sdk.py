@@ -19,6 +19,11 @@ while ``APPS_ENABLED`` is off. Each call is checked in this order: the token
 A call the app was allowed to make leaves one ``app_executions`` row, however
 it ended (app/services/apps/executions.py); a call refused at one of the gates
 (the token, the rate, a capability that is off, the daily budget) leaves none.
+
+No pooled database connection is held while a provider or a connector is
+being waited for: what a call needs from the database is read first, the
+request's session is given back, and the call's row is written afterwards
+through a session of its own, off the event loop.
 """
 
 from __future__ import annotations
@@ -29,8 +34,10 @@ from dataclasses import dataclass
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any, AsyncIterator, Callable, Optional
+import weakref
 
 import anyio
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -204,19 +211,39 @@ def _object(payload: Any) -> dict:
     return payload
 
 
-class _CallRecord:
-    """Writes the ``app_executions`` row of one call, once."""
+# When a call's row could not be written at once (no pooled connection in
+# time, a locked database), it is tried again after these pauses, in a thread
+# of its own: the call happened, and its row is what the daily budget is
+# counted from. The answer does not wait for these.
+RECORD_RETRY_SECONDS = (1.0, 5.0, 30.0)
 
-    def __init__(self, db: Session, call: SdkCall, kind: str, *, connector_type: Optional[str] = None) -> None:
-        # The request's session is closed before a streamed answer has been
-        # sent, so the row of a stream is written through a session of its own.
+
+class _CallRecord:
+    """Writes the ``app_executions`` row of one call, once, and gives back what the call was counted as while in flight."""
+
+    def __init__(
+        self,
+        db: Session,
+        call: SdkCall,
+        kind: str,
+        *,
+        connector_type: Optional[str] = None,
+        reservation: Optional[app_budget.Reservation] = None,
+    ) -> None:
+        # The request's session is given back before the provider or the
+        # connector is asked (and is closed before a streamed answer is sent),
+        # so the row is written through a session of its own.
         self._bind = db.get_bind()
         self._call = call
         self._kind = kind
         self._connector_type = connector_type
+        self._reservation = reservation
         self._started = time.monotonic()
         self.model: Optional[str] = None
         self.done = False
+        # Set by the body of a streamed answer once it runs: from then on its
+        # own ending records the call (see _recorded_stream).
+        self.stream_started = False
 
     def finish(
         self,
@@ -227,26 +254,69 @@ class _CallRecord:
         output_tokens: int = 0,
         credits: Optional[float] = None,
     ) -> None:
+        """Write the row. Blocks on the database: callers on the event loop go through ``_finish``."""
         if self.done:
             return
         self.done = True
-        with Session(bind=self._bind, autoflush=False) as db:
-            record_execution(
-                db,
-                app_id=self._call.app_id,
-                owner_user_id=self._call.owner_user_id,
-                visitor_user_id=self._call.visitor_user_id,
-                kind=self._kind,
-                status=status,
-                model=self.model,
-                connector_type=self._connector_type,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                credits=credits,
-                error_code=error_code,
-                source=self._call.source,
-                duration_ms=(time.monotonic() - self._started) * 1000,
+        fields = {
+            "app_id": self._call.app_id,
+            "owner_user_id": self._call.owner_user_id,
+            "visitor_user_id": self._call.visitor_user_id,
+            "kind": self._kind,
+            "status": status,
+            "model": self.model,
+            "connector_type": self._connector_type,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "credits": credits,
+            "error_code": error_code,
+            "source": self._call.source,
+            "duration_ms": (time.monotonic() - self._started) * 1000,
+        }
+        if self._write(fields):
+            self._release()
+            return
+        # The call stays counted as in flight until its row is there, so the
+        # budget always sees it in one place or the other.
+        threading.Thread(target=self._write_later, args=(fields,), name="app-sdk-record", daemon=True).start()
+
+    def _write(self, fields: dict) -> bool:
+        try:
+            with Session(bind=self._bind, autoflush=False) as db:
+                return record_execution(db, **fields) is not None
+        except Exception:  # noqa: BLE001 - bookkeeping never fails a call that happened
+            logger.warning("app sdk: recording a call failed app_id=%s kind=%s", self._call.app_id, self._kind, exc_info=True)
+            return False
+
+    def _write_later(self, fields: dict) -> None:
+        try:
+            for pause in RECORD_RETRY_SECONDS:
+                time.sleep(pause)
+                if self._write(fields):
+                    return
+            logger.error(
+                "app sdk: the row of a call could not be written and is lost app_id=%s kind=%s status=%s",
+                self._call.app_id,
+                self._kind,
+                fields["status"],
             )
+        finally:
+            self._release()
+
+    def _release(self) -> None:
+        if self._reservation is not None:
+            self._reservation.release()
+
+
+async def _finish(record: _CallRecord, status: str, **fields: Any) -> None:
+    """Write a call's row off the event loop, to the end even when the request is being cancelled.
+
+    The write waits for the database, which the event loop must never do.
+    A request that is being cancelled may wait for nothing unshielded, and
+    its row is what the daily budget is counted from: hence the shield.
+    """
+    with anyio.CancelScope(shield=True):
+        await run_in_threadpool(record.finish, status, **fields)
 
 
 # --- 9.1 -----------------------------------------------------------------------------
@@ -321,9 +391,38 @@ def _gateway_error(exc: LlmGatewayError) -> SdkApiError:
 
 
 def _prepare_llm(db: Session, call: SdkCall) -> tuple[dict, dict]:
-    """``(the owner's settings, the app's budget)``, read in one go off the event loop."""
-    model_catalog_service.current_catalog(db)
-    return owner_config(db, call.app), app_budget.snapshot(db, call.app)
+    """``(the owner's settings, the app's budget)``, read in one go off the event loop.
+
+    The request's session is given back here. Nothing after this needs the
+    database until the call's row is written, and a pooled connection held
+    while a provider thinks is one the rest of the Portal cannot use: a few
+    slow calls would leave none for anybody.
+    """
+    try:
+        model_catalog_service.current_catalog(db)
+        return owner_config(db, call.app), app_budget.snapshot(db, call.app)
+    finally:
+        db.close()
+
+
+def _prepare_connector(db: Session, app: App) -> dict:
+    """The owner's settings for a connector request; the request's session is given back, as in ``_prepare_llm``."""
+    try:
+        return owner_config(db, app)
+    finally:
+        db.close()
+
+
+def _in_flight_tokens(request_chars: int, max_output_tokens: Any) -> int:
+    """What a completion is counted as while it is under way: its text and the answer it asked for.
+
+    Neither beyond what the gateway accepts: a request over those bounds is
+    refused a moment later and must not hold the budget back meanwhile.
+    """
+    asked = max_output_tokens if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool) else None
+    if asked is not None:
+        asked = min(asked, llm_gateway.MAX_OUTPUT_TOKENS)
+    return app_budget.reservation_tokens(estimate_tokens(min(request_chars, llm_gateway.MAX_INPUT_CHARS)), asked)
 
 
 def _sse(event: dict) -> bytes:
@@ -341,18 +440,41 @@ async def llm_complete(payload: Any = Body(default=None), call: SdkCall = Depend
     if not isinstance(streaming, bool):
         raise SdkApiError("invalid_request", "stream must be true or false.", 400)
 
-    config, budget = await run_in_threadpool(_prepare_llm, db, call)
-    spent = app_budget.exceeded(budget)
-    if spent is not None:
-        raise SdkApiError(
-            "budget_exceeded",
-            "This app has used its daily %s for the owner's model provider. The budget starts again at midnight UTC." % spent,
-            429,
-            retry_after=app_budget.seconds_to_reset(),
-        )
-
-    record = _CallRecord(db, call, app_budget.KIND_LLM)
     request_chars = _text_size(body)
+    # Counted as in flight from here on, before the budget is read: calls
+    # that arrive together must see each other, or each of them reads the
+    # same spent figure and all of them go through.
+    reservation = app_budget.in_flight.reserve(call.app_id, _in_flight_tokens(request_chars, body.get("max_output_tokens")))
+    try:
+        # The calls ahead of this one first, the rows second: one that ends
+        # in between is then counted in both places rather than in neither.
+        ahead = app_budget.in_flight.tokens(call.app_id, before=reservation)
+        config, budget = await run_in_threadpool(_prepare_llm, db, call)
+        spent = app_budget.exceeded(budget)
+        if spent is not None:
+            raise SdkApiError(
+                "budget_exceeded",
+                "This app has used its daily %s for the owner's model provider. The budget starts again at midnight UTC." % spent,
+                429,
+                retry_after=app_budget.seconds_to_reset(),
+            )
+        if app_budget.crowded(budget, ahead):
+            # Not spent yet, and it may not come to that: those calls are
+            # counted as the most they can use. Worth another try soon.
+            raise SdkApiError(
+                "rate_limited",
+                "The model calls this app has under way take up what is left of its daily tokens. "
+                "Try again in %s seconds." % app_budget.IN_FLIGHT_RETRY_SECONDS,
+                429,
+                retry_after=app_budget.IN_FLIGHT_RETRY_SECONDS,
+            )
+        record = _CallRecord(db, call, app_budget.KIND_LLM, reservation=reservation)
+    except BaseException:
+        # Refused at a gate (or cancelled there): the call is not under way.
+        reservation.release()
+        raise
+
+    # From here the record gives the reservation back, when the row is written.
     try:
         if not llm_gateway.is_configured(config):
             raise LlmGatewayError(
@@ -361,8 +483,11 @@ async def llm_complete(payload: Any = Body(default=None), call: SdkCall = Depend
             )
         record.model = llm_gateway.resolve_model(config, body.get("model"))
     except LlmGatewayError as exc:
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code=exc.code)
+        await _finish(record, STATUS_FAILED, error_code=exc.code)
         raise _gateway_error(exc) from None
+    except Exception:
+        await _finish(record, STATUS_FAILED, error_code=ERROR_INTERNAL)
+        raise
 
     arguments = {
         "config": config,
@@ -379,20 +504,18 @@ async def llm_complete(payload: Any = Body(default=None), call: SdkCall = Depend
         try:
             result = await llm_gateway.complete(**arguments)
         except LlmGatewayError as exc:
-            await run_in_threadpool(record.finish, STATUS_FAILED, error_code=exc.code)
+            await _finish(record, STATUS_FAILED, error_code=exc.code)
             raise _gateway_error(exc) from None
         except Exception:
-            await run_in_threadpool(record.finish, STATUS_FAILED, error_code=ERROR_INTERNAL)
+            await _finish(record, STATUS_FAILED, error_code=ERROR_INTERNAL)
             raise
         except BaseException:
-            # The request was cancelled under us: nothing more may be awaited here.
-            record.finish(STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
+            # The request was cancelled under us.
+            await _finish(record, STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
             raise
         usage = result.usage.as_dict()
         tokens_in, tokens_out = _recorded_tokens(usage, request_chars, len(result.text))
-        await run_in_threadpool(
-            record.finish, STATUS_SUCCEEDED, input_tokens=tokens_in, output_tokens=tokens_out, credits=usage["credits"]
-        )
+        await _finish(record, STATUS_SUCCEEDED, input_tokens=tokens_in, output_tokens=tokens_out, credits=usage["credits"])
         return {"text": result.text, "model": result.model, "finish_reason": result.finish_reason, "usage": usage}
 
     events = llm_gateway.stream(**arguments)
@@ -401,26 +524,56 @@ async def llm_complete(payload: Any = Body(default=None), call: SdkCall = Depend
     try:
         first = await events.__anext__()
     except LlmGatewayError as exc:
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code=exc.code)
+        await _finish(record, STATUS_FAILED, error_code=exc.code)
         raise _gateway_error(exc) from None
     except StopAsyncIteration:
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code="provider_error")
+        await _finish(record, STATUS_FAILED, error_code="provider_error")
         raise SdkApiError("provider_error", "The model provider ended the answer without saying how.", 502) from None
     except Exception:
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code=ERROR_INTERNAL)
+        await _finish(record, STATUS_FAILED, error_code=ERROR_INTERNAL)
         raise
     except BaseException:
-        record.finish(STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
+        await _finish(record, STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
         raise
     return StreamingResponse(
-        _stream_body(events, first, record, request_chars),
+        _recorded_stream(events, first, record, request_chars),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
 
 
+def _recorded_stream(events: AsyncIterator[dict], first: dict, record: _CallRecord, request_chars: int) -> AsyncIterator[bytes]:
+    """``_stream_body``, recorded even when nobody ever reads it.
+
+    A generator that was never started has no ending to run. A request torn
+    down between this point and the first piece of the answer would leave no
+    row, and the call would stay counted as under way: so when such a body
+    is thrown away unread, the call is recorded then.
+    """
+    body = _stream_body(events, first, record, request_chars)
+    weakref.finalize(body, _record_unread_stream, record, first, request_chars).atexit = False
+    return body
+
+
+def _record_unread_stream(record: _CallRecord, first: dict, request_chars: int) -> None:
+    if record.done or record.stream_started:
+        # It ran: its own ending has recorded the call, or is about to.
+        return
+    answer_chars = len(first.get("text") or "") if first.get("type") == "delta" else 0
+    tokens_in, tokens_out = _recorded_tokens(None, request_chars, answer_chars)
+    # Wherever the garbage collector runs this, the write does not happen there.
+    threading.Thread(
+        target=record.finish,
+        args=(STATUS_CANCELLED,),
+        kwargs={"error_code": ERROR_CLIENT_CLOSED, "input_tokens": tokens_in, "output_tokens": tokens_out},
+        name="app-sdk-record",
+        daemon=True,
+    ).start()
+
+
 async def _stream_body(events: AsyncIterator[dict], first: dict, record: _CallRecord, request_chars: int) -> AsyncIterator[bytes]:
     """The events of a completion as server-sent events; the call is recorded when the stream ends, however it ends."""
+    record.stream_started = True
     status, error_code = STATUS_CANCELLED, ERROR_CLIENT_CLOSED
     usage: Optional[dict] = None
     answer_chars = 0
@@ -448,20 +601,23 @@ async def _stream_body(events: AsyncIterator[dict], first: dict, record: _CallRe
     finally:
         # Reached when the answer ended, when it failed and when the caller
         # went away (the task is then being cancelled: nothing unshielded may
-        # be awaited here, so the row is written in place).
+        # be awaited here, so both waits below are shielded).
         tokens_in, tokens_out = _recorded_tokens(usage, request_chars, answer_chars)
-        record.finish(
-            status,
-            error_code=error_code,
-            input_tokens=tokens_in,
-            output_tokens=tokens_out,
-            credits=(usage or {}).get("credits"),
-        )
-        with anyio.CancelScope(shield=True):
-            try:
-                await events.aclose()
-            except Exception:  # noqa: BLE001 - the provider's stream is gone either way
-                pass
+        try:
+            await _finish(
+                record,
+                status,
+                error_code=error_code,
+                input_tokens=tokens_in,
+                output_tokens=tokens_out,
+                credits=(usage or {}).get("credits"),
+            )
+        finally:
+            with anyio.CancelScope(shield=True):
+                try:
+                    await events.aclose()
+                except Exception:  # noqa: BLE001 - the provider's stream is gone either way
+                    pass
 
 
 # --- 9.3 -----------------------------------------------------------------------------
@@ -509,7 +665,9 @@ async def connector_request(
     body = _object(payload)
     allow_write = kind in (app.connectors_write or [])
 
-    config = await run_in_threadpool(owner_config, db, app)
+    # The owner's settings are read and the request's session is given back
+    # before the other system is asked: ``app`` is not looked at after this.
+    config = await run_in_threadpool(_prepare_connector, db, app)
     record = _CallRecord(db, call, app_budget.KIND_CONNECTOR, connector_type=kind)
     method, path = body.get("method"), body.get("path")
     outcome = "error"
@@ -528,19 +686,19 @@ async def connector_request(
         )
     except ConnectorProxyError as exc:
         outcome = exc.code
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code=exc.code)
+        await _finish(record, STATUS_FAILED, error_code=exc.code)
         raise SdkApiError(exc.code, exc.message, exc.status) from None
     except Exception:
         outcome = ERROR_INTERNAL
-        await run_in_threadpool(record.finish, STATUS_FAILED, error_code=ERROR_INTERNAL)
+        await _finish(record, STATUS_FAILED, error_code=ERROR_INTERNAL)
         raise
     except BaseException:
         outcome = ERROR_CLIENT_CLOSED
-        record.finish(STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
+        await _finish(record, STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
         raise
     else:
         outcome = str(result.get("status"))
-        await run_in_threadpool(record.finish, STATUS_SUCCEEDED)
+        await _finish(record, STATUS_SUCCEEDED)
         return result
     finally:
         # The proxy keeps httpx's own request line out of the log (a query may

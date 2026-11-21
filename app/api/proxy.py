@@ -30,7 +30,7 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.services.auth_service import parse_session_token
 from app.security.origin_guard import origin_guard_enabled
-from app.security.request_origin import origin_is_portal
+from app.security.request_origin import browser_request_is_same_origin, loggable_header
 from app.security.session_cookie import read_session_token
 from app.services.agent_trust import agent_trust_headers
 from app.services.proxy_service import build_portal_user_metadata
@@ -843,17 +843,32 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
         path=f"/a/{agent_id}/api/events",
     )
     try:
-        # A browser states the page's origin on every WebSocket handshake and
-        # sends the session cookie to a sibling subdomain's page as well, so a
-        # handshake from anywhere but the Portal's own pages is refused before
-        # it is accepted (app/security/request_origin.py).
+        # A browser sends the session cookie on a WebSocket handshake from any
+        # page of the same site, a sibling subdomain's included, so a handshake
+        # from anywhere but the Portal's own pages is refused before it is
+        # accepted. The rule is the HTTP guard's (app/security/request_origin.py):
+        # Sec-Fetch-Site decides when the handshake carries it, which a proxy
+        # that replaces Host cannot confuse; without it the page's Origin is
+        # compared with Host and BASE_URI; a client that sends neither is not
+        # a browser page.
+        ws_fetch_site = websocket.headers.get("sec-fetch-site")
         ws_origin = websocket.headers.get("origin")
-        if (
-            ws_origin
-            and origin_guard_enabled(settings)
-            and not origin_is_portal(ws_origin, websocket.headers.get("host"), settings.base_uri)
+        ws_host = websocket.headers.get("host")
+        if origin_guard_enabled(settings) and not browser_request_is_same_origin(
+            sec_fetch_site=ws_fetch_site,
+            origin=ws_origin,
+            host_header=ws_host,
+            base_uri=settings.base_uri,
         ):
-            logger.warning("Cross-site WebSocket handshake refused agent_id=%s", _loggable_id(agent_id))
+            # Origin and Host are what an operator needs to tell a hostile page
+            # from a proxy that replaced Host while BASE_URI names another address.
+            logger.warning(
+                "Cross-site WebSocket handshake refused agent_id=%s sec_fetch_site=%s origin=%s host=%s",
+                _loggable_id(agent_id),
+                loggable_header(ws_fetch_site),
+                loggable_header(ws_origin),
+                loggable_header(ws_host),
+            )
             await websocket.close(code=4403, reason="Cross-site request blocked")
             return
 

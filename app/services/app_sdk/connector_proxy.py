@@ -10,7 +10,10 @@ connector assigns that connector, verified against the Portal's CA trust.
 The caller chooses a method, a path below the connector's address, a query, a
 few headers and a body; it can never choose the host, the credentials or
 where a redirect leads. The connector's account is a shared service account,
-not the member: nothing here says who "me" is.
+not the member: nothing here says who "me" is. The address itself is the
+owner's setting; one that means the Portal's own machine or a link-local
+address is never called (``_outbound.refused_target``), and a row the owner
+switched off is never used.
 
 Nothing here knows about apps, tokens or the database; the caller decides
 whether the app may use the connector and whether it may write
@@ -38,6 +41,7 @@ from app.services.app_sdk._outbound import (
     REDACTED,
     failure_text,
     proxy_secrets,
+    refused_target,
     unlogged,
 )
 
@@ -155,7 +159,9 @@ def describe(config: dict, connector_type: str) -> dict | None:
     if kind not in SUPPORTED:
         return None
     target = _resolve(config, kind)
-    if target is None:
+    # A connector whose address is never called (see _outbound.refused_target)
+    # is not offered to the app either.
+    if target is None or refused_target(target.base_url) is not None:
         return None
     return {"type": kind, "base_url": target.base_url}
 
@@ -193,6 +199,15 @@ async def request(
         raise ConnectorProxyError(
             "connector_not_configured",
             f"The owner's {kind} connector is not set up: it needs to be on, with an address and credentials.",
+        )
+    off_limits = refused_target(target.base_url)
+    if off_limits is not None:
+        # The address is the owner's setting, so this is theirs to correct,
+        # like a connector that is not set up.
+        raise ConnectorProxyError(
+            "connector_not_configured",
+            f"The owner's {kind} connector points at {off_limits}, which apps may not call. "
+            "The owner has to give the connector the address of the system itself.",
         )
     url = _target_url(target, raw_path, query_text)
     send_headers = _request_headers(headers, target.auth_headers, default_content_type=content_type)
@@ -253,7 +268,10 @@ def _resolve(config: Any, kind: str) -> _Target | None:
             return None
     else:
         instance = connector_http.default_instance(section)
-        if instance is None:
+        # With no row switched on, default_instance still answers the first
+        # row (the Test button names it). A row that is off is not the
+        # assistant's and not an app's: its credentials are never sent.
+        if instance is None or instance.get("enabled") is False:
             return None
         username = str(instance.get("username") or "").strip()
         token = str(instance.get("token") or "").strip()
@@ -461,8 +479,15 @@ def _request_headers(headers: Any, auth_headers: dict[str, str], *, default_cont
         lowered = name.strip().lower() if isinstance(name, str) else ""
         if not lowered or lowered in reserved or not _may_forward(lowered):
             continue
-        if not _HEADER_NAME.match(lowered) or not isinstance(value, str) or any(_is_control(char) for char in value):
-            raise ConnectorProxyError("invalid_request", f"the {lowered[:60]} header must be plain text.")
+        # A header travels as ASCII: httpx refuses anything else when it sends,
+        # which would read as the connector being unreachable.
+        if (
+            not _HEADER_NAME.match(lowered)
+            or not isinstance(value, str)
+            or not value.isascii()
+            or any(_is_control(char) for char in value)
+        ):
+            raise ConnectorProxyError("invalid_request", f"the {lowered[:60]} header must be plain ASCII text.")
         out[lowered] = value.strip()
     if default_content_type and "content-type" not in out:
         out["content-type"] = default_content_type

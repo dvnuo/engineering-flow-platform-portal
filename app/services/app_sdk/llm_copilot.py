@@ -29,7 +29,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from app.services.app_sdk._outbound import CONNECT_TIMEOUT_SECONDS, OutboundClients, exchange_lock, scrub
+from app.services.app_sdk._outbound import CONNECT_TIMEOUT_SECONDS, OutboundClients, exchange_lock, refused_target, scrub
 from app.services.app_sdk.llm_types import LlmGatewayError, LlmRequest, WireDone
 from app.services.app_sdk.llm_wire import (
     RESPONSES_CAP_PARAMETER,
@@ -44,7 +44,7 @@ from app.services.app_sdk.llm_wire import (
 from app.services.proxy_plan import hostname_of
 
 LABEL = "GitHub Copilot"
-# The provider's id, as the Portal names it and as the refused-cap memory keys it.
+# The provider's id, as the Portal names it and as the refused-cap warning names it.
 PROVIDER = "github_copilot"
 DEFAULT_API_BASE_URL = "https://api.githubcopilot.com"
 # Copilot's sign-in is always public github.com (copilot_auth_service.py).
@@ -71,10 +71,13 @@ SOURCE_TOKEN_PREFIXES = ("ghp_", "ghu_", "gho_", "ghs_", "ghr_", "github_pat_")
 # The runtimes never send either of these to Copilot, so neither is proven
 # against it. max_output_tokens is the Responses API's own name for the cap
 # an app asks for and is sent until Copilot refuses it by name: the request is
-# then repeated once without it and it is left out for the rest of the process
-# (llm_wire.cap_refused). temperature is not sent: the GPT-5 and GPT-6 lines
-# Copilot serves are reasoning models, which refuse a temperature, and the
-# Portal treats it as "not a Copilot-managed knob" (schemas/runtime_profile.py).
+# then repeated once without it and it is left out for that address for the
+# rest of the process (llm_wire.cap_refused). An address a member's own
+# settings name teaches nothing: what it answers is not Copilot's word, and
+# must not change what other owners' requests carry. temperature is not sent:
+# the GPT-5 and GPT-6 lines Copilot serves are reasoning models, which refuse
+# a temperature, and the Portal treats it as "not a Copilot-managed knob"
+# (schemas/runtime_profile.py).
 FORWARD_MAX_OUTPUT_TOKENS = True
 FORWARD_TEMPERATURE = False
 
@@ -151,10 +154,11 @@ def request_headers(token: str) -> dict[str, str]:
     }
 
 
-def request_body(request: LlmRequest) -> dict:
+def request_body(request: LlmRequest, endpoint: str) -> dict:
+    """The body for ``endpoint`` (the full ``/responses`` address): the cap is left out where that address refused it."""
     return responses_body(
         request,
-        forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(PROVIDER, RESPONSES_CAP_PARAMETER),
+        forward_max_output_tokens=FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(endpoint, RESPONSES_CAP_PARAMETER),
         forward_temperature=FORWARD_TEMPERATURE,
     )
 
@@ -167,18 +171,32 @@ async def run(llm: Mapping[str, Any], request: LlmRequest, clients: OutboundClie
             "provider_auth_failed",
             "GitHub Copilot is not connected: the owner's Model provider connector has no authorization.",
         )
+    explicit = explicit_api_base_url(llm)
+    if explicit is not None:
+        # Before anything is sent, the token exchange included: an address
+        # that means the Portal's own machine or a metadata service is never
+        # called (_outbound.refused_target). It is the owner's setting.
+        off_limits = refused_target(explicit + RESPONSES_PATH)
+        if off_limits is not None:
+            raise LlmGatewayError(
+                "provider_auth_failed",
+                f"The owner's model provider points at {off_limits}, which apps may not call. "
+                "The owner has to correct the address in the Model provider connector.",
+            )
     exchanged = await _copilot_token(source, clients) if is_source_token(source) else None
     bearer = exchanged.token if exchanged is not None else source
     secrets = [source, bearer]
-    body = request_body(request)
-    explicit = explicit_api_base_url(llm)
 
     token_renewed = False
+    cap_dropped = False
     # At most three requests: the first, one more with a renewed token, one
     # more without the output cap.
     while True:
         base_url = explicit or (exchanged.api_base_url if exchanged is not None else None) or DEFAULT_API_BASE_URL
         url = base_url + RESPONSES_PATH
+        body = request_body(request, url)
+        if cap_dropped:
+            body.pop(RESPONSES_CAP_PARAMETER, None)
         failure: LlmGatewayError | None = None
         try:
             async with clients.for_url(url).stream(
@@ -202,10 +220,15 @@ async def run(llm: Mapping[str, Any], request: LlmRequest, clients: OutboundClie
                             secrets.append(bearer)
                             continue
                     if RESPONSES_CAP_PARAMETER in body and cap_refused(
-                        PROVIDER, RESPONSES_CAP_PARAMETER, response.status_code, text
+                        url,
+                        RESPONSES_CAP_PARAMETER,
+                        response.status_code,
+                        text,
+                        provider=PROVIDER,
+                        remember=explicit is None,
                     ):
-                        # Copilot does not take the cap: once more without it.
-                        body = {key: value for key, value in body.items() if key != RESPONSES_CAP_PARAMETER}
+                        # This address does not take the cap: once more without it.
+                        cap_dropped = True
                         continue
                     raise status_error(LABEL, response.status_code, text, response.headers, secrets)
                 async for item in read_responses(response, LABEL):

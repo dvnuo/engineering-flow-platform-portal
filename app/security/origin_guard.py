@@ -31,7 +31,7 @@ from starlette.responses import JSONResponse
 
 from app.config import get_settings
 from app.i18n import N_
-from app.security.request_origin import browser_request_is_same_origin
+from app.security.request_origin import browser_request_is_same_origin, loggable_header
 from app.security.session_cookie import read_session_token
 
 logger = logging.getLogger(__name__)
@@ -49,11 +49,6 @@ settings = get_settings()
 
 def origin_guard_enabled(override: Any = None) -> bool:
     return bool(getattr(override if override is not None else settings, "origin_guard_enabled", True))
-
-
-def _loggable(value: Optional[str]) -> str:
-    text = "".join(ch if 32 < ord(ch) < 127 else "_" for ch in str(value or ""))
-    return text[:200] or "-"
 
 
 class OriginGuardMiddleware:
@@ -81,19 +76,23 @@ class OriginGuardMiddleware:
             return False
         sec_fetch_site = headers.get("sec-fetch-site")
         origin = headers.get("origin")
+        host = headers.get("host")
         if browser_request_is_same_origin(
             sec_fetch_site=sec_fetch_site,
             origin=origin,
-            host_header=headers.get("host"),
+            host_header=host,
             base_uri=getattr(current, "base_uri", ""),
         ):
             return False
+        # The Host is logged with the Origin: when the two were compared, an
+        # operator behind a proxy that replaces Host sees the mismatch here.
         logger.warning(
-            "Cross-site request blocked method=%s path=%s sec_fetch_site=%s origin=%s",
-            _loggable(scope.get("method")),
-            _loggable(path),
-            _loggable(sec_fetch_site),
-            _loggable(origin),
+            "Cross-site request blocked method=%s path=%s sec_fetch_site=%s origin=%s host=%s",
+            loggable_header(scope.get("method")),
+            loggable_header(path),
+            loggable_header(sec_fetch_site),
+            loggable_header(origin),
+            loggable_header(host),
         )
         return True
 

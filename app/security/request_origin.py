@@ -15,6 +15,12 @@ along on requests those pages make. What still tells them apart is the
 
 A client that sends neither header is not a browser page (curl, a script,
 a runtime), and a cross-site page cannot make a browser drop them.
+
+The same rule serves the HTTP guard (app/security/origin_guard.py) and the
+handshake of the events WebSocket (app/api/proxy.py). ``Sec-Fetch-Site`` is
+asked first because nothing between the browser and the Portal changes what
+it says; ``Origin`` has to be compared with the ``Host`` the Portal received,
+which a reverse proxy may have replaced with its own.
 """
 
 from __future__ import annotations
@@ -25,6 +31,17 @@ from urllib.parse import urlsplit
 SAME_ORIGIN_FETCH_SITES = frozenset({"same-origin", "none"})
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+_LOG_VALUE_LIMIT = 200
+
+
+def loggable_header(value: object) -> str:
+    """A header value made safe for one ``key=value`` log line: printable ASCII without spaces, cut.
+
+    What a refusal logs comes straight from the caller; a space or a line
+    break in it would let the caller write fields of its own into the line.
+    """
+    text = "".join(ch if 32 < ord(ch) < 127 else "_" for ch in str(value or ""))
+    return text[:_LOG_VALUE_LIMIT] or "-"
 
 
 def _normalized(host: Optional[str], port: Optional[int], scheme: str) -> Optional[tuple[str, int]]:

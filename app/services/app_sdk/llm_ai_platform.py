@@ -46,7 +46,7 @@ from app.services.app_sdk.llm_wire import (
 from app.services.proxy_plan import hostname_of
 
 LABEL = "AI Platform"
-# The provider's id, as the Portal names it and as the refused-cap memory keys it.
+# The provider's id, as the Portal names it and as the refused-cap warning names it.
 PROVIDER = "ai_platform"
 DEFAULT_CHAT_URI = "/v1/api/v1/chat/completions"
 DEFAULT_TRUST_TOKEN_HEADER = "X-XXXX-E2E-Trust-Token"
@@ -58,7 +58,7 @@ TOKEN_REFRESH_MARGIN_SECONDS = 5
 # max_completion_tokens, so the gateway is known to take that key; the
 # Responses name for it (max_output_tokens) is not proven there. Either is
 # sent until the gateway refuses it by name: the request is then repeated once
-# without it and it is left out for the rest of the process
+# without it and it is left out for that endpoint for the rest of the process
 # (llm_wire.cap_refused). A temperature is sent by neither runtime, and the
 # gpt-5 line refuses one.
 FORWARD_MAX_OUTPUT_TOKENS = True
@@ -172,7 +172,7 @@ def cap_parameter(target: AiPlatformTarget) -> str:
 
 
 def request_body(target: AiPlatformTarget, request: LlmRequest, *, stream: bool) -> dict:
-    forward_cap = FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(PROVIDER, cap_parameter(target))
+    forward_cap = FORWARD_MAX_OUTPUT_TOKENS and cap_accepted(target.endpoint, cap_parameter(target))
     if target.is_responses:
         # Streamed like Copilot's; the use case is in the URL, never a ``user`` field.
         return responses_body(
@@ -234,7 +234,7 @@ async def run(
                             token = await _token(target, clients)
                             secrets.append(token)
                             continue
-                    if cap in body and cap_refused(PROVIDER, cap, response.status_code, text):
+                    if cap in body and cap_refused(target.endpoint, cap, response.status_code, text, provider=PROVIDER):
                         # The gateway does not take the cap: once more without it.
                         body = {key: value for key, value in body.items() if key != cap}
                         continue

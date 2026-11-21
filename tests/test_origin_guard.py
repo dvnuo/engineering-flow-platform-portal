@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.security.origin_guard import BLOCKED_DETAIL, OriginGuardMiddleware
-from app.security.request_origin import browser_request_is_same_origin, origin_is_portal
+from app.security.request_origin import browser_request_is_same_origin, loggable_header, origin_is_portal
 
 PORTAL = "https://efp.example.com"
 SIBLING = "https://app.example.com"
@@ -220,6 +220,47 @@ def test_origin_is_compared_with_the_request_host_when_base_uri_is_unset():
     client.cookies.set("portal_session", "signed-session-token")
     assert client.post("/x", headers={"Origin": "http://portal.local:8010"}).status_code == 200
     assert client.post("/x", headers={"Origin": "http://apps.portal.local:8010"}).status_code == 403
+
+
+def test_sec_fetch_site_decides_behind_a_proxy_that_replaces_host():
+    """Over https the browser says where the page is: no Host and no BASE_URI is compared at all."""
+    settings = _settings(base_uri="")
+    client, calls = _client(settings=settings, cookie=False)
+    client.cookies.set("portal_session", "signed-session-token")
+    proxied = {"Host": "efp-portal-service.default.svc.cluster.local", "Origin": PORTAL}
+    assert client.post("/api/agents/a1/start", headers={**proxied, "Sec-Fetch-Site": "same-origin"}).status_code == 200
+    assert client.post("/api/agents/a1/start", headers={**proxied, "Sec-Fetch-Site": "same-site"}).status_code == 403
+    # Without the header the Origin has only the proxy's Host to be compared with.
+    assert client.post("/api/agents/a1/start", headers=proxied).status_code == 403
+
+
+def test_a_refusal_logs_the_origin_and_the_host_it_was_compared_with(caplog):
+    import logging
+
+    client, calls = _client(settings=_settings(base_uri=""), cookie=False)
+    client.cookies.set("portal_session", "signed-session-token")
+    with caplog.at_level(logging.WARNING, logger="app.security.origin_guard"):
+        response = client.post("/api/agents/a1/start", headers={"Host": "internal.name:8000", "Origin": PORTAL})
+    assert response.status_code == 403
+    (message,) = [record.getMessage() for record in caplog.records]
+    assert "origin=https://efp.example.com" in message
+    assert "host=internal.name:8000" in message
+    assert "sec_fetch_site=-" in message
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (None, "-"),
+        ("", "-"),
+        ("https://efp.example.com", "https://efp.example.com"),
+        ("https://a.test status=200 forged=1", "https://a.test_status=200_forged=1"),
+        ("line\r\nbreak\ttab", "line__break_tab"),
+        ("x" * 500, "x" * 200),
+    ],
+)
+def test_loggable_header_keeps_a_callers_text_on_one_field(value, expected):
+    assert loggable_header(value) == expected
 
 
 # --- wired into the real app --------------------------------------------------
