@@ -11,6 +11,14 @@ credentialed cross-origin endpoint for this.
 ``next`` is where the visitor was going inside the app. Only a path under
 ``/{slug}/`` is ever passed on; the app host checks the same rule again.
 
+``state`` is the value the app host bound to the visitor's browser before it
+sent them here, and takes back with the code. A code goes only to a request
+that carries one: a launch address without it (typed, kept, or made by
+somebody who wants another person's browser to sign in as them) is answered
+with the app's own address, where the host starts a hand-off of that
+browser's own. The sign-in pages do not carry the state; a visitor who had
+to sign in comes back here without it and takes that one extra step.
+
 ``/apps/launch`` without a slug is the same hand-off for the app center, the
 page at the root of the apps address that lists what a member may open.
 
@@ -21,6 +29,7 @@ rows come from the API, drawn by ``static/js/apps.js``).
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -42,6 +51,9 @@ router = APIRouter(tags=["apps-pages"])
 LAUNCH_PATH_PREFIX = "/apps/launch/"
 CENTER_LAUNCH_PATH = "/apps/launch"
 NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+
+# What the app host sends as ``state`` (docs/CONTRACTS.md, section 6.3).
+_HANDOFF_STATE = re.compile(r"[A-Za-z0-9_-]{22,64}")
 
 PAGE_MISSING = "missing"
 PAGE_DENIED = "denied"
@@ -72,6 +84,12 @@ def _page(request: Request, kind: str, status_code: int, **context) -> Response:
 
 def _redirect(url: str) -> RedirectResponse:
     return RedirectResponse(url=url, status_code=302, headers=dict(NO_STORE))
+
+
+def handoff_state(request: Request) -> str:
+    """The state of the hand-off the app host started in this browser, or "" when the request carries none."""
+    value = request.query_params.get("state") or ""
+    return value if _HANDOFF_STATE.fullmatch(value) else ""
 
 
 @router.get("/app/admin/apps/panel", response_class=HTMLResponse)
@@ -110,8 +128,12 @@ def launch_app_center(request: Request):
     base = apps_settings.public_base_url()
     if not base:
         return _page(request, PAGE_UNAVAILABLE, 503)
+    state = handoff_state(request)
+    if not state:
+        # The apps address starts the hand-off, bound to the browser that asks.
+        return _redirect(f"{base}/")
     code = handoff_codes.issue(HANDOFF_APP_CENTER, user.id)
-    return _redirect(f"{base}/_efp/callback?code={quote(code, safe='')}&next=%2F")
+    return _redirect(f"{base}/_efp/callback?code={quote(code, safe='')}&next=%2F&state={state}")
 
 
 @router.get("/apps/launch/{slug}", response_class=HTMLResponse)
@@ -149,7 +171,11 @@ def launch_app(request: Request, slug: str):
             )
         if not base:
             return _page(request, PAGE_UNAVAILABLE, 503)
+        state = handoff_state(request)
+        if not state:
+            # The app's address starts the hand-off, bound to the browser that asks.
+            return _redirect(f"{base}{next_path}")
         code = handoff_codes.issue(app.id, user.id)
-        return _redirect(f"{base}/_efp/callback?code={quote(code, safe='')}&next={quote(next_path, safe='')}")
+        return _redirect(f"{base}/_efp/callback?code={quote(code, safe='')}&next={quote(next_path, safe='')}&state={state}")
     finally:
         db.close()

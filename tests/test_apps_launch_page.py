@@ -11,6 +11,8 @@ from app.security.sso_state import sso_state_cookie_name
 from _apps_helpers import REPO_URL, FakeHost, FakeSource, add_group, add_user, enable_apps, make_database, reset_apps_state
 
 SSO_STATE = "state-issued-to-this-browser"
+# The state of a hand-off, as the app host sends it with a visitor (docs/CONTRACTS.md, section 6.3).
+HANDOFF_STATE = "state-of-a-sign-in-under-way-01"
 from app.services.apps.access import HANDOFF_APP_CENTER, handoff_codes
 from app.services.apps.app_service import AppService
 
@@ -50,6 +52,9 @@ def harness(monkeypatch):
 
 
 def _get(harness, path, **params):
+    """The launch page as the app host sends a visitor to it: with the state of the hand-off. ``state=None`` leaves it out."""
+    params.setdefault("state", HANDOFF_STATE)
+    params = {name: value for name, value in params.items() if value is not None}
     return harness.client.get(path, params=params or None, follow_redirects=False)
 
 
@@ -106,12 +111,15 @@ def test_after_sign_in_the_member_lands_on_the_launch_page_again(harness, monkey
     assert response.status_code == 302
     assert response.headers["location"] == launch
 
-    # And from there, now signed in, on to the app with a code.
+    # The sign-in pages do not carry the state of the hand-off, so the launch
+    # page hands out no code here: it sends the browser to the app's address ...
     harness.viewer["value"] = (harness.owner, None)
     onward = harness.client.get(launch, follow_redirects=False)
-    target, query = _callback(onward)
+    assert (onward.status_code, onward.headers["location"]) == (302, f"{APPS}/mindmap/board?id=3")
+    # ... from where the host sends it here once more, with its state, and now gets the code.
+    target, query = _callback(harness.client.get(f"{launch}&state={HANDOFF_STATE}", follow_redirects=False))
     assert target == f"{APPS}/_efp/callback"
-    assert query["next"] == ["/mindmap/board?id=3"]
+    assert query["next"] == ["/mindmap/board?id=3"] and query["state"] == [HANDOFF_STATE]
 
 
 def test_a_session_that_is_no_longer_valid_signs_in_again(harness):
@@ -138,10 +146,36 @@ def test_allowed_member_is_sent_back_with_a_one_time_code(harness):
     target, query = _callback(response)
     assert target == f"{APPS}/_efp/callback"
     assert query["next"] == ["/board/items/7?tab=a&x=1#frag"]
+    # The state goes back as it came: the host redeems the code only in the browser that holds it.
+    assert query["state"] == [HANDOFF_STATE]
     # The code is the one the host will redeem: bound to this app and this member, once.
     grant = handoff_codes.redeem(query["code"][0])
     assert (grant.app_id, grant.user_id) == (harness.public.id, harness.mate.id)
     assert handoff_codes.redeem(query["code"][0]) is None
+
+
+@pytest.mark.parametrize(
+    "state",
+    [None, "", "short", "s" * 65, "state of a sign-in with spaces", "state-of-a-sign-in/with-a-slash", "state-of-a-sign-in&next=%2Fboard%2F"],
+)
+def test_no_code_without_the_state_of_a_hand_off(harness, monkeypatch, state):
+    # A member could sign in, keep the address with the code and have somebody
+    # else's browser load it. So a launch address that no app host bound to a
+    # browser gets no code: it leads to the app, which starts its own hand-off.
+    issued = []
+    monkeypatch.setattr(handoff_codes, "issue", lambda *args, **kwargs: issued.append(args) or "code")
+    harness.viewer["value"] = (harness.mate, None)
+
+    response = _get(harness, "/apps/launch/board", next="/board/items/7?tab=a", state=state)
+    assert (response.status_code, response.headers["location"]) == (302, f"{APPS}/board/items/7?tab=a")
+    assert response.headers["cache-control"] == "no-store"
+    assert _get(harness, "/apps/launch/board", state=state).headers["location"] == f"{APPS}/board/"
+    assert _get(harness, "/apps/launch", state=state).headers["location"] == f"{APPS}/"
+    assert issued == []
+
+    # Who may not open the app reads so here, with or without a state.
+    harness.viewer["value"] = (harness.mate, None)
+    assert _get(harness, "/apps/launch/mindmap", state=state).status_code == 403
 
 
 def test_every_launch_gets_its_own_code(harness):
@@ -414,7 +448,7 @@ def test_the_app_center_sends_a_signed_in_member_back_with_a_code_that_names_no_
     response = _get(harness, "/apps/launch")
     assert response.status_code == 302 and response.headers["cache-control"] == "no-store"
     target, query = _callback(response)
-    assert target == f"{APPS}/_efp/callback" and query["next"] == ["/"]
+    assert target == f"{APPS}/_efp/callback" and query["next"] == ["/"] and query["state"] == [HANDOFF_STATE]
     grant = handoff_codes.redeem(query["code"][0])
     assert grant.app_id == HANDOFF_APP_CENTER and grant.user_id == harness.mate.id
 
