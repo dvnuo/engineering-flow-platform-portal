@@ -1,4 +1,4 @@
-"""Migration 0048 and the models of the Apps feature."""
+"""Migrations 0048 and 0049 and the models of the Apps feature."""
 
 from datetime import date, datetime
 from pathlib import Path
@@ -142,6 +142,59 @@ def test_existing_rollup_rows_survive_the_migration(tmp_path, monkeypatch):
         assert "app_id" not in {column["name"] for column in inspector.get_columns("usage_daily_rollups")}
         constraint = next(item for item in inspector.get_unique_constraints("usage_daily_rollups") if item["name"] == "uq_usage_daily_rollups_dims")
         assert constraint["column_names"] == [name for name in ROLLUP_DIMS if name != "app_id"]
+        engine.dispose()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_a_database_an_early_0048_built_gets_the_columns_added_to_it_since(tmp_path, monkeypatch):
+    """Builds of the Apps branch ran 0048 before it gained three columns: 0049 adds them."""
+    import hashlib
+
+    from app.config import get_settings
+    from app.repositories.app_repo import AppRepository
+
+    icon = b"\x89PNG\r\n\x1a\nicon"
+    missing = (("apps", "icon_hash"), ("apps", "data_purged_at"), ("app_releases", "template_version_id"))
+    database_url = f"sqlite:///{(tmp_path / 'early.db').as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+    config = Config(str(Path("alembic.ini")))
+    config.set_main_option("sqlalchemy.url", database_url)
+    try:
+        command.upgrade(config, "20261114_0048")
+        engine = create_engine(database_url)
+        with engine.begin() as connection:
+            # What the tables looked like when those builds created them.
+            for table_name, column_name in missing:
+                connection.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {column_name}"))
+            for app_id, slug, icon_data in (("app-1", "mindmap", icon), ("app-2", "notes", None)):
+                connection.execute(
+                    text(
+                        "INSERT INTO apps (id, slug, name, owner_user_id, repo_url, repo_ref, token_hash, token_value, "
+                        "visitor_key, icon_data, icon_content_type, created_at, updated_at) VALUES (:id, :slug, :slug, 1, "
+                        "'https://github.com/a/b', 'main', :slug, 'efpa_x', 'k', :icon, :type, '2026-11-15 00:00:00', "
+                        "'2026-11-15 00:00:00')"
+                    ),
+                    {"id": app_id, "slug": slug, "icon": icon_data, "type": "image/png" if icon_data else None},
+                )
+        engine.dispose()
+
+        command.upgrade(config, "head")
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        for table_name, column_name in missing:
+            assert column_name in {column["name"] for column in inspector.get_columns(table_name)}, column_name
+        with Session(engine) as db:
+            # The read the host sync failed on, and the icon keeps its version.
+            listed = AppRepository(db).list_all()
+            assert {app.id: app.icon_hash for app in listed} == {"app-1": hashlib.sha1(icon).hexdigest(), "app-2": None}
+        engine.dispose()
+
+        # Back to 0048 the columns stay: they are part of what it creates.
+        command.downgrade(config, "20261114_0048")
+        engine = create_engine(database_url)
+        assert "icon_hash" in {column["name"] for column in inspect(engine).get_columns("apps")}
         engine.dispose()
     finally:
         get_settings.cache_clear()
