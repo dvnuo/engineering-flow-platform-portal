@@ -85,6 +85,7 @@ class RuntimeProfileService:
                 "max_context_tokens": DEFAULT_CONTEXT_SIZE,
             },
             "proxy": {"enabled": False},
+            "image_analysis": {"enabled": False},
             "jira": {
                 "enabled": False,
                 "instances": [],

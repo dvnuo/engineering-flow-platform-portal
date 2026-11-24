@@ -7,10 +7,17 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.llm_catalog import MAX_CONTEXT_SIZE, SUPPORTED_REASONING_EFFORTS, parse_max_steps
+from app.contracts.llm_catalog import (
+    AI_PLATFORM_PROVIDER,
+    MAX_CONTEXT_SIZE,
+    SUPPORTED_REASONING_EFFORTS,
+    coerce_to_provider_model,
+    parse_max_steps,
+)
 
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
+    "image_analysis",
     "proxy",
     "jira",
     "confluence",
@@ -46,6 +53,20 @@ PORTAL_MANAGED_FIELD_TREE = {
         "max_steps": True,
         # Only per-user credentials are persisted. AI Platform endpoints and
         # transport headers come from app/config.py at runtime projection time.
+        "ai_platform": {
+            "auth": {
+                "username": True,
+                "password": True,
+                "usercase": True,
+            },
+        },
+    },
+    # The Image analysis connector: inspect-image on AI Platform, whatever the
+    # chat provider is. Its own switch, model and account; the endpoints come
+    # from app/config.py when the runtime config is materialized.
+    "image_analysis": {
+        "enabled": True,
+        "model": True,
         "ai_platform": {
             "auth": {
                 "username": True,
@@ -465,7 +486,9 @@ def sanitize_runtime_profile_splunk(value) -> dict:
 # gets (``default``) and which proxy each connector uses (``assignments``:
 # connector type -> proxy name, ``none`` for a direct connection, or absent to
 # follow the default). See MULTI_PROXY_CONNECTOR_PLAN.md.
-PROXY_ASSIGNABLE_CONNECTORS = ("llm", "jira", "confluence", "github", "jenkins", "nexus", "aws", "splunk", "pgsql", "browserstack")
+PROXY_ASSIGNABLE_CONNECTORS = (
+    "llm", "image_analysis", "jira", "confluence", "github", "jenkins", "nexus", "aws", "splunk", "pgsql", "browserstack",
+)
 # Connectors whose tools only read the environment (aws CLI, kubectl, gh,
 # git): they take the default proxy, and the panel shows their row with that
 # one option. An assignment for them is dropped.
@@ -1171,6 +1194,41 @@ def sanitize_runtime_profile_debug(value) -> dict:
         out["log_level"] = log_level
     return out
 
+
+IMAGE_ANALYSIS_AUTH_FIELDS = ("username", "password", "usercase")
+
+
+def sanitize_runtime_profile_image_analysis(value) -> dict:
+    """The Image analysis connector: the switch, the model and the AI Platform account.
+
+    ``enabled`` is a bool and ``model`` always an AI Platform catalogue model
+    (anything else, a Copilot id included, becomes the AI Platform default);
+    the account keeps its non-blank fields, trimmed. A section that says
+    nothing (no switch, no model, no account) stays empty and is dropped. The
+    section does not look at ``llm``: it is kept whatever the chat provider is.
+    """
+    if not isinstance(value, dict):
+        return {}
+    ai_platform = value.get("ai_platform")
+    source_auth = ai_platform.get("auth") if isinstance(ai_platform, dict) else None
+    source_auth = source_auth if isinstance(source_auth, dict) else {}
+    auth = {
+        key: cleaned
+        for key in IMAGE_ANALYSIS_AUTH_FIELDS
+        if (cleaned := str(source_auth.get(key) or "").strip())
+    }
+    model = str(value.get("model") or "").strip()
+    if "enabled" not in value and not model and not auth:
+        return {}
+    out: dict = {
+        "enabled": _runtime_profile_bool(value.get("enabled")),
+        "model": coerce_to_provider_model(AI_PLATFORM_PROVIDER, model),
+    }
+    if auth:
+        out["ai_platform"] = {"auth": auth}
+    return out
+
+
 def sanitize_runtime_profile_config_dict(data: dict) -> dict:
     if not isinstance(data, dict):
         return {}
@@ -1223,12 +1281,15 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["max_steps"] = max_steps
         else:
             llm_copy.pop("max_steps", None)
-        # The retired image analysis block is never kept.
+        # The retired llm.vision block is never kept: image analysis is a
+        # connector of its own now, in the image_analysis section.
         llm_copy.pop("vision", None)
         llm = llm_copy
 
     if isinstance(llm, dict):
         sanitized["llm"] = llm
+    if "image_analysis" in sanitized:
+        sanitized["image_analysis"] = sanitize_runtime_profile_image_analysis(sanitized.get("image_analysis"))
     if "jira" in sanitized:
         sanitized["jira"] = sanitize_runtime_profile_jira(sanitized.get("jira"))
     if "confluence" in sanitized:
@@ -1307,6 +1368,16 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             if isinstance(auth, dict):
                 auth["password_present"] = bool(str(auth.pop("password", "")).strip())
                 auth["token_present"] = bool(str(auth.pop("token", "")).strip())
+    image_analysis = redacted.get("image_analysis")
+    if isinstance(image_analysis, dict):
+        # Always says whether a password is stored, and never carries it.
+        ai_platform = image_analysis.get("ai_platform")
+        ai_platform = ai_platform if isinstance(ai_platform, dict) else {}
+        auth = ai_platform.get("auth")
+        auth = auth if isinstance(auth, dict) else {}
+        auth["password_present"] = bool(str(auth.pop("password", "")).strip())
+        ai_platform["auth"] = auth
+        image_analysis["ai_platform"] = ai_platform
     github = redacted.get("github")
     if isinstance(github, dict):
         token_values = [str(github.pop(key, "")).strip() for key in ("api_token", "token", "access_token")]

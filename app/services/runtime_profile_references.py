@@ -3,10 +3,11 @@
 The sanitizers (``app.schemas.runtime_profile``) keep a row that is
 well-formed on its own; these checks are about rows referring to each other:
 a default instance has to name one of the instances, the AWS default account
-and every EKS row have to name one of the account rows. The member's Save
-runs them on the posted form; the administrator's Default connectors run
-them on save too, since a member who follows them would otherwise receive
-settings their own Save would refuse.
+and every EKS row have to name one of the account rows, and an Image
+analysis connector that is switched on needs its whole AI Platform account.
+The member's Save runs them on the posted form; the administrator's Default
+connectors run them on save too, since a member who follows them would
+otherwise receive settings their own Save would refuse.
 """
 from __future__ import annotations
 
@@ -20,6 +21,10 @@ from app.schemas.runtime_profile import (
 )
 
 TROUBLESHOOTING_LABELS = {"nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL"}
+# What a save is refused with when the Image analysis connector is on without
+# its whole account (the text is part of the connector's contract).
+IMAGE_ANALYSIS_ACCOUNT_REQUIRED = "AI Platform username, password, and usercase are required for image analysis."
+IMAGE_ANALYSIS_ACCOUNT_FIELDS = ("username", "password", "usercase")
 
 
 def _rows(section: Mapping[str, Any] | None, key: str) -> list[dict]:
@@ -81,6 +86,23 @@ def aws_eks_account_error(aws_cfg: Mapping[str, Any] | None) -> str | None:
     return None
 
 
+def image_analysis_account_error(section_cfg: Mapping[str, Any] | None) -> str | None:
+    """Switched on, the Image analysis connector needs username, password and usercase.
+
+    Off, it may hold a partial account or none: nothing uses it.
+    """
+
+    section_cfg = section_cfg if isinstance(section_cfg, Mapping) else {}
+    if section_cfg.get("enabled") is not True:
+        return None
+    ai_platform = section_cfg.get("ai_platform")
+    auth = ai_platform.get("auth") if isinstance(ai_platform, Mapping) else None
+    auth = auth if isinstance(auth, Mapping) else {}
+    if all(str(auth.get(key) or "").strip() for key in IMAGE_ANALYSIS_ACCOUNT_FIELDS):
+        return None
+    return IMAGE_ANALYSIS_ACCOUNT_REQUIRED
+
+
 def config_reference_error(config: Mapping[str, Any] | None, sections: tuple[str, ...] | None = None) -> str | None:
     """The first reference in ``config`` that points at nothing, or None.
 
@@ -97,6 +119,10 @@ def config_reference_error(config: Mapping[str, Any] | None, sections: tuple[str
                 return error
         if section == "aws":
             error = aws_default_account_error(block) or aws_eks_account_error(block)
+            if error:
+                return error
+        if section == "image_analysis":
+            error = image_analysis_account_error(block)
             if error:
                 return error
     return None
@@ -118,9 +144,11 @@ def seed_config_error(seed: Mapping[str, Any] | None) -> str | None:
 
 
 __all__ = [
+    "IMAGE_ANALYSIS_ACCOUNT_REQUIRED",
     "aws_default_account_error",
     "aws_eks_account_error",
     "config_reference_error",
+    "image_analysis_account_error",
     "seed_config_error",
     "troubleshooting_default_instance_error",
 ]

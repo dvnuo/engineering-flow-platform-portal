@@ -14,10 +14,13 @@
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">{{ t("Max steps per message") }}</span><input type="number" name="llm_max_steps" value="{{ max_steps_own or '' }}" placeholder="{{ t('Default {value}', value=max_steps_default) }}" min="1" max="{{ max_steps_limit }}" step="1" class="portal-form-input" /></label>
       </div>
-      {# The chat model cannot see images. Attached screenshots and documents are
-         analyzed through Productivity Suite in the member's own browser (the
-         Local bridge connector); no model-provider setting is involved. #}
-      <p class="portal-form-help">{{ t("Attached images and documents are analyzed through Productivity Suite in your own browser; switch on the Local bridge connector to use that.") }}</p>
+      {# The chat model cannot see images. Attached images are read through the
+         Image analysis connector (inspect-image on AI Platform) first, and
+         through Productivity Suite in the member's own browser (the Local
+         bridge connector) when that connector is not set up or fails; the
+         office files the runtime cannot parse (.doc, .dot, .xls) only go to
+         Productivity Suite. No model-provider setting is involved. #}
+      <p class="portal-form-help">{{ t("The chat model cannot see images. Attached images are read through the Image analysis connector first; Productivity Suite in your own browser is used when that connector is not set up or fails, and for .doc, .dot and .xls files. Productivity Suite needs the Local bridge connector switched on.") }}</p>
       <div class="space-y-2" data-provider-fields="github_copilot">
       <label class="portal-form-label"><span class="portal-form-label">{{ t("API Key") }}</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="{{ t('API key') }}" class="portal-form-input" /></label>
       {% set copilot_auth_help = [

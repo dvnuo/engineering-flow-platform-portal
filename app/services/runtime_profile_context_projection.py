@@ -4,7 +4,12 @@ from copy import deepcopy
 from typing import Any
 
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
-from app.services.ai_platform_config import materialize_ai_platform_llm_config
+from app.services.ai_platform_config import (
+    IMAGE_ANALYSIS_SECTION,
+    image_analysis_configured,
+    materialize_ai_platform_llm_config,
+    materialize_image_analysis_config,
+)
 from app.services.proxy_plan import mirror_default_proxy
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
@@ -12,6 +17,7 @@ from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "llm",
+    "image_analysis",
     "proxy",
     "jira",
     "confluence",
@@ -67,6 +73,22 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "operations after the user explicitly confirms. Credentials come from the user's Portal connectors and are applied in "
     "the runtime container through CLIs or environment variables; if a CLI returns auth_failed, tell the user which "
     "connector to fix in Portal > Connectors instead of guessing or inventing tokens."
+)
+
+# Appended for a native runtime when the Image analysis connector is
+# configured. The native runtime holds the same string under the same name
+# (src/runtime_profile_projection.py); change the two together.
+RUNTIME_PROFILE_IMAGE_ANALYSIS_INSTRUCTIONS = (
+    "Images are read through the inspect-image CLI on AI Platform (the Image analysis connector); the chat model cannot "
+    "see an image unless the prompt says it was attached as image content. For a screenshot, photo, diagram, or any image "
+    "file in the workspace or listed in an Attached files block, run `inspect-image inspect --image <path> --prompt "
+    "\"<what to read or explain>\" --json` from bash and answer from data.result.answer and data.result.visible_text; add "
+    "--preset ocr, ui, diagram, chart, or error when it fits, and ask a follow-up question with another call. Never pass "
+    "--model (the model comes from the connector), never run inspect-image auth login, never guess what an image shows, "
+    "and never fall back to OCR or image-parsing scripts. If inspect-image returns auth_required or config_error, or still "
+    "fails after one retry, use the attached-files analysis skill (Productivity Suite through the Local bridge) when the "
+    "Attached files block says the Local bridge is on for this chat; otherwise tell the user the image could not be "
+    "analyzed and that the Image analysis connector under Portal > Connectors needs checking."
 )
 
 OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
@@ -277,6 +299,17 @@ def _flag_true(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
 
 
+def _has_image_analysis_config(config: dict[str, Any]) -> bool:
+    """Whether inspect-image can run for this profile.
+
+    Read from the materialized ``image_analysis`` section alone, whatever the
+    chat provider is: the connector is on, its AI Platform account is complete
+    and the deployment names the chat and iB2B hosts
+    (ai_platform_config.image_analysis_configured).
+    """
+    return image_analysis_configured(config.get(IMAGE_ANALYSIS_SECTION))
+
+
 def _with_native_cli_tool_instructions(
     config: dict[str, Any],
     runtime_type: str | None,
@@ -286,6 +319,8 @@ def _with_native_cli_tool_instructions(
     texts: list[str] = []
     if _has_enabled_external_cli_config(config):
         texts.append(RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS)
+    if _has_image_analysis_config(config):
+        texts.append(RUNTIME_PROFILE_IMAGE_ANALYSIS_INSTRUCTIONS)
     if not texts:
         return config
     projected = deepcopy(config)
@@ -358,6 +393,16 @@ def build_canonical_profile_config(
             canonical["llm"] = projected_llm
         else:
             canonical.pop("llm", None)
+
+    # The Image analysis connector stands apart from ``llm``: the stored
+    # section (switch, model, account) is replaced by the one that also
+    # carries the deployment's AI Platform endpoints, and left out when the
+    # connector is off, so a runtime never sees a half-described section.
+    image_analysis = materialize_image_analysis_config(canonical.get(IMAGE_ANALYSIS_SECTION), settings=settings)
+    if image_analysis is None:
+        canonical.pop(IMAGE_ANALYSIS_SECTION, None)
+    else:
+        canonical[IMAGE_ANALYSIS_SECTION] = image_analysis
 
     canonical["debug"] = deepcopy(RUNTIME_DEBUG_SETTINGS)
     return _strip_runtime_owned_llm_fields(canonical)

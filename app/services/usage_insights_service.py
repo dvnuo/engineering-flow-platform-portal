@@ -49,6 +49,7 @@ CONNECTOR_SECTIONS = (
     ("pgsql", "PostgreSQL"),
     ("mobile-auto", "BrowserStack"),
     ("proxy", "Proxy"),
+    ("image_analysis", "Image analysis"),
 )
 DURATION_SAMPLE_LIMIT = 20000
 TOP_LIMIT = 10

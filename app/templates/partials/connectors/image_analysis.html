@@ -1,0 +1,25 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+{# The Image analysis connector: inspect-image on AI Platform, whatever the
+   chat provider is. The form holds the switch, the AI Platform account and
+   the model; AI Platform is the only provider and its endpoints are the
+   deployment's, so neither is a field here (web.py _image_analysis_view). #}
+<section class="portal-panel-section" id="profile-section-image_analysis" data-managed-section="image_analysis">
+      {{ setup_guide('image_analysis') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="{{ t('Enable image analysis') }}">
+              <input type="checkbox" name="image_analysis_enabled" id="image_analysis_enabled" {% if image_analysis.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>{{ t("Enabled") }}</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Username") }}</span><input type="text" name="image_analysis_ai_platform_username" value="{{ image_analysis_auth.get('username', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Password") }}</span><input type="password" name="image_analysis_ai_platform_password" value="{{ image_analysis_auth.get('password', '') }}" placeholder="{{ t('Password') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Usercase") }}</span><input type="text" name="image_analysis_ai_platform_usercase" value="{{ image_analysis_auth.get('usercase', '') }}" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Model") }}</span><select name="image_analysis_model" id="image_analysis_model" class="portal-form-select">{% for model in image_analysis_models %}<option value="{{ model }}" {% if image_analysis_model_selected == model %}selected{% endif %}>{{ model }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="portal-inline-note">{{ t("This AI Platform account signs in for image analysis only; the Model provider connector keeps its own. Connection endpoints and transport headers are managed centrally by the Portal configuration.") }}</div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="image_analysis">{{ t("Test image analysis") }}</button><div class="portal-inline-state" data-test-result="image_analysis"></div></div>
+    </section>

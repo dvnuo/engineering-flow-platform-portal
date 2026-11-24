@@ -22,11 +22,13 @@ from typing import Iterable, List, Optional, Tuple
 
 # The chat model reads the parsed documents and text formats itself. Images
 # and the office formats the runtime does not parse (doc, dot, xls) are
-# "forwarded": stored in the workspace and listed to the assistant, which
-# analyzes them through Productivity Suite in the member's browser (the
-# attached-files skill; it needs the Local bridge). The default list is
-# therefore what Productivity Suite accepts plus the text formats; a
-# deployment trims it through EFP_CHAT_UPLOAD_EXTENSIONS.
+# "forwarded": stored in the workspace and listed to the assistant. It reads
+# an image through the Image analysis connector (inspect-image) when that is
+# set up, and otherwise analyzes it, like the office formats always, through
+# Productivity Suite in the member's browser (the attached-files skill; it
+# needs the Local bridge). The default list is therefore what Productivity
+# Suite accepts plus the text formats; a deployment trims it through
+# EFP_CHAT_UPLOAD_EXTENSIONS.
 DEFAULT_CHAT_UPLOAD_EXTENSIONS: Tuple[str, ...] = (
     "pdf", "docx", "xlsx", "csv", "txt", "log", "pptx", "zip", "md", "yaml", "yml", "json", "xml",
     "doc", "dot", "xls", "png", "jpg", "jpeg", "jpe", "jfif", "tiff", "webp", "bmp",
@@ -34,7 +36,7 @@ DEFAULT_CHAT_UPLOAD_EXTENSIONS: Tuple[str, ...] = (
 DEFAULT_MAX_UPLOAD_MB = 25
 
 # Image extensions: stored and listed to the assistant, never parsed (the
-# chat model cannot see images).
+# chat model cannot see images unless the deployment sets EFP_CHAT_VISION).
 IMAGE_EXTENSION_MIME_TYPES = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",

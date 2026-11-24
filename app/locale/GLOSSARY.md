@@ -42,6 +42,7 @@ freely, but these terms always render as below.
 | review (a wizard step, or asking the assistant to review) | 审阅 | 審閱 | one word for both uses of "Review" |
 | local bridge / the bridge | 本地桥接程序 / 桥接程序 | 本機橋接程式 / 橋接程式 | also the connector's name, so menu paths read 连接器 → 本地桥接程序 |
 | model provider / proxy (connector names) | 模型提供方 / 代理 | 模型提供者 / 代理 | product-named connectors (Jira, GitHub, AWS, ...) keep their names |
+| image analysis (connector name) | 图片分析 | 圖片分析 | 图片 / 圖片 as everywhere else for an attached image; never 镜像 / 映像檔, which are container images |
 | customize / system default (connector mode) | 自定义 / 系统默认 | 自訂 / 系統預設 | |
 | group / group default (connector mode) | 组 / 组默认 | 組 / 組預設 | a team of members with its own Default connectors |
 | group administrator / system administrator | 组管理员 / 系统管理员 | 組管理員 / 系統管理員 | |
