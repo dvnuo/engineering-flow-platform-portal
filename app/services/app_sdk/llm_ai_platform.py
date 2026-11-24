@@ -16,12 +16,19 @@ Ported from the native runtime (``efp_runtime/llm/provider.py``:
 ``llm`` is the member's model provider section after
 ``materialize_ai_platform_llm_config``: the deployment's endpoints with the
 member's credentials.
+
+The Image analysis connector is a second account on the same gateway
+(``image_analysis.py``): its target is built here too (``target_of`` with
+``chat_only``, from its own materialized section) and its request is sent
+by ``run_target``, so the JWT cache, the renewal on a 401 or 403, the
+headers, the output cap and the reading of the answer exist once.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import time
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping
 from urllib.parse import urlsplit
@@ -48,6 +55,8 @@ from app.services.proxy_plan import hostname_of
 LABEL = "AI Platform"
 # The provider's id, as the Portal names it and as the refused-cap warning names it.
 PROVIDER = "ai_platform"
+# The connector whose account a target signs in with, as a message names it.
+MODEL_PROVIDER_CONNECTOR = "Model provider"
 DEFAULT_CHAT_URI = "/v1/api/v1/chat/completions"
 DEFAULT_TRUST_TOKEN_HEADER = "X-XXXX-E2E-Trust-Token"
 DEFAULT_TRACKING_PREFIX = "EFP"
@@ -86,6 +95,8 @@ class AiPlatformTarget:
     usercase: str = ""
     trust_token_header: str = DEFAULT_TRUST_TOKEN_HEADER
     tracking_prefix: str = DEFAULT_TRACKING_PREFIX
+    # The connector the account is entered in: where a refused account is to be corrected.
+    connector: str = MODEL_PROVIDER_CONNECTOR
 
 
 # sha256 of (iB2B address, username, password) -> (JWT, the time it stops being used).
@@ -116,8 +127,19 @@ def endpoint_is_responses(endpoint: str) -> bool:
     return path.endswith("/responses") or path.endswith("/responses/compact")
 
 
-def target_of(llm: Mapping[str, Any]) -> AiPlatformTarget:
-    """The endpoint and credentials of a materialized ``llm`` section, or the reason there are none."""
+def target_of(
+    llm: Mapping[str, Any],
+    *,
+    chat_only: bool = False,
+    connector: str = MODEL_PROVIDER_CONNECTOR,
+) -> AiPlatformTarget:
+    """The endpoint and credentials of a materialized ``llm`` section, or the reason there are none.
+
+    Any section that carries a materialized ``ai_platform`` block will do:
+    the model provider's, or the Image analysis connector's, which is named
+    by ``connector`` and read with ``chat_only``: chat/completions whatever
+    else the deployment offers, and never treated as a Responses endpoint.
+    """
     platform = _block(llm, "ai_platform")
     chat, responses = _block(platform, "chat"), _block(platform, "responses")
     ib2b, auth = _block(platform, "ib2b"), _block(platform, "auth")
@@ -127,10 +149,10 @@ def target_of(llm: Mapping[str, Any]) -> AiPlatformTarget:
     if not (username and password and usercase):
         raise LlmGatewayError(
             "provider_auth_failed",
-            "AI Platform is not connected: the owner's Model provider connector needs a username, a password and a usercase.",
+            f"AI Platform is not connected: the owner's {connector} connector needs a username, a password and a usercase.",
         )
     # A configured Responses path wins, as it does for a native assistant.
-    endpoint_config = responses if str(responses.get("uri") or "").strip() else chat
+    endpoint_config = responses if not chat_only and str(responses.get("uri") or "").strip() else chat
     host = str(endpoint_config.get("host") or chat.get("host") or "").strip()
     if not host:
         raise LlmGatewayError("provider_error", "The AI Platform chat host is not configured in the Portal.")
@@ -140,13 +162,14 @@ def target_of(llm: Mapping[str, Any]) -> AiPlatformTarget:
     endpoint = join_url(host, str(endpoint_config.get("uri") or DEFAULT_CHAT_URI))
     return AiPlatformTarget(
         endpoint=endpoint,
-        is_responses=endpoint_is_responses(endpoint),
+        is_responses=not chat_only and endpoint_is_responses(endpoint),
         ib2b_url=join_url(ib2b_host, ib2b_uri),
         username=username,
         password=password,
         usercase=usercase,
         trust_token_header=str(auth.get("trust_token_header") or "").strip() or DEFAULT_TRUST_TOKEN_HEADER,
         tracking_prefix=str(auth.get("tracking_prefix") or "").strip() or DEFAULT_TRACKING_PREFIX,
+        connector=connector,
     )
 
 
@@ -197,14 +220,31 @@ async def run(
     *,
     streaming: bool,
 ) -> AsyncIterator[str | WireDone]:
-    """One completion: the text deltas, then how it ended.
+    """One completion on the member's model provider: the text deltas, then how it ended."""
+    async with aclosing(run_target(target_of(llm), request, clients, streaming=streaming)) as items:
+        async for item in items:
+            yield item
+
+
+async def run_target(
+    target: AiPlatformTarget,
+    request: LlmRequest,
+    clients: OutboundClients,
+    *,
+    streaming: bool,
+    timeout: httpx.Timeout = COMPLETION_TIMEOUT,
+) -> AsyncIterator[str | WireDone]:
+    """One completion at ``target``: the text deltas, then how it ended.
 
     A Responses endpoint is always streamed (its final event carries the
     usage). chat/completions is streamed only when the caller wants deltas:
     the plain call is the one the Test button proves and its JSON answer
     always carries the usage.
+
+    A message's ``content`` travels as it is (``llm_wire.chat_body``): text
+    for a model call, text and image parts for an image call, which is why
+    that one is made with a ``chat_only`` target.
     """
-    target = target_of(llm)
     stream = True if target.is_responses else streaming
     body = request_body(target, request, stream=stream)
     token = await _token(target, clients)
@@ -222,7 +262,7 @@ async def run(
                 target.endpoint,
                 headers=request_headers(target, token, stream=stream),
                 json=body,
-                timeout=COMPLETION_TIMEOUT,
+                timeout=timeout,
                 follow_redirects=False,
             ) as response:
                 if response.status_code != 200:
@@ -331,7 +371,7 @@ async def _exchange(target: AiPlatformTarget, clients: OutboundClients) -> str:
         raise LlmGatewayError(
             "provider_auth_failed",
             f"AI Platform did not accept the owner's username and password (HTTP {status}). "
-            "They have to be corrected in the Model provider connector.",
+            f"They have to be corrected in the {target.connector} connector.",
         )
     if not 200 <= status < 300:
         raise status_error(label, status, response.text[:4096], response.headers, secrets)
@@ -352,6 +392,7 @@ __all__ = [
     "FORWARD_MAX_OUTPUT_TOKENS",
     "FORWARD_TEMPERATURE",
     "LABEL",
+    "MODEL_PROVIDER_CONNECTOR",
     "PROVIDER",
     "TOKEN_REFRESH_MARGIN_SECONDS",
     "TOKEN_TTL_SECONDS",
@@ -362,5 +403,6 @@ __all__ = [
     "request_headers",
     "reset_token_cache",
     "run",
+    "run_target",
     "target_of",
 ]

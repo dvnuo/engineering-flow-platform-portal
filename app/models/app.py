@@ -102,7 +102,9 @@ class App(Base):
     token_last_used_source: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     visitor_key: Mapped[str] = mapped_column(String(64), nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Connector types the app may call, and those of them it may write to.
+    # What the owner turned on for the app besides the model provider: the
+    # connector types it may call and "image_analysis" (app/services/apps/names.py);
+    # and the connector types it may write to.
     connectors_enabled: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     connectors_write: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # The owner's own environment variables: a JSON object of strings.
@@ -216,6 +218,7 @@ class AppExecution(Base):
     # "llm" or "connector".
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # The connector of a "connector" row; "image_analysis" on the "llm" row of an image call.
     connector_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

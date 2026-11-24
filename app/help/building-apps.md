@@ -121,8 +121,8 @@ EFP_PORTAL_URL=https://<this Portal's address>
 ```
 
 Then start it with `efp-app dev`. Calls made locally are real: they use your
-model provider, count against the app's daily limit and reach the real
-systems behind your connectors.
+model provider and your Image analysis connector, count against the app's
+daily limit and reach the real systems behind your connectors.
 
 Keep `.env` out of the repository. The token works from anywhere the Portal
 can be reached, and the page shows when it was last used and whether that was
@@ -145,8 +145,8 @@ open it.
 ## What the app may use of yours
 
 An app's code can call your model provider and your connectors through the
-SDK. Both are off until you turn them on under **Settings**, and each asks
-you first:
+SDK, and have images read through your Image analysis connector. All of it
+is off until you turn it on under **Settings**, and each asks you first:
 
 - **Model provider.** *Visitors' use of this app consumes your Copilot and
   may slow down your own chats.* Every call runs on your own model provider,
@@ -155,8 +155,17 @@ you first:
 - **Connectors** (Jira, Confluence, GitHub, Jenkins, Nexus, Splunk).
   *Visitors will read these systems with your connector's account.* A
   connector is read-only unless you also allow writing.
-- **A wider audience** while either is on reminds you of the same, because
-  more people will then spend and read on your behalf.
+- **Image analysis.** *Images that visitors give this app are read with the
+  account of your Image analysis connector, and each call counts against the
+  app's daily limit.* The app asks one question about one to four images
+  (JPEG, PNG, WebP or GIF, at most 5 MiB each) and the model of your
+  [Image analysis connector](#/help/connect-image_analysis) answers it. It
+  is a switch of its own: the model provider does not have to be on for the
+  app, and an image call is counted as a model call against the same daily
+  limit. While that connector is not set up, the app is told so and no image
+  is read. There is nothing to write to, so it has no **May write** box.
+- **A wider audience** while any of them is on reminds you of the same,
+  because more people will then spend and read on your behalf.
 
 ## Looking after it
 
@@ -166,9 +175,9 @@ you first:
   hidden until you reveal them; saving restarts the app.
 - **Logs**: what the app prints, followed live. Pause to read, download to
   keep.
-- **Usage**: requests, visitors, errors and response time; model calls and
-  credits against the daily limit; connector calls; who visits most; memory
-  and data size.
+- **Usage**: requests, visitors, errors and response time; model calls
+  (image calls among them) and credits against the daily limit; connector
+  calls; who visits most; memory and data size.
 - **Data**: how much the app saved on the host. It survives restarts and
   deployments. **Clear data** removes it for good.
 - **Activity**: who deployed, changed, reset or took down what, and what the

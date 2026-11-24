@@ -2,7 +2,11 @@
 
 A model completion (``kind = "llm"``) or a connector request (``kind =
 "connector"``), with what it used, how it ended, where it came from and which
-member the app said caused it. The daily budget is counted from these rows
+member the app said caused it. An image call (docs/CONTRACTS.md section 9.4)
+is a model call: ``kind = "llm"`` with ``connector_type = "image_analysis"``,
+so everything that counts model calls counts it, and nothing that reads
+``connector_type`` does (those readers all ask for ``kind = "connector"``).
+The daily budget is counted from these rows
 (app/services/apps/budget.py), the app's usage page reads them
 (app/services/apps/usage.py) and the daily rollups fold the model calls into
 the Portal's usage reporting (app/services/usage_rollup_service.py).

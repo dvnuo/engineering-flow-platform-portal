@@ -16,7 +16,10 @@ metadata:
     # defaults to 1MB and caps every upload there. Kept a little above the
     # app's EFP_MAX_UPLOAD_MB (25MB) so oversized uploads get the Portal's
     # clear 413 ("Maximum size is 25MB") instead of nginx's generic one.
-    # Raise both together when increasing the limit.
+    # Raise both together when increasing the limit. Do not go below 30m
+    # while Apps are on: an app's image call through this address
+    # (/api/app-sdk/v1/images/inspect, four images of 5 MiB) is about 28 MB
+    # of JSON.
     nginx.ingress.kubernetes.io/proxy-body-size: "30m"
 spec:
   ingressClassName: nginx

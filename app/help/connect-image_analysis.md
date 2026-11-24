@@ -13,6 +13,12 @@ It works whichever model provider the assistant chats with, and where there
 is no browser to help: background tasks, delegated work and sub-assistants
 read images this way too.
 
+An app you own can have images read the same way. Turn on **Image
+analysis** for it under the app's **Settings**: the app's questions about
+images are then answered by this connector's model, with this account, and
+each call counts against the app's daily limit. See
+[Building apps](#/help/building-apps).
+
 ## What to enter
 
 - **Username**, **Password** and **Usercase** are an AI Platform account.

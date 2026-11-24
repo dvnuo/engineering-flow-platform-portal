@@ -37,7 +37,7 @@ from app.db import Base, get_db
 from app.security.session_cookie import session_cookie_name
 from app.models import App, AppExecution, RuntimeProfile
 from app.services import model_catalog_service
-from app.services.app_sdk import llm_copilot, llm_wire
+from app.services.app_sdk import image_analysis, llm_ai_platform, llm_copilot, llm_wire
 from app.services.app_sdk.llm_types import LlmGatewayError, LlmResult, LlmUsage
 from app.services.apps import budget as app_budget
 from app.services.apps import tokens as app_tokens
@@ -219,6 +219,7 @@ ENDPOINTS = [
     ("POST", "/llm/complete"),
     ("GET", "/connectors"),
     ("POST", "/connectors/jira/request"),
+    ("POST", "/images/inspect"),
     ("GET", "/nothing-here"),
 ]
 
@@ -390,6 +391,9 @@ def test_no_cors_header_is_ever_sent(sdk):
         ("PUT", "/connectors"),
         ("GET", "/connectors/jira/request"),
         ("POST", "/connectors/jira"),
+        ("GET", "/images/inspect"),
+        ("POST", "/images"),
+        ("POST", "/images/inspect/"),
         ("GET", ""),
         ("GET", "/"),
         ("PATCH", "/app/"),
@@ -457,8 +461,11 @@ def test_app_describes_the_app_and_what_it_may_use(sdk):
         "owner": {"id": sdk.owner.id, "username": "owner", "display_name": "Olive", "group_id": sdk.owner.group_id, "group_name": "QA"},
         "llm": {"enabled": True, "default_model": "gpt-6-sol", "models": models},
         "connectors": [{"type": "jira", "write": False}, {"type": "github", "write": True}],
+        # Not turned on for this app: the limits are told all the same (section 9.1).
+        "image_analysis": {"enabled": False, "model": None, "max_images": 4, "max_image_bytes": 5242880, "max_total_bytes": 20971520},
         "budget": {"daily_credits": 50.0, "used_credits": 1.2, "daily_tokens": 2000000, "used_tokens": 3400},
     }
+    assert list(body) == ["id", "slug", "name", "url", "owner", "llm", "connectors", "image_analysis", "budget"]
     assert "gpt-6-sol" in models and not [model for model in models if "auto" in model]
     # Nothing an app must not see.
     assert sdk.token not in response.text and GITHUB_TOKEN not in response.text and CONNECTOR_TOKEN not in response.text
@@ -1730,3 +1737,876 @@ def test_the_endpoint_refuses_a_request_over_the_bounds(sdk, monkeypatch):
     assert len(seen) == asked, "nothing was sent for them"
     assert [row.error_code for row in sdk.executions()] == [None] + ["invalid_request"] * 5
     assert app_budget.in_flight.calls(sdk.app.id) == 0
+
+
+# --- 9.4 POST /images/inspect ------------------------------------------------------------------
+
+IA_PASSWORD = "pw-vision-s3cret"
+IA_JWT = "eyJhbGciOiJSUzI1NiJ9.vision.signature"
+AI_CHAT = "https://ai.example.test/v1/api/v1/chat/completions"
+# How a file of each kind begins; nothing after the first twelve bytes is looked at.
+PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + bytes(16)
+JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + bytes(16)
+QUESTION = "Which field is highlighted?"
+IMAGE_LIMITS = {"max_images": 4, "max_image_bytes": 5242880, "max_total_bytes": 20971520}
+# The default call under way: 27 characters of prompt, one image, an answer of 4,096 tokens.
+ONE_IMAGE_UNDER_WAY = 7 + 1500 + 4096
+
+
+def b64(data: bytes) -> str:
+    return base64.b64encode(bytes(data)).decode("ascii")
+
+
+def picture(data: bytes = PNG, media_type: str = "image/png") -> dict:
+    return {"media_type": media_type, "data_base64": b64(data)}
+
+
+def image_connector(**section) -> dict:
+    """The owner's Image analysis connector, set up."""
+    connector = {
+        "enabled": True,
+        "model": "gpt-5.6-sol",
+        "ai_platform": {"auth": {"username": "vision-svc", "password": IA_PASSWORD, "usercase": "uc-vision"}},
+    }
+    connector.update(section)
+    return connector
+
+
+def vision_answer(text="The field Email is marked in red.", usage=None) -> dict:
+    answer = {
+        "id": "chatcmpl-1",
+        "model": "gpt-5.6-sol-2026-05-01",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+    }
+    if usage is not False:
+        answer["usage"] = usage or {"prompt_tokens": 1830, "completion_tokens": 210, "total_tokens": 2040}
+    return answer
+
+
+class Vision:
+    """AI Platform as an image call meets it: the iB2B exchange and chat/completions, each request remembered."""
+
+    def __init__(self) -> None:
+        self.requests: list[httpx.Request] = []
+        self.answer = lambda request: httpx.Response(200, json=vision_answer())
+        self.exchange = lambda request: httpx.Response(200, json={"issued_token": IA_JWT, "token_type": "JWT"})
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return self.exchange(request) if request.url.host == "sts.example.test" else self.answer(request)
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self))
+
+    def calls(self) -> list[httpx.Request]:
+        return [request for request in self.requests if request.url.host == "ai.example.test"]
+
+
+def ai_platform_deployment(monkeypatch, **overrides) -> None:
+    values = {
+        "ai_platform_chat_host": "https://ai.example.test",
+        "ai_platform_chat_uri": "/v1/api/v1/chat/completions",
+        "ai_platform_responses_uri": "",
+        "ai_platform_ib2b_host": "https://sts.example.test",
+        "ai_platform_ib2b_uri": "/sts/v1/token",
+        "ai_platform_trust_token_header": "X-Test-Trust-Token",
+        "ai_platform_tracking_prefix": "EFPT",
+    }
+    values.update(overrides)
+    for name, value in values.items():
+        monkeypatch.setattr(get_settings(), name, value)
+
+
+@pytest.fixture
+def vision(sdk, monkeypatch):
+    """Image analysis turned on for the app, the owner's connector set up, AI Platform a fake."""
+    ai_platform_deployment(monkeypatch)
+    llm_ai_platform.reset_token_cache()
+    sdk.change(connectors_enabled=["jira", "github", "image_analysis"])
+    sdk.config["image_analysis"] = image_connector()
+    target = Vision()
+    monkeypatch.setattr(sdk.api, "image_client", target.client)
+
+    def inspect(body=None, **headers):
+        payload = {"images": [picture()], "prompt": QUESTION}
+        payload.update(body or {})
+        return sdk.post("/images/inspect", payload, **headers)
+
+    target.inspect = inspect
+    try:
+        yield target
+    finally:
+        llm_ai_platform.reset_token_cache()
+
+
+def test_app_says_whether_the_app_can_ask_about_images(sdk, vision, monkeypatch):
+    # Turned on for the app, and the owner's connector can run.
+    body = sdk.get("/app").json()
+    assert body["image_analysis"] == {"enabled": True, "model": "gpt-5.6-sol", **IMAGE_LIMITS}
+    assert list(body["image_analysis"]) == ["enabled", "model", "max_images", "max_image_bytes", "max_total_bytes"]
+    # It is not one of the connectors: there is no address an app could call.
+    assert body["connectors"] == [{"type": "jira", "write": False}, {"type": "github", "write": True}]
+    assert sdk.get("/connectors").json() == {
+        "connectors": [
+            {"type": "jira", "base_url": "https://jira.example.test", "write": False},
+            {"type": "github", "base_url": "https://api.github.com", "write": True},
+        ]
+    }
+    assert IA_PASSWORD not in sdk.get("/app").text
+
+    # Turned on for the app, but the owner's connector cannot run.
+    off = {"enabled": False, "model": None, **IMAGE_LIMITS}
+    for connector in (
+        None,
+        {},
+        image_connector(enabled=False),
+        image_connector(ai_platform={}),
+        image_connector(ai_platform={"auth": {"username": "vision-svc", "password": IA_PASSWORD}}),
+    ):
+        sdk.config["image_analysis"] = connector
+        assert sdk.get("/app").json()["image_analysis"] == off, connector
+    sdk.config["image_analysis"] = image_connector()
+    for missing in ("ai_platform_chat_host", "ai_platform_ib2b_host"):
+        ai_platform_deployment(monkeypatch, **{missing: ""})
+        assert sdk.get("/app").json()["image_analysis"] == off, missing
+    ai_platform_deployment(monkeypatch)
+    assert sdk.get("/app").json()["image_analysis"]["enabled"] is True
+
+    # The owner's connector can run, but the owner did not turn it on for this app: the model is not told either.
+    sdk.change(connectors_enabled=["jira", "github"])
+    assert sdk.get("/app").json()["image_analysis"] == off
+    assert sdk.executions() == [], "reading the app is not an execution"
+
+
+def test_image_analysis_follows_the_owners_default_connectors(sdk, monkeypatch):
+    # The real lookup: the owner never customized anything and reads images with the account their group shares.
+    from app.services.runtime_profile_service import RuntimeProfileService
+
+    monkeypatch.undo()
+    enable_apps(monkeypatch)
+    ai_platform_deployment(monkeypatch)
+    sdk.change(connectors_enabled=["image_analysis"])
+    assert sdk.get("/app").json()["image_analysis"] == {"enabled": False, "model": None, **IMAGE_LIMITS}
+
+    profile = RuntimeProfileService(sdk.db).get_or_create_for_user(sdk.owner)
+    seen = []
+
+    def effective(self, row):
+        seen.append(row.owner_user_id)
+        return {"image_analysis": image_connector(model="gpt-5.6-terra")}
+
+    monkeypatch.setattr(RuntimeProfileService, "effective_config_for", effective)
+
+    assert sdk.get("/app").json()["image_analysis"] == {"enabled": True, "model": "gpt-5.6-terra", **IMAGE_LIMITS}
+    assert seen == [profile.owner_user_id] == [sdk.owner.id], "the owner's effective settings, not the stored row"
+
+
+def test_an_image_call_answers_whole_and_is_recorded_as_a_model_call(sdk, vision):
+    response = vision.inspect({"system": "Answer in one sentence.", "max_output_tokens": 600, "reasoning_effort": "medium"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "The field Email is marked in red.",
+        "model": "gpt-5.6-sol",
+        "finish_reason": "stop",
+        "usage": {"input_tokens": 1830, "output_tokens": 210, "credits": None},
+    }
+    assert response.headers["content-type"].startswith("application/json")
+    (row,) = sdk.executions()
+    # A model call of the app (so the daily budget and the usage pages count it), named by its connector.
+    assert (row.app_id, row.owner_user_id, row.kind, row.connector_type, row.model) == (sdk.app.id, sdk.owner.id, "llm", "image_analysis", "gpt-5.6-sol")
+    assert (row.input_tokens, row.output_tokens, row.credits) == (1830, 210, None)
+    assert (row.status, row.error_code, row.source, row.visitor_user_id) == ("succeeded", None, "cluster", None)
+    assert row.duration_ms is not None and row.duration_ms >= 0
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 2040
+    assert IA_PASSWORD not in response.text and IA_JWT not in response.text
+
+
+def test_the_request_ai_platform_receives_for_two_images(sdk, vision):
+    response = vision.inspect(
+        {
+            "images": [picture(PNG, "image/png"), picture(JPEG, "image/jpeg")],
+            "prompt": "What differs between the two screenshots?",
+            "system": "Answer in one sentence.",
+            "max_output_tokens": 600,
+            "reasoning_effort": "medium",
+        }
+    )
+
+    assert response.status_code == 200
+    exchange, call = vision.requests
+    assert (exchange.method, str(exchange.url)) == ("POST", "https://sts.example.test/sts/v1/token")
+    assert json.loads(exchange.content)["input_token_state"] == {"token_type": "CREDENTIAL", "username": "vision-svc", "password": IA_PASSWORD}
+
+    # chat/completions, never the Responses endpoint; the JWT in the trust header only.
+    assert (call.method, str(call.url)) == ("POST", AI_CHAT)
+    assert call.headers["x-test-trust-token"] == IA_JWT and "authorization" not in call.headers
+    assert (call.headers["content-type"], call.headers["accept"]) == ("application/json", "application/json")
+    assert call.headers["x-correlation-id"].startswith("EFPT-") and call.headers["x-correlation-id"] == call.headers["x-usersession-id"]
+    assert json.loads(call.content) == {
+        # The connector's model: the owner's chat model (Copilot, "auto") has no say.
+        "model": "gpt-5.6-sol",
+        "messages": [
+            {"role": "system", "content": "Answer in one sentence."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What differs between the two screenshots?"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64(PNG)}},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64(JPEG)}},
+                ],
+            },
+        ],
+        "stream": False,
+        "reasoning_effort": "medium",
+        "user": "uc-vision",
+        "max_completion_tokens": 600,
+    }
+    # The app's token and the owner's other credentials go nowhere.
+    for request in vision.requests:
+        assert sdk.token not in request.content.decode("utf-8") and sdk.token not in str(request.headers)
+        assert GITHUB_TOKEN not in request.content.decode("utf-8")
+
+
+def test_what_the_sdk_sends_is_taken_as_it_is(sdk, vision):
+    # The SDK leaves out what a call did not name and always sends system (sdk/efp_app/images.py).
+    assert sdk.post("/images/inspect", {"images": [picture()], "prompt": QUESTION, "system": None}).status_code == 200
+
+    sent = json.loads(vision.calls()[-1].content)
+    assert [message["role"] for message in sent["messages"]] == ["user"]
+    assert (sent["max_completion_tokens"], sent["reasoning_effort"]) == (4096, "low")
+
+    # Null means the same as left out, and what the contract does not name is ignored.
+    explicit = {"images": [picture()], "prompt": QUESTION, "system": None, "max_output_tokens": None, "reasoning_effort": None}
+    assert sdk.post("/images/inspect", {**explicit, "model": "gpt-6-sol", "stream": True, "temperature": 2}).status_code == 200
+    assert json.loads(vision.calls()[-1].content) == sent
+
+
+def test_the_jwt_of_the_connectors_account_is_reused_and_renewed_when_refused(sdk, vision):
+    assert vision.inspect().status_code == 200
+    assert vision.inspect().status_code == 200
+    assert len(vision.requests) == 3, "one exchange for two calls"
+
+    # AI Platform no longer takes that JWT: exchanged again, once, and the call repeated.
+    issued = ["second.jwt.value"]
+    vision.exchange = lambda request: httpx.Response(200, json={"issued_token": issued[0]})
+    vision.answer = lambda request: (
+        httpx.Response(200, json=vision_answer("second try")) if request.headers["x-test-trust-token"] == issued[0] else httpx.Response(401, json={"message": "jwt expired"})
+    )
+    renewed = vision.inspect()
+    assert renewed.status_code == 200 and renewed.json()["text"] == "second try"
+    assert [request.url.host for request in vision.requests[3:]] == ["ai.example.test", "sts.example.test", "ai.example.test"]
+    assert [row.status for row in sdk.executions()] == ["succeeded"] * 3
+
+
+def test_image_analysis_must_be_turned_on_for_the_app(sdk, monkeypatch):
+    # The owner's connector can run; the owner did not turn it on for this app.
+    ai_platform_deployment(monkeypatch)
+    sdk.config["image_analysis"] = image_connector()
+    target = Vision()
+    monkeypatch.setattr(sdk.api, "image_client", target.client)
+
+    response = sdk.post("/images/inspect", {"images": [picture()], "prompt": QUESTION})
+    assert response.status_code == 403
+    assert error_of(response)["code"] == "connector_disabled"
+
+    # The body is not looked at for it: whatever was sent, the answer is the same.
+    for content in (b"{not json", b"[]", b""):
+        refused = sdk.client.post(PREFIX + "/images/inspect", content=content, headers={**sdk.auth(), "Content-Type": "application/json"})
+        assert refused.status_code == 403 and error_of(refused)["code"] == "connector_disabled"
+    # The model provider being on for the app, and a connector being on, do not turn it on.
+    assert sdk.reload().llm_enabled is True and sdk.reload().connectors_enabled == ["jira", "github"]
+    assert target.requests == [] and sdk.executions() == []
+
+
+def test_image_analysis_does_not_need_the_model_provider(sdk, vision):
+    # A switch of its own: the model provider is off for the app, and the owner never connected one.
+    sdk.change(llm_enabled=False)
+    sdk.config["llm"] = {"provider": "github_copilot", "model": "auto"}
+
+    assert error_of(sdk.complete())["code"] == "llm_disabled"
+    response = vision.inspect()
+    assert response.status_code == 200 and response.json()["model"] == "gpt-5.6-sol"
+
+    # Whatever goes wrong with an image call, llm_disabled is never its answer.
+    sdk.config["image_analysis"] = image_connector(enabled=False)
+    assert error_of(vision.inspect())["code"] == "connector_not_configured"
+    sdk.change(connectors_enabled=["jira"])
+    assert error_of(vision.inspect())["code"] == "connector_disabled"
+    assert error_of(vision.inspect({"prompt": ""}))["code"] == "connector_disabled"
+
+
+NOT_SET_UP = {
+    "no connector": (None, {}),
+    "switched off": (image_connector(enabled=False), {}),
+    "no account": (image_connector(ai_platform={}), {}),
+    "no usercase": (image_connector(ai_platform={"auth": {"username": "vision-svc", "password": IA_PASSWORD}}), {}),
+    "no AI Platform address": (image_connector(), {"ai_platform_chat_host": ""}),
+    "no iB2B address": (image_connector(), {"ai_platform_ib2b_host": ""}),
+    "no iB2B path": (image_connector(), {"ai_platform_ib2b_uri": ""}),
+}
+
+
+@pytest.mark.parametrize(("connector", "deployment"), list(NOT_SET_UP.values()), ids=list(NOT_SET_UP))
+def test_an_owner_whose_connector_cannot_run_is_connector_not_configured(sdk, vision, monkeypatch, connector, deployment):
+    sdk.config["image_analysis"] = connector
+    ai_platform_deployment(monkeypatch, **deployment)
+
+    response = vision.inspect()
+
+    assert response.status_code == 424
+    assert error_of(response)["code"] == "connector_not_configured"
+    assert "Image analysis connector" in error_of(response)["message"] and IA_PASSWORD not in response.text
+    assert vision.requests == [], "nothing is sent"
+    # The app was allowed to make the call, so it is written down; it used nothing.
+    (row,) = sdk.executions()
+    assert (row.kind, row.connector_type, row.status, row.error_code) == ("llm", "image_analysis", "failed", "connector_not_configured")
+    assert (row.input_tokens, row.output_tokens, row.credits) == (0, 0, None)
+    # GET /app goes by the rule of the call: an app is never told that image analysis is on while every call
+    # answers connector_not_configured. So it names no model here, and neither does the row.
+    told = sdk.get("/app").json()["image_analysis"]
+    assert row.model is None
+    assert (told["enabled"], told["model"]) == (False, None)
+
+
+def test_the_model_providers_account_is_never_used_for_images(sdk, vision):
+    # The owner chats on AI Platform with an account of their own and has no Image analysis connector.
+    sdk.config["llm"] = {
+        "provider": "ai_platform",
+        "model": "gpt-5.4",
+        "ai_platform": {"auth": {"username": "alice", "password": "pw-chat-s3cret", "usercase": "uc-chat"}},
+    }
+    sdk.config.pop("image_analysis")
+
+    response = vision.inspect()
+
+    assert response.status_code == 424 and error_of(response)["code"] == "connector_not_configured"
+    assert vision.requests == []
+
+
+BAD_IMAGE_CALLS = {
+    "no images": {"images": None},
+    "an empty list": {"images": []},
+    "five images": {"images": [picture()] * 5},
+    "an image that is not an object": {"images": ["iVBORw0KGgo="]},
+    "a media type the model is not given": {"images": [picture(PNG, "image/bmp")]},
+    "no media type": {"images": [{"data_base64": b64(PNG)}]},
+    "an image without bytes": {"images": [{"media_type": "image/png", "data_base64": ""}]},
+    "base64 of the URL alphabet": {"images": [{"media_type": "image/png", "data_base64": base64.urlsafe_b64encode(b"\x89PNG\r\n\x1a\n\xfb\xff\xfe" + bytes(16)).decode("ascii")}]},
+    "base64 without its padding": {"images": [{"media_type": "image/png", "data_base64": b64(PNG).rstrip("=")}]},
+    "data that is not text": {"images": [{"media_type": "image/png", "data_base64": 7}]},
+    "bytes that are no image": {"images": [picture(b"plain text, and no image at all")]},
+    "a PNG given as a JPEG": {"images": [picture(PNG, "image/jpeg")]},
+    "one image over five mebibytes": {"images": [picture(PNG + bytes(5 * 1024 * 1024))]},
+    "a blank prompt": {"prompt": "   "},
+    "a prompt that is not text": {"prompt": 7},
+    "a system text that is not text": {"system": ["be brief"]},
+    "more than 200,000 characters": {"prompt": "p" * 150_000, "system": "s" * 50_001},
+    "an answer of no tokens": {"max_output_tokens": 0},
+    "an answer over sixteen thousand tokens": {"max_output_tokens": 16_001},
+    "tokens that are not whole": {"max_output_tokens": 1.5},
+    "tokens that are true": {"max_output_tokens": True},
+    "a level above high": {"reasoning_effort": "xhigh"},
+    "a level that is a number": {"reasoning_effort": 3},
+}
+
+
+@pytest.mark.parametrize("fields", list(BAD_IMAGE_CALLS.values()), ids=list(BAD_IMAGE_CALLS))
+def test_an_image_call_the_contract_does_not_allow_is_refused_before_anything_is_spent(sdk, vision, monkeypatch, fields):
+    at(monkeypatch, NOON)
+    # Even with nothing left of the day's budget: what is wrong with the request is what the app is told.
+    sdk.change(daily_tokens=0)
+
+    response = vision.inspect(fields)
+
+    assert response.status_code == 400
+    assert error_of(response)["code"] == "invalid_request"
+    for item in fields.get("images") or []:
+        data = item.get("data_base64") if isinstance(item, dict) else None
+        if isinstance(data, str) and len(data) > 16:
+            assert data[:16] not in response.text, "an image is never quoted back"
+    assert vision.requests == [], "nothing is exchanged or sent"
+    assert sdk.executions() == [], "nothing is written down"
+    assert app_budget.in_flight.calls(sdk.app.id) == 0, "and nothing is counted"
+
+
+@pytest.mark.parametrize("content", [b"{not json", b"[]", b'"text"', b"12", b"null", b"", b"images=1&prompt=x", b"\xff\xfe"])
+def test_an_image_body_that_is_not_a_json_object_is_invalid_request(sdk, vision, content):
+    response = sdk.client.post(PREFIX + "/images/inspect", content=content, headers={**sdk.auth(), "Content-Type": "application/json"})
+
+    assert response.status_code == 400
+    assert error_of(response)["code"] == "invalid_request"
+    assert vision.requests == [] and sdk.executions() == []
+
+
+async def _post_in_pieces(asgi, path: str, headers: dict, pieces: list, *, gone_after: int | None = None) -> tuple[int, dict, int]:
+    """POST a body the way a server hands it over, piece by piece; ``(status, answer, pieces the app took)``.
+
+    With ``gone_after`` the caller disconnects once that many pieces were taken, the rest unsent.
+    """
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+        "path": path, "raw_path": path.encode("ascii"), "query_string": b"", "root_path": "",
+        "headers": [(name.lower().encode("latin-1"), value.encode("latin-1")) for name, value in headers.items()],
+        "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+    }
+    taken = {"pieces": 0}
+    sent: list[dict] = []
+    answered = asyncio.Event()
+
+    async def receive():
+        if gone_after is not None and taken["pieces"] >= gone_after:
+            return {"type": "http.disconnect"}
+        if taken["pieces"] < len(pieces):
+            taken["pieces"] += 1
+            return {"type": "http.request", "body": pieces[taken["pieces"] - 1], "more_body": taken["pieces"] < len(pieces)}
+        await answered.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+        if message["type"] == "http.response.body" and not message.get("more_body"):
+            answered.set()
+
+    await asyncio.wait_for(asgi(scope, receive, send), timeout=30)
+    status = next(message["status"] for message in sent if message["type"] == "http.response.start")
+    answer = json.loads(b"".join(message.get("body", b"") for message in sent if message["type"] == "http.response.body"))
+    return status, answer, taken["pieces"]
+
+
+def test_a_body_larger_than_an_image_call_can_be_is_refused_and_not_read(sdk, vision, monkeypatch):
+    limit = 64 * 1024
+    monkeypatch.setattr(image_analysis, "MAX_BODY_BYTES", limit)
+    path = PREFIX + "/images/inspect"
+    json_headers = {**sdk.auth(), "Content-Type": "application/json"}
+    kilobyte = b"x" * 1024
+
+    # It says how large it is: refused without one byte of it being taken.
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, path, {**json_headers, "Content-Length": str(limit + 1)}, [kilobyte] * 200))
+    assert (status, answer["error"]["code"], taken) == (400, "invalid_request", 0)
+    assert "larger than an image call can be" in answer["error"]["message"]
+
+    # It does not say (a chunked upload): refused at the piece that crosses the bound, the rest never read.
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, path, {**json_headers, "Transfer-Encoding": "chunked"}, [kilobyte] * 200))
+    assert (status, answer["error"]["code"]) == (400, "invalid_request")
+    assert "larger than an image call can be" in answer["error"]["message"]
+    assert taken == 65, "64 pieces fit; the 65th is the last one looked at"
+
+    # A length nobody can read is no length: the same bound holds while reading.
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, path, {**json_headers, "Content-Length": "many"}, [kilobyte] * 200))
+    assert (status, taken) == (400, 65)
+
+    # Exactly the bound is read whole, and is then judged for what it holds.
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, path, {**json_headers, "Content-Length": str(limit)}, [kilobyte] * 64))
+    assert (status, answer["error"]["code"], taken) == (400, "invalid_request", 64)
+    assert "larger than" not in answer["error"]["message"]
+
+    # A call that fits is answered, in as many pieces as it comes.
+    raw = json.dumps({"images": [picture()], "prompt": QUESTION}).encode("utf-8")
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, path, json_headers, [raw[:10], raw[10:50], raw[50:]]))
+    assert (status, answer["text"], taken) == (200, "The field Email is marked in red.", 3)
+
+    assert len(vision.calls()) == 1 and len(sdk.executions()) == 1
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+
+
+def test_the_bound_on_the_body_is_forty_mebibytes(sdk, vision):
+    assert image_analysis.MAX_BODY_BYTES == 40 * 1024 * 1024
+    huge = {**sdk.auth(), "Content-Type": "application/json", "Content-Length": str(40 * 1024 * 1024 + 1)}
+
+    status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, PREFIX + "/images/inspect", huge, [b"{}"]))
+
+    assert (status, answer["error"]["code"], taken) == (400, "invalid_request", 0)
+
+
+def test_a_caller_that_goes_away_in_the_middle_of_its_upload_is_no_failure_of_the_portal(sdk, vision, caplog):
+    raw = json.dumps({"images": [picture()], "prompt": QUESTION}).encode("utf-8")
+    headers = {**sdk.auth(), "Content-Type": "application/json", "Content-Length": str(len(raw))}
+
+    with caplog.at_level(logging.WARNING):
+        status, answer, taken = asyncio.run(_post_in_pieces(sdk.asgi, PREFIX + "/images/inspect", headers, [raw[:20], raw[20:]], gone_after=1))
+
+    # Nobody reads the answer; what matters is that nothing was counted, sent or logged as an error.
+    assert (status, answer["error"]["code"], taken) == (400, "invalid_request", 1)
+    assert answer["error"]["message"] == "The request body did not arrive whole."
+    assert [record for record in caplog.records if record.levelno >= logging.WARNING and record.name.startswith("app.")] == []
+    assert vision.requests == [] and sdk.executions() == []
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+
+
+def test_four_full_images_are_read_and_sent_whole(sdk, vision):
+    # About 28 MB of JSON: the largest call the contract allows.
+    full = PNG + bytes(5 * 1024 * 1024 - len(PNG))
+    images = [picture(full)] * 4
+
+    response = vision.inspect({"images": images, "prompt": "What changes from one to the next?"})
+
+    assert response.status_code == 200
+    sent = json.loads(vision.calls()[-1].content)
+    parts = sent["messages"][0]["content"]
+    assert [part["type"] for part in parts] == ["text", "image_url", "image_url", "image_url", "image_url"]
+    assert all(part["image_url"]["url"] == "data:image/png;base64," + images[0]["data_base64"] for part in parts[1:])
+    (row,) = sdk.executions()
+    assert (row.status, row.input_tokens, row.output_tokens) == ("succeeded", 1830, 210)
+
+
+def test_an_answer_without_usage_is_counted_as_what_the_call_was_reserved_as(sdk, vision):
+    vision.answer = lambda request: httpx.Response(200, json=vision_answer("A dialog with two buttons.", usage=False))
+
+    response = vision.inspect({"images": [picture(), picture(JPEG, "image/jpeg")], "prompt": "p" * 10, "system": "s" * 9})
+
+    # The answer says what AI Platform reported: nothing.
+    assert response.status_code == 200
+    assert response.json()["usage"] == {"input_tokens": 0, "output_tokens": 0, "credits": None}
+    # The row does not cost the budget nothing: a quarter of the 19 characters, 1,500 tokens an image, the answer's text.
+    (row,) = sdk.executions()
+    assert (row.input_tokens, row.output_tokens, row.credits) == (5 + 3000, 7, None)
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 3012
+
+
+@pytest.mark.parametrize(
+    ("exchange", "answer", "status", "code", "retry_after"),
+    [
+        (httpx.Response(401, json={"message": "invalid credentials"}), None, 424, "provider_auth_failed", None),
+        (httpx.Response(403, text="forbidden"), None, 424, "provider_auth_failed", None),
+        (None, httpx.Response(401, json={"message": "not entitled"}), 424, "provider_auth_failed", None),
+        (None, httpx.Response(500, json={"error": {"message": "boom"}}), 502, "provider_error", None),
+        (None, httpx.Response(400, json={"error": {"message": "The requested model is not available."}}), 502, "provider_error", None),
+        (httpx.Response(503, text="maintenance"), None, 502, "provider_error", None),
+        (None, httpx.Response(429, headers={"retry-after": "30"}, json={"error": {"message": "slow down"}}), 429, "rate_limited", "30"),
+        (None, httpx.Response(504, text=""), 504, "upstream_timeout", None),
+    ],
+    ids=["ib2b-401", "ib2b-403", "jwt-refused", "500", "model-not-served", "ib2b-503", "429", "504"],
+)
+def test_a_failed_image_call_keeps_its_status_and_is_recorded(sdk, vision, exchange, answer, status, code, retry_after):
+    if exchange is not None:
+        vision.exchange = lambda request: httpx.Response(exchange.status_code, headers=exchange.headers, content=exchange.content)
+    if answer is not None:
+        vision.answer = lambda request: httpx.Response(answer.status_code, headers=answer.headers, content=answer.content)
+
+    response = vision.inspect()
+
+    assert response.status_code == status
+    assert error_of(response)["code"] == code
+    assert response.headers.get("retry-after") == retry_after
+    assert IA_PASSWORD not in response.text and IA_JWT not in response.text and b64(PNG) not in response.text
+    (row,) = sdk.executions()
+    assert (row.kind, row.connector_type, row.status, row.error_code, row.model) == ("llm", "image_analysis", "failed", code, "gpt-5.6-sol")
+    assert (row.input_tokens, row.output_tokens, row.credits) == (0, 0, None)
+
+
+def test_an_account_that_is_refused_says_which_connector_to_correct(sdk, vision):
+    vision.exchange = lambda request: httpx.Response(401, json={"message": "invalid credentials"})
+
+    message = error_of(vision.inspect())["message"]
+
+    assert "Image analysis connector" in message and "Model provider" not in message
+    assert vision.calls() == [], "no image is sent with an account that was refused"
+
+
+def test_an_unexpected_failure_of_an_image_call_is_500_and_recorded(sdk, vision, monkeypatch):
+    async def broken(**kwargs):
+        raise RuntimeError("secret detail: " + IA_PASSWORD)
+
+    monkeypatch.setattr(sdk.api.image_analysis, "inspect", broken)
+
+    response = vision.inspect()
+
+    assert response.status_code == 500 and error_of(response)["code"] == "internal_error"
+    assert "secret detail" not in response.text and IA_PASSWORD not in response.text
+    assert [(row.kind, row.connector_type, row.status, row.error_code) for row in sdk.executions()] == [("llm", "image_analysis", "failed", "internal_error")]
+
+
+def test_an_image_call_cancelled_under_way_is_recorded_and_no_longer_counted(sdk, vision, monkeypatch):
+    from starlette.requests import Request
+
+    counted = []
+
+    async def cancelled(**kwargs):
+        counted.append(app_budget.in_flight.tokens(sdk.app.id))
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(sdk.api.image_analysis, "inspect", cancelled)
+    raw = json.dumps({"images": [picture()], "prompt": QUESTION}).encode("utf-8")
+
+    async def receive():
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    scope = {"type": "http", "method": "POST", "path": PREFIX + "/images/inspect", "query_string": b"", "headers": [(b"content-length", str(len(raw)).encode("ascii"))]}
+    call = sdk.api.SdkCall(app=sdk.reload(), app_id=sdk.app.id, owner_user_id=sdk.owner.id, source="cluster", visitor_user_id=sdk.visitor.id)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(sdk.api.images_inspect(Request(scope, receive), call=call, db=sdk.factory()))
+
+    assert counted == [ONE_IMAGE_UNDER_WAY]
+    (row,) = sdk.executions()
+    assert (row.kind, row.connector_type, row.status, row.error_code, row.visitor_user_id) == ("llm", "image_analysis", "cancelled", "client_closed", sdk.visitor.id)
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+
+
+def test_no_pooled_connection_is_held_while_an_image_arrives_or_ai_platform_is_waited_for(sdk, pooled, monkeypatch):
+    ai_platform_deployment(monkeypatch)
+    sdk.config["image_analysis"] = image_connector()
+    with Session(bind=pooled.engine) as db:
+        db.get(App, pooled.app_id).connectors_enabled = ["jira", "image_analysis"]
+        db.commit()
+    seen: dict[str, tuple] = {}
+
+    async def look(name: str) -> None:
+        # How many connections are out, and whether anybody else can have one.
+        seen[name] = (pooled.engine.pool.checkedout(), await asyncio.to_thread(pooled.usable_by_others))
+
+    async def inspect(**kwargs):
+        await look("AI Platform")
+        return LlmResult("ok", "gpt-5.6-sol", "stop", LlmUsage(1830, 210, None))
+
+    monkeypatch.setattr(sdk.api.image_analysis, "inspect", inspect)
+    raw = json.dumps({"images": [picture()], "prompt": QUESTION}).encode("utf-8")
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+        "path": PREFIX + "/images/inspect", "raw_path": (PREFIX + "/images/inspect").encode("ascii"), "query_string": b"", "root_path": "",
+        "headers": [(b"authorization", f"Bearer {sdk.token}".encode("ascii")), (b"content-type", b"application/json")],
+        "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+    }
+    pieces = [raw[:30], raw[30:]]
+    sent: list[dict] = []
+
+    async def drive():
+        answered = asyncio.Event()
+
+        async def receive():
+            if pieces:
+                # The caller is slow: each piece of its upload is a wait of the Portal's.
+                await look(f"upload, {len(pieces)} to come")
+                return {"type": "http.request", "body": pieces.pop(0), "more_body": bool(pieces)}
+            await answered.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent.append(message)
+            if message["type"] == "http.response.body" and not message.get("more_body"):
+                answered.set()
+
+        await asyncio.wait_for(sdk.asgi(scope, receive, send), timeout=30)
+
+    asyncio.run(drive())
+
+    assert next(message["status"] for message in sent if message["type"] == "http.response.start") == 200
+    assert seen == {"upload, 2 to come": (0, True), "upload, 1 to come": (0, True), "AI Platform": (0, True)}
+    assert pooled.rows() == [("llm", "succeeded")]
+    assert app_budget.in_flight.calls(pooled.app_id) == 0
+
+
+def test_an_app_removed_while_its_image_arrived_is_no_longer_answered(sdk, vision, monkeypatch):
+    # The session the app was read through is given back before the body is read; afterwards it is read again.
+    real = sdk.api._image_request
+
+    async def remove_meanwhile(request):
+        asked = await real(request)
+        sdk.db.query(AppExecution).delete()
+        sdk.db.delete(sdk.reload())
+        sdk.db.commit()
+        return asked
+
+    monkeypatch.setattr(sdk.api, "_image_request", remove_meanwhile)
+
+    response = vision.inspect()
+
+    assert response.status_code == 401 and error_of(response)["code"] == "invalid_token"
+    assert vision.requests == [] and sdk.db.query(AppExecution).count() == 0
+
+
+def test_the_visitor_header_names_who_caused_an_image_call(sdk, vision):
+    header = sign_visitor(sdk.app, sdk.visitor)
+
+    assert vision.inspect(**{"X-EFP-Visitor": header, "X-Forwarded-For": "203.0.113.9"}).status_code == 200
+    assert vision.inspect(**{"X-EFP-Visitor": header[:-2]}).status_code == 200, "a header that does not verify never fails the call"
+    assert vision.inspect().status_code == 200
+
+    assert [(row.visitor_user_id, row.source) for row in sdk.executions()] == [(sdk.visitor.id, "external"), (None, "cluster"), (None, "cluster")]
+    # The header is the Portal's to read: AI Platform is not told who the visitor was.
+    assert all("x-efp-visitor" not in request.headers for request in vision.requests)
+
+
+def test_no_image_data_and_no_secret_reaches_a_log(sdk, vision, caplog):
+    marker = b"\x89PNG\r\n\x1a\n" + b"confidential-screenshot-bytes" * 8
+    encoded = b64(marker)
+
+    with caplog.at_level(logging.DEBUG):
+        assert vision.inspect({"images": [picture(marker)], "prompt": "a confidential question"}).status_code == 200
+        vision.answer = lambda request: httpx.Response(400, json={"error": {"message": "cannot decode " + encoded}})
+        assert vision.inspect({"images": [picture(marker)], "prompt": "a confidential question"}).status_code == 502
+        vision.exchange = lambda request: httpx.Response(401, json={"message": "bad password " + IA_PASSWORD})
+        llm_ai_platform.reset_token_cache()
+        assert vision.inspect({"images": [picture(marker)]}).status_code == 424
+        assert vision.inspect({"images": [picture(marker, "image/gif")]}).status_code == 400
+
+    assert encoded not in caplog.text and encoded[:24] not in caplog.text
+    assert "confidential" not in caplog.text
+    assert IA_PASSWORD not in caplog.text and IA_JWT not in caplog.text
+    # What is logged: that the call happened, how many images, how large, how it ended.
+    lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("app sdk image call")]
+    size = len(marker)
+    assert lines == [
+        f"app sdk image call app_id={sdk.app.id} images=1 image_bytes={size} status=succeeded",
+        f"app sdk image call app_id={sdk.app.id} images=1 image_bytes={size} status=provider_error",
+        f"app sdk image call app_id={sdk.app.id} images=1 image_bytes={size} status=provider_auth_failed",
+    ]
+
+
+def test_image_analysis_is_never_a_connector_an_app_can_call(sdk, vision, upstream):
+    # Turned on for the app, and still no type of 9.3: answered as any unknown type is.
+    unknown = sdk.post("/connectors/aws/request", {"method": "GET", "path": "/"})
+    for kind in ("image_analysis", "IMAGE_ANALYSIS", "image-analysis"):
+        response = sdk.post(f"/connectors/{kind}/request", {"method": "POST", "path": "/v1/api/v1/chat/completions", "json": {"model": "gpt-5.4"}})
+        assert response.status_code == 400 and error_of(response)["code"] == "invalid_request"
+        assert error_of(response) == error_of(unknown)
+    assert "image_analysis" not in error_of(unknown)["message"]
+
+    # Not even when a row was written by hand: nothing is proxied and nothing is writable.
+    sdk.change(connectors_enabled=["image_analysis"], connectors_write=["image_analysis"])
+    assert sdk.post("/connectors/image_analysis/request", {"method": "GET", "path": "/"}).status_code == 400
+    assert sdk.get("/connectors").json() == {"connectors": []}
+    assert sdk.get("/app").json()["connectors"] == []
+    assert upstream.requests == [] and vision.requests == [] and sdk.executions() == []
+
+
+# --- image calls and the daily budget ------------------------------------------------------------
+
+
+def _image_in_the_background(sdk, body: dict):
+    """Start an image call on a thread of its own; ``(thread, responses)``."""
+    responses: list = []
+    client = TestClient(sdk.asgi)
+
+    def call():
+        responses.append(client.post(PREFIX + "/images/inspect", json={"images": [picture()], "prompt": QUESTION, **body}, headers=sdk.auth()))
+
+    thread = threading.Thread(target=call, daemon=True)
+    thread.start()
+    return thread, responses
+
+
+def test_an_image_call_under_way_is_counted_as_its_text_its_images_and_its_answer(sdk, vision, monkeypatch):
+    at(monkeypatch, NOON)
+    sdk.change(daily_tokens=5000)
+    provider = _HeldProvider(LlmResult("ok", "gpt-5.6-sol", "stop", LlmUsage(1830, 210, None)))
+    monkeypatch.setattr(sdk.api.image_analysis, "inspect", provider.complete)
+
+    # Nothing is spent yet. The call has two images, 19 characters of text, and may get 600 tokens back.
+    body = {"images": [picture(), picture(JPEG, "image/jpeg")], "prompt": "p" * 10, "system": "s" * 9, "max_output_tokens": 600}
+    thread, responses = _image_in_the_background(sdk, body)
+    assert provider.entered.acquire(timeout=30)
+    assert app_budget.in_flight.calls(sdk.app.id) == 1
+    assert app_budget.in_flight.tokens(sdk.app.id) == 5 + 2 * 1500 + 600 == 3605
+
+    # 3605 of 5000 are spoken for: another call is admitted, whatever it comes to itself.
+    second, second_responses = _image_in_the_background(sdk, {})
+    assert provider.entered.acquire(timeout=30)
+    assert app_budget.in_flight.tokens(sdk.app.id) == 3605 + ONE_IMAGE_UNDER_WAY == 9208
+
+    # Now nothing is left, for an image call and for a model call alike: they share the budget.
+    refused = vision.inspect()
+    assert refused.status_code == 429
+    assert error_of(refused)["code"] == "rate_limited", "not spent: under way, and worth another try soon"
+    assert refused.headers["retry-after"] == str(app_budget.IN_FLIGHT_RETRY_SECONDS)
+    model_call = sdk.complete()
+    assert model_call.status_code == 429 and error_of(model_call)["code"] == "rate_limited"
+    assert len(provider.calls) == 2 and sdk.gateway.calls == [], "neither provider is asked"
+    assert sdk.executions() == [], "a refused call is not recorded"
+    assert app_budget.in_flight.calls(sdk.app.id) == 2, "and is not counted either"
+
+    for answered in (1, 2):
+        provider.let_one_answer()
+        assert _until(lambda: len(responses) + len(second_responses) == answered)
+    thread.join(timeout=30)
+    second.join(timeout=30)
+    assert [response.status_code for response in responses + second_responses] == [200, 200]
+
+    # Each came to 2040 tokens: once the rows are written they are counted as that.
+    assert app_budget.in_flight.calls(sdk.app.id) == 0
+    assert sdk.get("/app").json()["budget"]["used_tokens"] == 4080
+    provider.hold = False
+    assert vision.inspect().status_code == 200, "4080 of 5000: one more call"
+    assert error_of(vision.inspect())["code"] == "budget_exceeded"
+
+
+def test_a_model_call_under_way_holds_an_image_call_back(sdk, vision, monkeypatch):
+    at(monkeypatch, NOON)
+    sdk.change(daily_tokens=1000)
+    provider = _HeldProvider(LlmResult("ok", "gpt-6-sol", "stop", LlmUsage(10, 20, None)))
+    monkeypatch.setattr(sdk.api.llm_gateway, "complete", provider.complete)
+
+    thread, responses = _in_the_background(sdk, {"max_output_tokens": 1000})
+    assert provider.entered.acquire(timeout=30)
+
+    refused = vision.inspect()
+    assert refused.status_code == 429 and error_of(refused)["code"] == "rate_limited"
+    assert vision.requests == []
+
+    provider.let_one_answer()
+    thread.join(timeout=30)
+    assert [response.status_code for response in responses] == [200]
+    assert vision.inspect().status_code == 200
+
+
+def test_image_calls_are_refused_once_the_days_budget_is_used(sdk, vision, monkeypatch):
+    at(monkeypatch, datetime(2026, 11, 15, 23, 0, 0))
+    sdk.change(daily_tokens=2000)
+
+    # Nothing used: the call goes through, and its 2040 tokens take the app over the limit.
+    assert vision.inspect().status_code == 200
+    assert sdk.get("/app").json()["budget"] == {"daily_credits": 50.0, "used_credits": 0.0, "daily_tokens": 2000, "used_tokens": 2040}
+
+    refused = vision.inspect()
+    assert refused.status_code == 429
+    assert error_of(refused)["code"] == "budget_exceeded" and "tokens" in error_of(refused)["message"]
+    # An hour to the next UTC midnight.
+    assert refused.headers["retry-after"] == "3600"
+    # The model calls of the app are refused by the same figure: one budget.
+    assert error_of(sdk.complete())["code"] == "budget_exceeded"
+    assert len(vision.calls()) == 1 and sdk.gateway.calls == [], "no provider is asked"
+    assert len(sdk.executions()) == 1, "a refused call is not recorded"
+
+    # Credits a model call used count against image calls too, and a limit of zero refuses every call.
+    sdk.change(daily_tokens=None, daily_credits=1.0)
+    spend(sdk, credits=1.0, created_at=datetime(2026, 11, 15, 9, 0, 0))
+    spent = vision.inspect()
+    assert error_of(spent)["code"] == "budget_exceeded" and "credits" in error_of(spent)["message"]
+    sdk.change(daily_credits=None, daily_tokens=0)
+    assert error_of(vision.inspect())["code"] == "budget_exceeded"
+
+    # The next day starts again.
+    at(monkeypatch, datetime(2026, 11, 16, 0, 0, 0))
+    sdk.change(daily_tokens=2000)
+    assert vision.inspect().status_code == 200
+
+
+def test_every_way_an_image_call_ends_gives_back_what_it_was_counted_as(sdk, vision, monkeypatch):
+    at(monkeypatch, NOON)
+    counted = lambda: app_budget.in_flight.calls(sdk.app.id)  # noqa: E731
+
+    assert vision.inspect({"max_output_tokens": 500}).status_code == 200
+    # Refused before it was counted, and at each gate after.
+    assert vision.inspect({"prompt": ""}).status_code == 400
+    sdk.config["image_analysis"] = image_connector(enabled=False)
+    assert vision.inspect().status_code == 424
+    sdk.config["image_analysis"] = image_connector()
+    sdk.change(daily_tokens=0)
+    assert error_of(vision.inspect())["code"] == "budget_exceeded"
+    sdk.change(daily_tokens=None, connectors_enabled=[])
+    assert error_of(vision.inspect())["code"] == "connector_disabled"
+    sdk.change(connectors_enabled=["image_analysis"])
+    assert counted() == 0
+
+    # AI Platform failed, and so did the Portal.
+    vision.answer = lambda request: httpx.Response(500, text="boom")
+    assert vision.inspect().status_code == 502
+
+    async def broken(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sdk.api.image_analysis, "inspect", broken)
+    assert vision.inspect().status_code == 500
+    assert counted() == 0
+    assert [row.status for row in sdk.executions()] == ["succeeded", "failed", "failed", "failed"]

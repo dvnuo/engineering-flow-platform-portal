@@ -52,7 +52,9 @@ from app.services.apps.host_spec import host_spec
 from app.services.apps.host_state import host_state
 from app.services.apps.manifest import DESCRIPTION_MAX_LENGTH, NAME_MAX_LENGTH, Manifest, check_ownership, parse_manifest
 from app.services.apps.names import (
+    APP_CAPABILITY_TYPES,
     APP_CONNECTOR_TYPES,
+    APP_ENABLED_TYPES,
     APP_VISIBILITIES,
     DESIRED_RUNNING,
     DESIRED_STOPPED,
@@ -168,7 +170,14 @@ def check_env(value: Any) -> dict[str, str]:
     return env
 
 
-def check_connector_types(value: Any) -> list[str]:
+def check_connector_types(value: Any, *, writable: bool = False) -> list[str]:
+    """What an owner turns on for an app (``apps.connectors_enabled``), checked and without repeats.
+
+    The proxied connectors and the capabilities (app/services/apps/names.py).
+    With ``writable`` the list is the one of what the app may write to
+    (``apps.connectors_write``), which holds proxied connectors only: a
+    capability has nothing to write to and is refused there.
+    """
     if value is None:
         return []
     if not isinstance(value, (list, tuple)):
@@ -176,7 +185,9 @@ def check_connector_types(value: Any) -> list[str]:
     chosen: list[str] = []
     for item in value:
         name = str(item or "").strip().lower()
-        if name not in APP_CONNECTOR_TYPES:
+        if writable and name in APP_CAPABILITY_TYPES:
+            raise AppValidationError(N_("{name} is not a connector an app can write to."), code="connector_not_writable", name=name)
+        if name not in (APP_CONNECTOR_TYPES if writable else APP_ENABLED_TYPES):
             raise AppValidationError(N_("{name} is not a connector an app can use."), code="connector_unknown", name=name or "(empty)")
         if name not in chosen:
             chosen.append(name)
@@ -459,10 +470,10 @@ class AppService:
             enabled_connectors = check_connector_types(connectors_enabled)
         write_connectors = list(app.connectors_write or [])
         if connectors_write is not UNSET:
-            write_connectors = check_connector_types(connectors_write)
-        # A connector the app may write to is one it may call.
+            write_connectors = check_connector_types(connectors_write, writable=True)
+        # A connector the app may write to is one it may call, and a proxied one.
         new["connectors_enabled"] = enabled_connectors
-        new["connectors_write"] = [item for item in write_connectors if item in enabled_connectors]
+        new["connectors_write"] = [item for item in write_connectors if item in enabled_connectors and item in APP_CONNECTOR_TYPES]
         if daily_credits is not UNSET:
             new["daily_credits"] = _check_budget(daily_credits, whole=False)
         if daily_tokens is not UNSET:

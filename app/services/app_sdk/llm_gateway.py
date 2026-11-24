@@ -8,9 +8,10 @@ the call leaves through the proxy the Proxy connector assigns the model
 provider, verified against the Portal's CA trust, like the Model provider
 Test button.
 
-Text in, text out: no tools, no images. The providers' protocols are in
-``llm_copilot.py`` and ``llm_ai_platform.py``, the wire formats in
-``llm_wire.py``. Nothing here knows about apps, tokens, budgets or the
+Text in, text out: no tools, no images (a question about images is a call
+of its own, on the owner's Image analysis connector: ``image_analysis.py``).
+The providers' protocols are in ``llm_copilot.py`` and
+``llm_ai_platform.py``, the wire formats in ``llm_wire.py``. Nothing here knows about apps, tokens, budgets or the
 database; the caller records ``LlmResult.usage`` and turns ``LlmGatewayError``
 into the response of docs/CONTRACTS.md section 9.
 
@@ -180,13 +181,18 @@ async def complete(
     ``low``, and either way it is lowered to what the model takes.
     """
     request = _request(config, model, messages, system, max_output_tokens, temperature, reasoning_effort)
+    return await collect(_events(config, request, client, streaming=False), request.model)
+
+
+async def collect(answer: AsyncIterator[str | WireDone], model: str) -> LlmResult:
+    """A provider's answer (text deltas, then one ``WireDone``) as one result; the iterator is closed either way."""
     parts: list[str] = []
-    async with aclosing(_events(config, request, client, streaming=False)) as events:
+    async with aclosing(answer) as events:
         async for item in events:
             if isinstance(item, WireDone):
                 return LlmResult(
                     text="".join(parts) or item.text,
-                    model=request.model,
+                    model=model,
                     finish_reason=item.finish_reason,
                     usage=item.usage,
                 )
@@ -252,6 +258,19 @@ def _materialized_llm(config: Any) -> dict:
     return materialize_ai_platform_llm_config(_llm_section(config), settings=get_settings())
 
 
+def app_reasoning_effort(value: Any) -> str:
+    """The thinking level an app asked for: ``low``, ``medium`` or ``high``, and ``low`` when it asked for none.
+
+    ``invalid_request`` for anything else. The caller still lowers it to
+    what the model takes (``effective_reasoning_effort``).
+    """
+    if value is None:
+        return DEFAULT_APP_REASONING_EFFORT
+    if not isinstance(value, str) or value.strip().lower() not in APP_REASONING_EFFORTS:
+        raise LlmGatewayError("invalid_request", "reasoning_effort must be low, medium or high.")
+    return value.strip().lower()
+
+
 def _request(
     config: dict,
     model: Any,
@@ -298,11 +317,7 @@ def _request(
         or not 0 <= temperature <= MAX_TEMPERATURE
     ):
         raise LlmGatewayError("invalid_request", "temperature must be a number from 0 to 2.")
-    if reasoning_effort is not None and (
-        not isinstance(reasoning_effort, str) or reasoning_effort.strip().lower() not in APP_REASONING_EFFORTS
-    ):
-        raise LlmGatewayError("invalid_request", "reasoning_effort must be low, medium or high.")
-    wanted_effort = reasoning_effort.strip().lower() if reasoning_effort is not None else DEFAULT_APP_REASONING_EFFORT
+    wanted_effort = app_reasoning_effort(reasoning_effort)
     resolved = resolve_model(config, model)
     return LlmRequest(
         model=resolved,
@@ -350,7 +365,9 @@ __all__ = [
     "MAX_INPUT_CHARS",
     "MAX_MESSAGES",
     "MAX_OUTPUT_TOKENS",
+    "app_reasoning_effort",
     "available_models",
+    "collect",
     "complete",
     "default_model",
     "is_configured",

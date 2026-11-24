@@ -37,6 +37,13 @@ CSS = (ROOT / "app/static/css/app.css").read_text(encoding="utf-8")
 # The three warnings the product owner asked for, word for word.
 LLM_WARNING = "Visitors' use of this app consumes your Copilot and may slow down your own chats."
 CONNECTOR_WARNING = "Visitors will read these systems with your connector's account."
+# Image analysis, turned on beside the connectors, is said in words of its own:
+# what the owner is asked before it is turned on, and the line under its switch.
+IMAGE_ANALYSIS_WARNING = (
+    "Images that visitors give this app are read with the account of your Image analysis connector, "
+    "and each call counts against the app's daily limit."
+)
+IMAGE_ANALYSIS_DETAIL = "The app reads images with the owner's Image analysis connector, and each call counts against the app's daily limit."
 
 
 def _guarded_blocks(html: str) -> str:
@@ -411,6 +418,33 @@ def test_the_three_warnings_are_said_at_the_moment_of_the_action():
     direct = audience.split("if (!asked) {", 1)[1]
     assert "updated = await save();" in direct
     assert audience.index("window.showConfirm(") < audience.index("if (!asked) {")
+
+
+def test_image_analysis_has_a_warning_of_its_own_at_the_same_moments():
+    # It is switched in the connectors' list, and it is no system the app reads: its own words, at the same two moments.
+    warning = _extract_js_function(APPS_JS, "imageAnalysisWarning")
+    assert f't("{IMAGE_ANALYSIS_WARNING}")' in warning
+    assert "{owner}'s Image analysis connector" in warning and "ownerName(page.app)" in warning
+
+    capability = _extract_js_function(APPS_JS, "changeCapability")
+    connector_branch = capability.split('input.hasAttribute("data-app-connector")', 1)[1].split("} else {", 1)[0]
+    assert "if (type === IMAGE_ANALYSIS) question.message = imageAnalysisWarning();" in connector_branch
+    # Asked only when it is turned on, saved through the same list as the connectors, with no list of its own.
+    assert connector_branch.index("if (turnedOn) {") < connector_branch.index("imageAnalysisWarning()")
+    assert "changes = { connectors_enabled: enabled };" in connector_branch
+    assert "image_analysis" not in capability.replace("IMAGE_ANALYSIS", "")
+
+    audience = _extract_js_function(APPS_JS, "changeAudience")
+    assert "if (turnedOn.indexOf(IMAGE_ANALYSIS) >= 0) warnings.push(imageAnalysisWarning());" in audience
+    # With image analysis alone turned on, "these systems" is not what the owner is reminded of.
+    assert "if (turnedOn.some(function (item) { return !isCapability(item); })) warnings.push(connectorWarning());" in audience
+
+    # One switch, drawn after the connectors' rows, and no "May write" box of its own.
+    section = _extract_js_function(APPS_JS, "capabilitySectionHtml")
+    rows = section.split("capabilities.map(function (type) {", 1)[1].split('}).join("");', 1)[0]
+    assert 'data-app-connector="' in rows and "data-app-connector-write" not in rows
+    assert "tv(CAPABILITIES[type].detail)" in rows
+    assert f'detail: N_("{IMAGE_ANALYSIS_DETAIL}")' in APPS_JS
 
 
 def test_destructive_actions_ask_in_words_that_say_what_happens():

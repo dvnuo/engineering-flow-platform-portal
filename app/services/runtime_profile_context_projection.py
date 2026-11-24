@@ -87,7 +87,7 @@ RUNTIME_PROFILE_IMAGE_ANALYSIS_INSTRUCTIONS = (
     "--model (the model comes from the connector), never run inspect-image auth login, never guess what an image shows, "
     "and never fall back to OCR or image-parsing scripts. If inspect-image returns auth_required or config_error, or still "
     "fails after one retry, use the attached-files analysis skill (Productivity Suite through the Local bridge) when the "
-    "Attached files block says the Local bridge is on for this chat; otherwise tell the user the image could not be "
+    "Local bridge is on for this chat (the browser tool is available); otherwise tell the user the image could not be "
     "analyzed and that the Image analysis connector under Portal > Connectors needs checking."
 )
 

@@ -29,6 +29,7 @@ from app.services.apps import budget as app_budget
 from app.services.apps.access import display_name_of
 from app.services.apps.executions import STATUS_FAILED
 from app.services.apps.host_state import host_state
+from app.services.apps.names import proxied_connectors
 
 DEFAULT_DAYS = 30
 MAX_DAYS = 90
@@ -162,9 +163,11 @@ def app_usage(db: Session, app: App, days: int = DEFAULT_DAYS, *, today: Optiona
         .group_by(AppExecution.connector_type)
     ).all()
     connector_counts = {str(kind or ""): (int(calls), int(failed)) for kind, calls, failed in connector_rows}
-    # A connector the app may call is listed even before its first call.
-    for kind in app.connectors_enabled or []:
-        connector_counts.setdefault(str(kind), (0, 0))
+    # A connector the app may call is listed even before its first call. Only
+    # the proxied ones: image analysis is in the same list, but its calls are
+    # model calls and are counted above, never here.
+    for kind in proxied_connectors(app.connectors_enabled):
+        connector_counts.setdefault(kind, (0, 0))
     connectors = [
         {"type": kind, "calls": calls, "failed": failed}
         for kind, (calls, failed) in sorted(connector_counts.items(), key=lambda item: (-item[1][0], item[0]))

@@ -125,8 +125,8 @@ The configured bootstrap administrator is created when missing and automatically
 | `APPS_HOST_INTERNAL_URL` | The app host's manager API as the Portal reaches it inside the cluster, e.g. `http://efp-apps.efp-apps.svc:9000`. Never called through an outbound proxy | (empty) |
 | `APPS_HOST_API_TOKEN` | The one shared secret between the Portal and the app host, sent as a bearer token in both directions (the host's `EFP_HOST_API_TOKEN`). Empty rejects every call from the host. Keep `/api/app-host/` off the public ingress | (empty) |
 | `APPS_ANYONE_ENABLED` | Allow apps that need no sign-in. Each one still needs a system administrator's approval; until then (and while this is off) such an app is open to every member | `false` |
-| `APPS_DEFAULT_DAILY_CREDITS` | What one app may spend a day of its owner's model provider, in AI credits, unless a system administrator gave the app its own figure; `APPS_DEFAULT_DAILY_TOKENS` (`2000000`) is the same for tokens. A model call is refused (`budget_exceeded`) once either figure is reached, until the next UTC midnight; `0` refuses every call | `50` |
-| `APPS_SDK_RATE_PER_MINUTE` | Calls of the SDK API (`/api/app-sdk/v1`, authenticated by the app's token alone) one app may make a minute; `0` sets no limit | `120` |
+| `APPS_DEFAULT_DAILY_CREDITS` | What one app may spend a day of its owner's model provider, in AI credits, unless a system administrator gave the app its own figure; `APPS_DEFAULT_DAILY_TOKENS` (`2000000`) is the same for tokens. A model call is refused (`budget_exceeded`) once either figure is reached, until the next UTC midnight; `0` refuses every call. An image call (`POST /api/app-sdk/v1/images/inspect`, answered on the owner's Image analysis connector) is counted as a model call against the same figures | `50` |
+| `APPS_SDK_RATE_PER_MINUTE` | Calls of the SDK API (`/api/app-sdk/v1`, authenticated by the app's token alone) one app may make a minute; `0` sets no limit. One of its calls is large by design: an image call carries up to four images of 5 MiB, about 28 MB of JSON (the Portal refuses a body over 40 MiB unread), so an ingress in front of `/api/app-sdk/` must allow that size (`proxy-body-size`; the shipped `30m` does) | `120` |
 | `APPS_GIT_AUTH_PAT` | The service account's token for reading app repositories through the GitHub REST API (the Portal image has no `git`); empty uses `GIT_REPO_AUTH_PAT`. When the account cannot read a repository the member is told which account to add as a read-only collaborator | (empty) |
 | `APPS_GITHUB_API_URL` | The GitHub REST API apps are read from; `https://<host>/api/v3` for GitHub Enterprise Server. Repositories must live on that GitHub. Calls follow the platform's Proxy connector when one is set up, else `GITHUB_PROXY_URL` | `https://api.github.com` |
 | `APPS_MAX_BUNDLE_MB` | The largest code tarball of a commit the Portal downloads and hands to the app host | `200` |
@@ -330,6 +330,7 @@ Choose from the model catalog offered for the selected provider; standalone Open
 ### Image analysis
 - An AI Platform account (username, password, usercase) and the model that reads images through the `inspect-image` CLI, whichever provider the member chats with
 - Usually one shared account set in Default connectors, which every member's connector follows until they customize it
+- An app's owner can turn it on for an app (the app's **Settings**): the app then asks questions about images through the SDK API, the Portal answers them with this connector's account and model, and each call counts against the app's daily limit
 
 The chat model itself is not sent images unless the deployment sets `EFP_CHAT_VISION`. Without this connector, attached images go to Productivity Suite in the member's browser.
 
