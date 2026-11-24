@@ -170,6 +170,7 @@ If authorization fails immediately, check the account's model entitlement and co
 
 | Connector | What to enter or check | How to confirm it works |
 | --- | --- | --- |
+| Image analysis | Usually nothing: it follows the AI Platform account your group shares. With your own values: the AI Platform username, password and usercase, and the model that reads the images | Use **Test image analysis**, then attach a screenshot and ask what it shows |
 | Jira | Instance name and URL, enabled state, account username/email, password or API token as required, optional project, and API version | Use **Test Jira**, then ask for one issue your account can read |
 | Confluence | Instance name and URL, enabled state, username/email, password or API token as required, and optional space | Use **Test Confluence**, then ask for one accessible page |
 | GitHub | Correct API host and a token authorized for the intended repositories/actions; the **Commit identity** (name and email) on the assistant's commits is in the same connector | Use **Test GitHub**, then read a known repository. Inspect the author of a subsequent test commit; the commit identity is not authentication |
@@ -274,11 +275,11 @@ There are two different file workflows:
 
 The default chat attachment types are `pdf`, `docx`, `xlsx`, `csv`, `txt`, `log`, `pptx`, `zip`, `md`, `yaml`, `yml`, `json`, and `xml`. Images, audio, and video are not enabled by default. Your administrator can change the allowed extensions; the file picker and any rejection message reflect your deployment's list. A filename must have an allowed extension. Changing an unsupported binary file's extension does not make it readable.
 
-You can also drag allowed files into the supported chat drop area. Paste images only when your deployment enables their types, the selected model supports vision, and your browser supports pasting them. Remove the attachment card before sending if you selected the wrong input.
+You can also drag allowed files into the supported chat drop area. Paste images only when your deployment enables their types and your browser supports pasting them. Remove the attachment card before sending if you selected the wrong input.
 
 **Wait for upload and processing to finish.** The attachment card shows its filename, an **Uploading** progress state, and then **Extracting text** for non-image files. A successful card shows a checkmark, type, and size. If it says **text not extracted**, inspect the error and use a readable export or ask your administrator to check runtime support; upload success alone does not prove the model can read the contents. A failed card shows the upload error.
 
-On a compatible runtime, documents are converted to text, a ZIP supplies its file listing and readable text entries, and allowed text files are read as UTF-8. Image understanding requires a vision-capable model. After sending, a linked file card in the conversation opens or downloads the retained attachment; text, PDFs, and images may open in a new tab, while active markup such as XML downloads.
+On a compatible runtime, documents are converted to text, a ZIP supplies its file listing and readable text entries, and allowed text files are read as UTF-8. The chat model cannot see images: the assistant reads an attached image through the **Image analysis** connector, or through Productivity Suite in your own browser (Local bridge switched on) when that connector is not set up or fails. After sending, a linked file card in the conversation opens or downloads the retained attachment; text, PDFs, and images may open in a new tab, while active markup such as XML downloads.
 
 The default Portal upload limit is 25 MB per file, but the runtime and ingress can impose a lower effective limit. Ask an administrator about a consistent upload-limit change instead of repeatedly retrying an oversized file.
 

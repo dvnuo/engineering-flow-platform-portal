@@ -170,6 +170,14 @@
     ['input[name="llm_ai_platform_usercase"]', t("AI Platform usercase identifier issued to your team")],
     ['[data-test-target="llm"]', t("Send a one-word request to the model provider with these settings")],
 
+    // --- connector: image analysis ---
+    ['input[name="image_analysis_enabled"]', t("Let your assistants read images through AI Platform")],
+    ['input[name="image_analysis_ai_platform_username"]', t("AI Platform account username")],
+    ['input[name="image_analysis_ai_platform_password"]', t("AI Platform account password")],
+    ['input[name="image_analysis_ai_platform_usercase"]', t("AI Platform usercase identifier issued to your team")],
+    ["#image_analysis_model", t("The AI Platform model that reads the images, not the one you chat with")],
+    ['[data-test-target="image_analysis"]', t("Send one tiny image to AI Platform with these settings")],
+
     // --- connectors: integrations ---
     ['input[name="jira_enabled"]', t("Let your assistants read and update Jira")],
     ['input[name="confluence_enabled"]', t("Let your assistants read and write Confluence")],

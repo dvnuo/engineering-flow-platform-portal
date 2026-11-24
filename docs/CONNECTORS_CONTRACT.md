@@ -274,6 +274,7 @@ The API is always served. Unconfigured local connectors are listed as disabled (
 | type | label | category | settings keys it owns | form sections | tests |
 |---|---|---|---|---|---|
 | `llm` | Model provider | Model | `llm` | `llm` | `llm` |
+| `image_analysis` | Image analysis | Model | `image_analysis` | `image_analysis` | `image_analysis` |
 | `jira` | Jira | Work tracking & docs | `jira` | `jira` | `jira` |
 | `confluence` | Confluence | Work tracking & docs | `confluence` | `confluence` | `confluence` |
 | `github` | GitHub | Code & delivery | `github`, `git` | `github`, `git` | `github` |
@@ -327,7 +328,8 @@ with the changed connectors per group, so a group that sets a connector itself k
 `revision` is bumped and the save rollout runs for each of them (Secret, idle restarts, "Restart to apply" on busy
 assistants), one member at a time, a failure never stopping the rest; one `sync_connector_defaults` audit row
 carries the counts. A seed a member's own Save would refuse (a value the sanitizer cannot store, a default instance
-or account or an EKS row naming nothing) is refused on save, since members in `system` mode would receive it as is.
+or account or an EKS row naming nothing, Image analysis switched on without its whole AI Platform account) is refused
+on save, since members in `system` mode would receive it as is.
 
 Rows from before modes existed (`connector_modes_json` NULL) count as `custom` everywhere until startup classifies
 them (`RuntimeProfileService.backfill_connector_modes`): a connector whose row values equal the current seed follows

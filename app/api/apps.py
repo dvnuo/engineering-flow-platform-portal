@@ -82,7 +82,14 @@ from app.services.apps.errors import AppError, AppForbidden, AppHostError, AppNo
 from app.services.apps.host_client import HOST_APP_NOT_FOUND, AppHostClient
 from app.services.apps.host_spec import current_sha
 from app.services.apps.host_state import host_state
-from app.services.apps.names import APP_CONNECTOR_TYPES, APP_TYPES, APP_VISIBILITIES, RESERVED_SLUGS, RELEASE_RUNNING
+from app.services.apps.names import (
+    APP_CAPABILITY_TYPES,
+    APP_CONNECTOR_TYPES,
+    APP_TYPES,
+    APP_VISIBILITIES,
+    RESERVED_SLUGS,
+    RELEASE_RUNNING,
+)
 from app.services.apps.rate_limit import REPO_READS_PER_MINUTE, repo_read_limiter
 from app.services.apps.source import AppSourceService, parse_repo_url, source_for, web_host_of
 from app.services.apps.templates import template_info
@@ -357,6 +364,7 @@ def get_apps_settings(user=Depends(get_current_user), db: Session = Depends(get_
         default_daily_credits=apps_settings.default_daily_credits(),
         default_daily_tokens=apps_settings.default_daily_tokens(),
         connector_types=list(APP_CONNECTOR_TYPES),
+        capability_types=list(APP_CAPABILITY_TYPES),
         visibilities=[item for item in APP_VISIBILITIES if item != "anyone" or apps_settings.anyone_enabled()],
         app_types=list(APP_TYPES),
         reserved_slugs=sorted(RESERVED_SLUGS),

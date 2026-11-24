@@ -1607,6 +1607,18 @@
   const LOG_TRIM_LINES = 500;
   const LOG_RECONNECT_MS = 5000;
   const CONNECTOR_NAMES = { jira: "Jira", confluence: "Confluence", github: "GitHub", jenkins: "Jenkins", nexus: "Nexus", splunk: "Splunk" };
+  // What an owner may turn on besides those connectors. It is kept in the
+  // same list (connectors_enabled), but it is not a system the app calls:
+  // the Portal does it for the app with one of the owner's connectors, so
+  // there is nothing to write to and no "May write" beside it
+  // (app/services/apps/names.py: APP_CAPABILITY_TYPES).
+  const IMAGE_ANALYSIS = "image_analysis";
+  const CAPABILITIES = {
+    image_analysis: {
+      name: N_("Image analysis"),
+      detail: N_("The app reads images with the owner's Image analysis connector, and each call counts against the app's daily limit."),
+    },
+  };
 
   let pageToken = 0;
 
@@ -1716,7 +1728,12 @@
     return appState(page.app, page.status);
   }
 
+  function isCapability(type) {
+    return Object.prototype.hasOwnProperty.call(CAPABILITIES, type);
+  }
+
   function connectorName(type) {
+    if (isCapability(type)) return tv(CAPABILITIES[type].name);
     return CONNECTOR_NAMES[type] || String(type || "");
   }
 
@@ -3024,6 +3041,11 @@
     return t("Visitors will read these systems with the account of {owner}'s connector.", { owner: ownerName(page.app) });
   }
 
+  function imageAnalysisWarning() {
+    if (page.app.is_owner) return t("Images that visitors give this app are read with the account of your Image analysis connector, and each call counts against the app's daily limit.");
+    return t("Images that visitors give this app are read with the account of {owner}'s Image analysis connector, and each call counts against the app's daily limit.", { owner: ownerName(page.app) });
+  }
+
   // Saves changes to the app of `owner`, the page that asked. The answer is
   // that app as it was saved: it is kept on that page and on no other, and
   // the header follows it only while that page is the one on the screen.
@@ -3107,6 +3129,8 @@
     const manage = page.app.manage || {};
     const settings = settingsState.value || {};
     const types = Array.isArray(settings.connector_types) && settings.connector_types.length ? settings.connector_types : Object.keys(CONNECTOR_NAMES);
+    // The ones the Portal offers and this page has words for.
+    const capabilities = (Array.isArray(settings.capability_types) ? settings.capability_types : Object.keys(CAPABILITIES)).filter(isCapability);
     const enabled = manage.connectors_enabled || [];
     const writable = manage.connectors_write || [];
     const credits = manage.daily_credits === null || manage.daily_credits === undefined ? manage.default_daily_credits : manage.daily_credits;
@@ -3121,6 +3145,16 @@
         (writable.indexOf(type) >= 0 ? " checked" : "") + (on ? "" : " disabled") + " /><span>" + esc(t("May write")) + "</span></label>" +
         '<label class="toggle-switch" aria-label="' + esc(t("Let the app use {name}", { name: name })) + '"><input type="checkbox" data-app-connector="' + esc(type) + '"' + (on ? " checked" : "") +
         ' /><span class="toggle-slider"></span></label>' +
+        "</div>"
+      );
+    }).join("") + capabilities.map(function (type) {
+      // Saved like a connector's switch (the same list), with no "May write".
+      const name = connectorName(type);
+      return (
+        '<div class="portal-app-switch-row">' +
+        '<div class="portal-app-switch-copy"><strong>' + esc(name) + "</strong><small>" + esc(tv(CAPABILITIES[type].detail)) + "</small></div>" +
+        '<label class="toggle-switch" aria-label="' + esc(t("Let the app use {name}", { name: name })) + '"><input type="checkbox" data-app-connector="' + esc(type) + '"' +
+        (enabled.indexOf(type) >= 0 ? " checked" : "") + ' /><span class="toggle-slider"></span></label>' +
         "</div>"
       );
     }).join("");
@@ -3380,7 +3414,9 @@
       // More people in: said again what their use costs the owner.
       const warnings = [];
       if (manage.llm_enabled) warnings.push(llmWarning());
-      if ((manage.connectors_enabled || []).length) warnings.push(connectorWarning());
+      const turnedOn = manage.connectors_enabled || [];
+      if (turnedOn.some(function (item) { return !isCapability(item); })) warnings.push(connectorWarning());
+      if (turnedOn.indexOf(IMAGE_ANALYSIS) >= 0) warnings.push(imageAnalysisWarning());
       if (warnings.length) {
         // The dialog stays until the audience is saved, and says so when it is not.
         const confirmed = await window.showConfirm({
@@ -3444,6 +3480,9 @@
       changes = { connectors_enabled: enabled };
       if (turnedOn) {
         question = { title: t("Let {name} use {connector}?", { name: app.name, connector: connectorName(type) }), message: connectorWarning(), confirmText: t("Turn on") };
+        // Image analysis is switched in the same list, and is no system the
+        // app reads: it is warned about in its own words.
+        if (type === IMAGE_ANALYSIS) question.message = imageAnalysisWarning();
       }
     } else {
       const type = input.dataset.appConnectorWrite;

@@ -264,6 +264,14 @@ def _llm_state(config: Mapping[str, Any]) -> str:
     return STATE_CONNECTED if _text(llm.get("api_key")) else STATE_NOT_SET_UP
 
 
+def _image_analysis_state(config: Mapping[str, Any]) -> str:
+    """On only with the switch on and a password stored; a stored password
+    with the switch off reads as turned off."""
+    section = _section(config, "image_analysis")
+    auth = _section(_section(section, "ai_platform"), "auth")
+    return _enabled_or_off(section, bool(_text(auth.get("password"))))
+
+
 def _proxy_state(config: Mapping[str, Any]) -> str:
     proxy = _section(config, "proxy")
     entries = proxy.get("proxies")
@@ -358,6 +366,17 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         state_of=_llm_state,
         test_targets=("llm",),
         managed_sections=(),
+    ),
+    # Directly after the model provider: the Connectors list shows a category's
+    # connectors in registry order.
+    _settings_connector(
+        "image_analysis",
+        N_("Image analysis"),
+        "Model",
+        N_("Lets your assistants read screenshots, photos and diagrams through AI Platform, whichever model they chat with."),
+        icon="scan-eye",
+        state_of=_image_analysis_state,
+        test_targets=("image_analysis",),
     ),
     _settings_connector(
         "jira",

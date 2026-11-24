@@ -255,14 +255,25 @@ class Settings(BaseSettings):
     # plus the text files inside, any UTF-8 text format (txt, md, log, json,
     # yaml, xml, source files, ...) is projected as text, and images plus the
     # office formats the runtime cannot parse (doc, dot, xls) are forwarded:
-    # stored and listed to the assistant, which analyzes them through
-    # Productivity Suite in the member's browser (the chat model cannot see
-    # images). A deployment without Productivity Suite trims the list. See
-    # app/utils/chat_upload_policy.py.
+    # stored and listed to the assistant. It reads an image through the
+    # Image analysis connector (inspect-image on AI Platform) and, where that
+    # is not set up or fails, through Productivity Suite in the member's
+    # browser, which is also the only route for doc, dot and xls (the chat
+    # model cannot see images; EFP_CHAT_VISION below). A deployment with
+    # neither trims the list. See app/utils/chat_upload_policy.py.
     chat_upload_extensions: str = Field(
         default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml,doc,dot,xls,png,jpg,jpeg,jpe,jfif,tiff,webp,bmp",
         validation_alias="EFP_CHAT_UPLOAD_EXTENSIONS",
     )
+    # Whether the chat model is sent images. Off (the default), no chat
+    # provider gets image parts, GitHub Copilot and AI Platform alike: an
+    # attached image goes the way described above. On, every agent pod gets
+    # EFP_CHAT_VISION=1 and its runtime inlines images into the chat request
+    # as it used to, whatever the provider. An operator's switch for a
+    # deployment whose chat models do accept images; members have no control
+    # for it. The runtimes read the older EFP_COPILOT_VISION_VIA_CHAT as the
+    # same switch.
+    chat_vision: bool = Field(default=False, validation_alias="EFP_CHAT_VISION")
     # Directory holding the Appium Inspector web build (the dist-browser
     # folder of the appium-inspector-plugin npm package). Empty disables the
     # hosted Inspector; members then use the desktop app. The Inspector talks

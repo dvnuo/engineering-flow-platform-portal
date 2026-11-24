@@ -343,7 +343,10 @@ class AppSettingsResponse(BaseModel):
     service_account: Optional[str] = None
     default_daily_credits: float
     default_daily_tokens: int
+    # The proxied connectors an owner may turn on (each with a write switch), and what an
+    # owner may turn on besides them: both go into ``connectors_enabled`` (app/services/apps/names.py).
     connector_types: list[str]
+    capability_types: list[str]
     visibilities: list[str]
     app_types: list[str]
     reserved_slugs: list[str]

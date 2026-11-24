@@ -411,6 +411,56 @@ def test_update_changes_only_what_was_sent_and_audits_it(world):
     assert _actions(world.db, app) == ["app.created", "app.updated", "app.updated", "app.updated", "app.updated"]
 
 
+def test_image_analysis_is_turned_on_in_the_connectors_list_and_is_never_writable(world):
+    from app.services.apps import names
+    from app.services.apps.app_service import check_connector_types
+
+    # The distinction has a name: the six proxied types, and what an app can be given besides them.
+    assert names.APP_CONNECTOR_TYPES == ("jira", "confluence", "github", "jenkins", "nexus", "splunk")
+    assert names.APP_CAPABILITY_TYPES == (names.APP_IMAGE_ANALYSIS,) == ("image_analysis",)
+    assert names.APP_ENABLED_TYPES == names.APP_CONNECTOR_TYPES + names.APP_CAPABILITY_TYPES
+    assert not set(names.APP_CONNECTOR_TYPES) & set(names.APP_CAPABILITY_TYPES)
+
+    app = world.create()
+    owner = world.users["owner"]
+
+    # On: stored in the list the connectors are stored in, as it was sent.
+    assert world.service.update(app, owner, connectors_enabled=["jira", "Image_Analysis "]) == ["connectors_enabled"]
+    assert app.connectors_enabled == ["jira", "image_analysis"] and app.connectors_write == []
+    assert names.has_capability(app.connectors_enabled, "image_analysis") is True
+    assert names.proxied_connectors(app.connectors_enabled) == ["jira"]
+
+    # Never writable: asked for by name it is refused, and nothing is changed.
+    for write in (["image_analysis"], ["jira", "image_analysis"]):
+        with pytest.raises(AppValidationError) as caught:
+            world.service.update(app, owner, connectors_write=write)
+        assert caught.value.code == "connector_not_writable"
+    assert app.connectors_write == []
+    with pytest.raises(AppValidationError):
+        check_connector_types(["image_analysis"], writable=True)
+    assert check_connector_types(["image_analysis", "jira", "image_analysis"]) == ["image_analysis", "jira"]
+    assert check_connector_types(["jira"], writable=True) == ["jira"]
+    # A row that says so all the same (written by hand) is put right by the next save.
+    app.connectors_write = ["jira", "image_analysis"]
+    world.db.commit()
+    world.service.update(app, owner, connectors_enabled=["jira", "image_analysis"], name="Mind maps")
+    assert app.connectors_write == ["jira"]
+
+    # Writing to a connector leaves it alone, and so does turning a connector off.
+    world.service.update(app, owner, connectors_enabled=["image_analysis"])
+    assert (app.connectors_enabled, app.connectors_write) == (["image_analysis"], [])
+
+    # Off again.
+    assert world.service.update(app, owner, connectors_enabled=[]) == ["connectors_enabled"]
+    assert app.connectors_enabled == [] and names.has_capability(app.connectors_enabled, "image_analysis") is False
+    # A capability nobody knows is no more allowed than a connector nobody knows.
+    for unknown in ("images", "llm", "image_analysis_v2"):
+        with pytest.raises(AppValidationError) as caught:
+            world.service.update(app, owner, connectors_enabled=[unknown])
+        assert caught.value.code == "connector_unknown"
+    assert names.has_capability(["jira"], "jira") is False, "a connector is not a capability"
+
+
 def test_nothing_is_changed_when_one_value_is_bad(world):
     app = world.create()
     with pytest.raises(AppValidationError):
@@ -713,7 +763,7 @@ def test_clear_data(world):
 
 def test_transfer_gives_the_new_owner_a_clean_app(world):
     app = world.deployed()
-    world.service.update(app, world.users["owner"], llm_enabled=True, connectors_enabled=["jira"], connectors_write=["jira"])
+    world.service.update(app, world.users["owner"], llm_enabled=True, connectors_enabled=["jira", "image_analysis"], connectors_write=["jira"])
     old_token = app.token_value
     world.service.transfer_owner(app, world.users["admin"], world.users["other"])
     assert app.owner_user_id == world.users["other"].id

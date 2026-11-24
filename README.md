@@ -25,7 +25,7 @@ See the [full documentation index](docs/README.md) for troubleshooting, screensh
 
 - **Agent Management** - Create, start, stop, delete, share agents
 - **Web Chat UI** - Chat with EFP agents via reverse proxy
-- **Connectors** - One connector per service, set up once and used by all of a member's assistants: the model provider (GitHub Copilot or AI Platform), Jira, Confluence, GitHub (with Git commit identity), Jenkins, Nexus, AWS, Splunk, PostgreSQL, BrowserStack, proxy, and the local browser
+- **Connectors** - One connector per service, set up once and used by all of a member's assistants: the model provider (GitHub Copilot or AI Platform), image analysis, Jira, Confluence, GitHub (with Git commit identity), Jenkins, Nexus, AWS, Splunk, PostgreSQL, BrowserStack, proxy, and the local browser
 - **File Management** - Upload files, preview attachments
 - **Session History** - View past conversations
 - **Usage Tracking** - Monitor agent usage and costs
@@ -125,8 +125,8 @@ The configured bootstrap administrator is created when missing and automatically
 | `APPS_HOST_INTERNAL_URL` | The app host's manager API as the Portal reaches it inside the cluster, e.g. `http://efp-apps.efp-apps.svc:9000`. Never called through an outbound proxy | (empty) |
 | `APPS_HOST_API_TOKEN` | The one shared secret between the Portal and the app host, sent as a bearer token in both directions (the host's `EFP_HOST_API_TOKEN`). Empty rejects every call from the host. Keep `/api/app-host/` off the public ingress | (empty) |
 | `APPS_ANYONE_ENABLED` | Allow apps that need no sign-in. Each one still needs a system administrator's approval; until then (and while this is off) such an app is open to every member | `false` |
-| `APPS_DEFAULT_DAILY_CREDITS` | What one app may spend a day of its owner's model provider, in AI credits, unless a system administrator gave the app its own figure; `APPS_DEFAULT_DAILY_TOKENS` (`2000000`) is the same for tokens. A model call is refused (`budget_exceeded`) once either figure is reached, until the next UTC midnight; `0` refuses every call | `50` |
-| `APPS_SDK_RATE_PER_MINUTE` | Calls of the SDK API (`/api/app-sdk/v1`, authenticated by the app's token alone) one app may make a minute; `0` sets no limit | `120` |
+| `APPS_DEFAULT_DAILY_CREDITS` | What one app may spend a day of its owner's model provider, in AI credits, unless a system administrator gave the app its own figure; `APPS_DEFAULT_DAILY_TOKENS` (`2000000`) is the same for tokens. A model call is refused (`budget_exceeded`) once either figure is reached, until the next UTC midnight; `0` refuses every call. An image call (`POST /api/app-sdk/v1/images/inspect`, answered on the owner's Image analysis connector) is counted as a model call against the same figures | `50` |
+| `APPS_SDK_RATE_PER_MINUTE` | Calls of the SDK API (`/api/app-sdk/v1`, authenticated by the app's token alone) one app may make a minute; `0` sets no limit. One of its calls is large by design: an image call carries up to four images of 5 MiB, about 28 MB of JSON (the Portal refuses a body over 40 MiB unread), so an ingress in front of `/api/app-sdk/` must allow that size (`proxy-body-size`; the shipped `30m` does) | `120` |
 | `APPS_GIT_AUTH_PAT` | The service account's token for reading app repositories through the GitHub REST API (the Portal image has no `git`); empty uses `GIT_REPO_AUTH_PAT`. When the account cannot read a repository the member is told which account to add as a read-only collaborator | (empty) |
 | `APPS_GITHUB_API_URL` | The GitHub REST API apps are read from; `https://<host>/api/v3` for GitHub Enterprise Server. Repositories must live on that GitHub. Calls follow the platform's Proxy connector when one is set up, else `GITHUB_PROXY_URL` | `https://api.github.com` |
 | `APPS_MAX_BUNDLE_MB` | The largest code tarball of a commit the Portal downloads and hands to the app host | `200` |
@@ -172,7 +172,8 @@ The configured bootstrap administrator is created when missing and automatically
 | `EFP_SHELL_MEMORY_GUARD_PERCENT` | Passed to every agent pod when set: the share of the memory limit at which the runtime stops the command that is filling the assistant (`0` switches that off; empty keeps the runtime's default of 90) | empty |
 | `EFP_SHELL_CAPTURE_MAX_BYTES` | Passed to every agent pod when set: how many bytes of each of a command's output streams the runtime holds (empty keeps the runtime's default of 8 MiB) | empty |
 | `EFP_MAX_UPLOAD_MB` | Per-file size cap for chatbox attachments and workspace uploads; passed to every agent pod so the runtime enforces the same cap (the ingress `proxy-body-size` must allow it too) | `25` |
-| `EFP_CHAT_UPLOAD_EXTENSIONS` | Comma-separated file extensions the chatbox may attach (case-insensitive, dots optional); drives the composer's file picker, is enforced by the upload proxy, and is passed to every agent pod. The default is non-visual because the default model has no vision: add `jpg,jpeg,png,webp,gif` for a model that can see and they reach it as images. `pdf`, `docx`, `xlsx`, `pptx`, `csv` go through their parsers, a `zip` is projected as its listing plus the text files inside, and any text format (`txt`, `md`, `log`, `json`, `yaml`, `xml`, source files, ...; UTF-8 or GB18030/GBK) is projected as text; a listed binary format the runtime cannot parse is still rejected at upload. Running assistants pick up a change after a restart | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` |
+| `EFP_CHAT_VISION` | Whether the chat model is sent images. Off, no chat provider gets image parts: attached images are read through the Image analysis connector (`inspect-image` on AI Platform), else Productivity Suite. On, Portal passes `EFP_CHAT_VISION=1` to every agent pod and the runtime inlines images into the chat request, whatever the provider | `false` |
+| `EFP_CHAT_UPLOAD_EXTENSIONS` | Comma-separated file extensions the chatbox may attach (case-insensitive, dots optional); drives the composer's file picker, is enforced by the upload proxy, and is passed to every agent pod. Images and `doc`, `dot`, `xls` are stored and listed to the assistant, which reads an image through the Image analysis connector or Productivity Suite; the chat model itself is sent images only with `EFP_CHAT_VISION` on. `pdf`, `docx`, `xlsx`, `pptx`, `csv` go through their parsers, a `zip` is projected as its listing plus the text files inside, and any text format (`txt`, `md`, `log`, `json`, `yaml`, `xml`, source files, ...; UTF-8 or GB18030/GBK) is projected as text; a listed binary format the runtime cannot parse is still rejected at upload. Running assistants pick up a change after a restart | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml,doc,dot,xls,png,jpg,jpeg,jpe,jfif,tiff,webp,bmp` |
 | `DEFAULT_RUNTIME_TYPE` | Default runtime marker for new agents when `runtime_type` is omitted; supported values are `native` and `opencode` | `native` |
 | `ENABLED_RUNTIME_TYPES` | Comma-separated runtime markers offered for new agents (the Engine step of the create wizard) and for assistant types: `native`, `opencode`, or both. Unknown markers are ignored and an empty result offers `native`. Existing agents keep their runtime; creating or switching to a marker that is not listed is rejected | `native` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
@@ -325,6 +326,13 @@ Each member has one set of connector settings, and every assistant they own uses
 - Copilot authorization/API key, or AI Platform username, password, and usercase
 
 Choose from the model catalog offered for the selected provider; standalone OpenAI and Anthropic providers are not offered. AI Platform service endpoints are deployment-managed.
+
+### Image analysis
+- An AI Platform account (username, password, usercase) and the model that reads images through the `inspect-image` CLI, whichever provider the member chats with
+- Usually one shared account set in Default connectors, which every member's connector follows until they customize it
+- An app's owner can turn it on for an app (the app's **Settings**): the app then asks questions about images through the SDK API, the Portal answers them with this connector's account and model, and each call counts against the app's daily limit
+
+The chat model itself is not sent images unless the deployment sets `EFP_CHAT_VISION`. Without this connector, attached images go to Productivity Suite in the member's browser.
 
 ### Service connectors
 - **Jira**, **Confluence**, and **Jenkins** - Multiple named instances and their applicable credentials

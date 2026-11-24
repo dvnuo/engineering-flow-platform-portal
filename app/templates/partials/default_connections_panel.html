@@ -203,6 +203,40 @@
       {{ group_scope_close() }}
     </section>
 
+    {# Image analysis: inspect-image on AI Platform, whatever the chat provider is. The same field
+       names as a member's own panel (connectors/image_analysis.html); a shared account here is how
+       most members get to read images, since their connector follows these defaults. #}
+    <section class="portal-panel-section">
+      {{ group_scope_open('image_analysis') }}
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Image analysis") }}</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="{{ t('Offer image analysis') }}">
+          <input type="checkbox" name="image_analysis_enabled" {% if seed.get('image_analysis', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>{{ t("Offer image analysis to members") }}</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared username") }}</span><input type="text" name="image_analysis_ai_platform_username" value="{{ image_analysis_auth.get('username', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared password") }}</span><input type="password" name="image_analysis_ai_platform_password" value="{{ image_analysis_auth.get('password', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Usercase") }}</span><input type="text" name="image_analysis_ai_platform_usercase" value="{{ image_analysis_auth.get('usercase', '') }}" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">{{ t("Model") }}</span>
+          <select name="image_analysis_model" id="image_analysis_model" class="portal-form-select">
+            {% for model in image_analysis_models %}
+            <option value="{{ model }}" {% if image_analysis_model_selected == model %}selected{% endif %}>{{ model }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <p class="portal-panel-note">{{ t("Offered, image analysis needs the whole AI Platform account: username, password and usercase. Members who follow these defaults read images through this shared account, whichever model they chat with. Connection endpoints are managed centrally by the Portal configuration.") }}</p>
+      {{ group_scope_close() }}
+    </section>
+
     <section class="portal-panel-section" data-instance-group="jira">
       {{ group_scope_open('jira') }}
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">

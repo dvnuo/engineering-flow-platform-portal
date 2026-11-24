@@ -31,8 +31,32 @@ RELEASE_SUCCEEDED = "succeeded"
 RELEASE_FAILED = "failed"
 RELEASE_ACTIVE_STATUSES = (RELEASE_QUEUED, RELEASE_RUNNING)
 
-# The connectors an app may call through the SDK (docs/CONTRACTS.md, section 9.3).
+# What an owner may turn on for an app, all of it kept in one list
+# (``apps.connectors_enabled``). Two kinds of thing are in it:
+#
+# - the proxied connectors (docs/CONTRACTS.md, section 9.3): the app sends
+#   HTTP requests to the owner's connector through the SDK API, read-only
+#   unless the owner also allows writing (``apps.connectors_write``);
+# - the capabilities: something the Portal does for the app with one of the
+#   owner's connectors. There is no address an app could call and nothing to
+#   write to, so a capability is never listed among an app's connectors, is
+#   never proxied and never has a write flag.
 APP_CONNECTOR_TYPES = ("jira", "confluence", "github", "jenkins", "nexus", "splunk")
+# Image analysis (section 9.4): questions about images, answered by the model
+# of the owner's Image analysis connector.
+APP_IMAGE_ANALYSIS = "image_analysis"
+APP_CAPABILITY_TYPES = (APP_IMAGE_ANALYSIS,)
+APP_ENABLED_TYPES = APP_CONNECTOR_TYPES + APP_CAPABILITY_TYPES
+
+
+def proxied_connectors(enabled: object) -> list[str]:
+    """The proxied connectors among what is turned on for an app, in the order they are stored."""
+    return [str(item) for item in (enabled if isinstance(enabled, (list, tuple)) else []) if item in APP_CONNECTOR_TYPES]
+
+
+def has_capability(enabled: object, capability: str) -> bool:
+    """Whether ``capability`` (one of ``APP_CAPABILITY_TYPES``) is turned on in an app's list."""
+    return capability in APP_CAPABILITY_TYPES and capability in (enabled if isinstance(enabled, (list, tuple)) else [])
 
 # Why an app is disabled when nobody took it down: its owner lost access.
 DISABLED_OWNER_INACTIVE = "owner_inactive"

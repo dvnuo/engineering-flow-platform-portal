@@ -8,7 +8,11 @@ import httpx
 
 from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT
 from app.services import connector_http
-from app.services.ai_platform_config import materialize_ai_platform_llm_config
+from app.services.ai_platform_config import (
+    IMAGE_ANALYSIS_SECTION,
+    materialize_ai_platform_llm_config,
+    materialize_image_analysis_config,
+)
 from app.services.proxy_plan import (
     DEFAULT_NO_PROXY,
     KIND_NONE,
@@ -39,6 +43,12 @@ class RuntimeProfileTestService:
                 return value.rstrip("/")
         return default
 
+    # 1x1 transparent PNG: enough for the gateway to accept or reject image content.
+    _IMAGE_ANALYSIS_SMOKE_IMAGE = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    )
+
     async def run_test(
         self, target: str, config: dict, runtime_type: str | None = None, *, proxy_name: str | None = None
     ) -> tuple[bool, str]:
@@ -60,6 +70,8 @@ class RuntimeProfileTestService:
             return await self._test_pgsql(config)
         if target == "llm":
             return await self._test_llm(config, runtime_type=runtime_type)
+        if target == IMAGE_ANALYSIS_SECTION:
+            return await self._test_image_analysis(config)
         return False, f"Unsupported test target: {target}"
 
     # ------------------------------------------------------------------
@@ -493,6 +505,23 @@ class RuntimeProfileTestService:
             return False, f"{provider}/{model} test failed: {message}{path_text}"
         return True, f"{success_label}: {provider}/{model}."
 
+    async def _test_image_analysis(self, config: dict) -> tuple[bool, str]:
+        """The Image analysis connector, the way inspect-image uses it: exchange
+        the account for an iB2B token, then send one tiny image to
+        chat/completions with the connector's model. Both requests leave
+        through the proxy the Proxy connector assigns to image_analysis."""
+        section = materialize_image_analysis_config(config.get(IMAGE_ANALYSIS_SECTION), settings=self.settings)
+        if section is None:
+            return False, "Turn on Image analysis before testing it."
+        return await self._test_ai_platform(
+            section,
+            str(section.get("model") or ""),
+            config=config,
+            connector=IMAGE_ANALYSIS_SECTION,
+            connector_label="Image analysis",
+            image_data_uri=self._IMAGE_ANALYSIS_SMOKE_IMAGE,
+        )
+
     @staticmethod
     def _ai_platform_endpoint_is_responses(endpoint: str) -> bool:
         path = urlparse(endpoint).path.rstrip("/").lower()
@@ -505,17 +534,31 @@ class RuntimeProfileTestService:
         *,
         runtime_type: str | None = None,
         config: dict | None = None,
+        connector: str = "llm",
+        connector_label: str = "the model provider",
+        image_data_uri: str | None = None,
     ) -> tuple[bool, str]:
+        """One AI Platform round trip: the iB2B exchange, then one request.
+
+        ``llm_cfg`` is any section that carries a materialized ``ai_platform``
+        block: the model provider's, or the Image analysis connector's.
+        ``connector`` is whose proxy assignment the two requests follow and
+        ``connector_label`` how a failure names the path. With
+        ``image_data_uri`` the request is a chat/completions message holding
+        that one image, which is what inspect-image sends.
+        """
         ap = llm_cfg.get("ai_platform") if isinstance(llm_cfg.get("ai_platform"), dict) else {}
         chat = ap.get("chat") if isinstance(ap.get("chat"), dict) else {}
         responses = ap.get("responses") if isinstance(ap.get("responses"), dict) else {}
         ib2b = ap.get("ib2b") if isinstance(ap.get("ib2b"), dict) else {}
         auth = ap.get("auth") if isinstance(ap.get("auth"), dict) else {}
         # Mirror the runtimes: native prefers the Responses endpoint when one is
-        # configured, the OpenCode adapter only speaks chat/completions.
+        # configured, the OpenCode adapter only speaks chat/completions, and so
+        # does inspect-image, which is what an image smoke test stands in for.
         use_responses = (
             str(runtime_type or "native").strip().lower() != "opencode"
             and bool(str(responses.get("uri") or "").strip())
+            and not image_data_uri
         )
         endpoint_config = responses if use_responses else chat
         chat_host = str(endpoint_config.get("host") or chat.get("host") or "").strip()
@@ -540,7 +583,7 @@ class RuntimeProfileTestService:
             if not (ib2b_host and ib2b_uri):
                 return False, "AI Platform iB2B host/URI are not configured in Portal."
             exchange_url = self._join_url(ib2b_host, ib2b_uri)
-            exchange_choice, exchange_plan = self._egress(config or {}, "llm", hostname_of(exchange_url))
+            exchange_choice, exchange_plan = self._egress(config or {}, connector, hostname_of(exchange_url))
             ok, message, data = await self._http_json_request(
                 method="POST",
                 url=exchange_url,
@@ -553,7 +596,7 @@ class RuntimeProfileTestService:
                 client_kwargs=self._client_kwargs(exchange_choice, exchange_plan),
             )
             if not ok:
-                return False, f"AI Platform token exchange failed: {message}{self._path_text(exchange_choice, 'the model provider')}"
+                return False, f"AI Platform token exchange failed: {message}{self._path_text(exchange_choice, connector_label)}"
             token = str((data or {}).get("issued_token") or "").strip()
             if not token:
                 return False, "AI Platform token exchange did not return issued_token."
@@ -573,22 +616,29 @@ class RuntimeProfileTestService:
             headers["Authorization"] = f"Bearer {token}"
             payload: dict = {"model": model, "input": "ping"}
         else:
+            content: object = "ping"
+            if image_data_uri:
+                content = [
+                    {"type": "text", "text": "ping"},
+                    {"type": "image_url", "image_url": {"url": image_data_uri}},
+                ]
             payload = {
                 "model": model,
-                "messages": [{"role": "user", "content": "ping"}],
+                "messages": [{"role": "user", "content": content}],
                 "max_completion_tokens": 1,
             }
             if usercase:
                 payload["user"] = usercase
-        choice, plan = self._egress(config or {}, "llm", hostname_of(endpoint))
+        choice, plan = self._egress(config or {}, connector, hostname_of(endpoint))
         return await self._provider_request(
             "ai_platform",
             model,
             endpoint,
             headers,
             payload,
+            success_label="Image analysis smoke test OK" if image_data_uri else "LLM smoke test OK",
             client_kwargs=self._client_kwargs(choice, plan),
-            path_text=self._path_text(choice, "the model provider"),
+            path_text=self._path_text(choice, connector_label),
         )
 
     @staticmethod

@@ -309,6 +309,40 @@ def test_an_apps_model_calls_roll_up_for_its_owner_as_app_llm():
         db.close()
 
 
+def test_image_calls_are_model_calls_everywhere_usage_is_read(harness, monkeypatch):
+    # An image call is written as kind "llm" with connector_type "image_analysis" (docs/CONTRACTS.md, section 9.4).
+    monkeypatch.setattr(app_budget, "utcnow", lambda: NOON)
+    app_id = harness.create()["app"]["id"]
+    db = harness.db
+    app = harness.row(app_id)
+    app.connectors_enabled = ["jira", "image_analysis"]
+    call(db, app, tokens=(10, 20), credits=0.5)
+    call(db, app, model="gpt-5.6-sol", connector="image_analysis", tokens=(1830, 210), duration_ms=4000)
+    call(db, app, model="gpt-5.6-sol", connector="image_analysis", status="failed", error="provider_error")
+    call(db, app, kind="connector", connector="jira")
+    db.commit()
+
+    body = harness.as_user("owner").get(f"/api/apps/{app_id}/usage?days=7").json()
+
+    # Counted with the model calls: the day's figures, the budget and the totals.
+    assert body["llm"][-1] == {"day": "2026-11-15", "calls": 3, "failed": 1, "input_tokens": 1840, "output_tokens": 230, "credits": 0.5}
+    assert body["budget"]["used_tokens"] == 2070 and body["budget"]["used_credits"] == 0.5
+    assert body["totals"]["llm_calls"] == 3 and body["totals"]["connector_calls"] == 1
+    # And never among the connector calls: neither its rows, nor its switch being on.
+    assert body["connectors"] == [{"type": "jira", "calls": 1, "failed": 0}]
+
+    # The administration's list and the daily rollups read the same rows.
+    from app.services.apps.usage import admin_metrics
+
+    assert admin_metrics(db, [app_id], today=TODAY)[app_id]["llm_calls_7d"] == 3
+    assert UsageRollupService(db).rollup_day(TODAY) == 2
+    rows = {row.model: row for row in _rollups(db, app_id=app_id)}
+    assert sorted(rows) == ["gpt-5.6-sol", "gpt-6-sol"]
+    images = rows["gpt-5.6-sol"]
+    assert (images.kind, images.runtime_type, images.user_id) == ("app_llm", "app", app.owner_user_id)
+    assert (images.executions, images.succeeded, images.failed, images.input_tokens, images.output_tokens) == (2, 1, 1, 1830, 210)
+
+
 def test_assistants_and_apps_roll_up_side_by_side_without_touching_each_other():
     db, _factory, user, agent = _db_session()
     try:

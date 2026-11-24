@@ -964,6 +964,7 @@ QUESTIONS = {
     "remove a version": ("settings", 'click({ "data-app-template-remove": "V1", "data-tag": "v1" });', "DELETE /api/apps/A/template/versions/V1"),
     "turn the model provider on": ("settings", 'fire("change", el({ "data-app-llm": "" }, { checked: true }));', "PATCH /api/apps/A"),
     "let a connector write": ("settings", 'fire("change", el({ "data-app-connector-write": "jira" }, { checked: true }));', "PATCH /api/apps/A"),
+    "turn image analysis on": ("settings", 'fire("change", el({ "data-app-connector": "image_analysis" }, { checked: true }));', "PATCH /api/apps/A"),
     "open it to more people": ("settings", 'fire("change", el({ name: "app-audience" }, { value: "platform" }));', "PATCH /api/apps/A"),
     "upgrade": ("overview", 'click({ "data-app-upgrade": "V2" });', "POST /api/apps/A/upgrade"),
 }
@@ -1029,6 +1030,186 @@ def test_two_switches_pressed_one_after_the_other_are_two_saves_and_not_one_undo
     assert out["after"] == {"github": [False, ""], "write": True}
     # The second save is made of what the first one left: both connectors end up off.
     assert out["bodies"] == [{"connectors_enabled": ["github"]}, {"connectors_enabled": []}]
+
+
+IMAGE_ANALYSIS_DETAIL = "The app reads images with the owner&#39;s Image analysis connector, and each call counts against the app&#39;s daily limit."
+# ``drawn()``: "What the app may use" as the page drew it last, with the whole tab or on its own after a change.
+CAPABILITIES_DRAWN = r"""
+  const drawn = () => {
+    const last = markup.filter((html) => html.indexOf("data-app-llm") >= 0).pop() || "";
+    const start = last.indexOf("What the app may use");
+    const end = last.indexOf("</section>", start);
+    return last.slice(start, end < 0 ? undefined : end);
+  };
+"""
+
+
+def test_image_analysis_is_one_more_switch_beside_the_connectors_without_a_write_box():
+    out = _page(
+        r"""
+  world.apps.B = { manage: { connectors_enabled: ["github", "image_analysis"] } };
+  const box = new FakeNode("detail");
+  CAPABILITIES_DRAWN
+  const row = (html, type) => {
+    const at = html.indexOf('data-app-connector="' + type + '"');
+    if (at < 0) return null;
+    const start = html.lastIndexOf('<div class="portal-app-switch-row">', at);
+    return html.slice(start, html.indexOf("</label></div>", at) + 14);
+  };
+  await open(box, "A", "settings");
+  const off = drawn();
+  await open(box, "B", "settings");
+  const on = drawn();
+  out = {
+    offRow: row(off, "image_analysis"),
+    onChecked: /data-app-connector="image_analysis" checked/.test(row(on, "image_analysis")),
+    jiraRow: row(off, "jira"),
+    switches: (off.match(/data-app-connector="[a-z_]+"/g) || []),
+    writeBoxes: (off.match(/data-app-connector-write="[a-z_]+"/g) || []),
+    underConnectors: off.indexOf("Connectors") < off.indexOf('data-app-connector="jira"') && off.indexOf('data-app-connector="jenkins"') < off.indexOf('data-app-connector="image_analysis"'),
+  };
+""".replace("CAPABILITIES_DRAWN", CAPABILITIES_DRAWN)
+    )
+    # Named, said in one sentence what turning it on means, and switched like the connectors above it.
+    assert out["offRow"] == (
+        '<div class="portal-app-switch-row">'
+        '<div class="portal-app-switch-copy"><strong>Image analysis</strong><small>' + IMAGE_ANALYSIS_DETAIL + "</small></div>"
+        '<label class="toggle-switch" aria-label="Let the app use Image analysis"><input type="checkbox" data-app-connector="image_analysis" />'
+        '<span class="toggle-slider"></span></label>'
+        "</div>"
+    )
+    assert out["onChecked"] is True
+    # The same markup as a connector's row, less the "May write" box.
+    assert out["jiraRow"] == (
+        '<div class="portal-app-switch-row">'
+        '<div class="portal-app-switch-copy"><strong>Jira</strong></div>'
+        '<label class="portal-checkbox-row" title="Without this the app can only read: GET and HEAD"><input type="checkbox" data-app-connector-write="jira" /><span>May write</span></label>'
+        '<label class="toggle-switch" aria-label="Let the app use Jira"><input type="checkbox" data-app-connector="jira" checked />'
+        '<span class="toggle-slider"></span></label>'
+        "</div>"
+    )
+    assert out["switches"] == ['data-app-connector="jira"', 'data-app-connector="github"', 'data-app-connector="jenkins"', 'data-app-connector="image_analysis"']
+    assert out["writeBoxes"] == ['data-app-connector-write="jira"', 'data-app-connector-write="github"', 'data-app-connector-write="jenkins"']
+    assert out["underConnectors"] is True
+
+
+def test_image_analysis_is_offered_only_where_the_portal_offers_it():
+    out = _page(
+        r"""
+  const box = new FakeNode("detail");
+  CAPABILITIES_DRAWN
+  const settings = (call) => /\/api\/apps\/settings$/.test(call.url);
+  await open(box, "A", "settings", settings);
+  // Before the Portal said what it offers: the page's own list.
+  const before = drawn().indexOf('data-app-connector="image_analysis"') >= 0;
+  answer(pending("GET", "/api/apps/settings")[0], 200, { visibilities: ["private"], connector_types: ["jira"], capability_types: [] });
+  await drain();
+  const html = drawn();
+  out = { before: before, after: html.indexOf("image_analysis") >= 0, jira: html.indexOf('data-app-connector="jira"') >= 0 };
+""".replace("CAPABILITIES_DRAWN", CAPABILITIES_DRAWN)
+    )
+    assert out == {"before": True, "after": False, "jira": True}
+
+
+def test_turning_image_analysis_on_asks_first_and_saves_it_in_the_connectors_list():
+    out = _page(
+        r"""
+  const box = new FakeNode("detail");
+  await open(box, "A", "settings");
+  const input = el({ "data-app-connector": "image_analysis" }, { checked: true });
+  fire("change", input);
+  await settle();
+  const asked = { title: dialogs[0].opts.title, message: dialogs[0].opts.message, confirm: dialogs[0].opts.confirmText, busy: dialogs[0].opts.busyText };
+  const before = sent("PATCH", "/api/apps/A").length;
+  const running = Promise.resolve().then(() => dialogs[0].opts.action(true));
+  await settle();
+  const save = pending("PATCH", "/api/apps/A")[0];
+  answer(save, 200, app("A", { manage: { connectors_enabled: ["jira", "github", "image_analysis"] } }));
+  await running;
+  dialogs[0].resolve(true);
+  await settle();
+  const html = box.querySelector('[data-app-settings="capabilities"]').innerHTML;
+  out = { asked: asked, before: before, body: save.body, checked: /data-app-connector="image_analysis" checked/.test(html), toasts: toasts };
+"""
+    )
+    assert out["asked"] == {
+        "title": "Let App A use Image analysis?",
+        "message": "Images that visitors give this app are read with the account of your Image analysis connector, and each call counts against the app's daily limit.",
+        "confirm": "Turn on",
+        "busy": "Saving" + chr(0x2026),
+    }
+    # Nothing is saved before the owner said yes; then the list goes whole, and no write list with it.
+    assert out["before"] == 0
+    assert out["body"] == {"connectors_enabled": ["jira", "github", "image_analysis"]}
+    assert out["checked"] is True and out["toasts"] == []
+
+
+def test_turning_image_analysis_off_saves_at_once_holds_the_switch_and_says_when_it_failed():
+    out = _page(
+        r"""
+  world.apps.A = { manage: { connectors_enabled: ["jira", "image_analysis"], connectors_write: ["jira"] } };
+  const box = new FakeNode("detail");
+  await open(box, "A", "settings");
+  const section = box.querySelector('[data-app-settings="capabilities"]');
+  const input = el({ "data-app-connector": "image_analysis" }, { checked: false });
+  const jira = el({ "data-app-connector": "jira" }, { checked: true });
+  section._lists.input = [input, jira];
+  fire("change", input);
+  await settle();
+  const during = { dialogs: dialogs.length, input: input.disabled, jira: [jira.disabled, jira.dataset.appHeld || ""] };
+  const first = pending("PATCH", "/api/apps/A")[0];
+  answer(first, 500, { detail: "The database is away." });
+  await settle();
+  const failed = { said: toasts.slice(), input: input.disabled, jira: jira.disabled, stillOn: /data-app-connector="image_analysis" checked/.test(section.innerHTML) };
+  fire("change", input);
+  await settle();
+  const second = pending("PATCH", "/api/apps/A")[0];
+  answer(second, 200, app("A", { manage: { connectors_enabled: ["jira"], connectors_write: ["jira"] } }));
+  await settle();
+  out = {
+    during: during, failed: failed, bodies: [first.body, second.body],
+    off: !/data-app-connector="image_analysis" checked/.test(section.innerHTML),
+    writeKept: /data-app-connector-write="jira" checked/.test(section.innerHTML),
+  };
+"""
+    )
+    # No question for turning something off. While it is saved the switch waits, and the others with it.
+    assert out["during"] == {"dialogs": 0, "input": True, "jira": [True, "1"]}
+    # A save that failed says so, frees the switches and puts this one back where it was.
+    assert out["failed"] == {"said": [["error", "The database is away."]], "input": False, "jira": False, "stillOn": True}
+    # The connectors of the list, and what they may write, are left as they were.
+    assert out["bodies"] == [{"connectors_enabled": ["jira"]}, {"connectors_enabled": ["jira"]}]
+    assert out["off"] is True and out["writeKept"] is True
+
+
+def test_what_a_wider_audience_is_reminded_of_follows_what_is_turned_on():
+    out = _page(
+        r"""
+  world.apps.A = { manage: { connectors_enabled: ["image_analysis"] } };
+  world.apps.B = { manage: { connectors_enabled: ["jira", "image_analysis"] } };
+  world.apps.C = { manage: { connectors_enabled: ["jira"] } };
+  world.apps.D = { is_owner: false, owner: { username: "olive", display_name: "Olive" }, manage: { connectors_enabled: ["image_analysis"] } };
+  const box = new FakeNode("detail");
+  const messages = {};
+  for (const id of ["A", "B", "C", "D"]) {
+    await open(box, id, "settings");
+    fire("change", el({ name: "app-audience" }, { value: "platform" }));
+    await settle();
+    messages[id] = dialogs[dialogs.length - 1].opts.message;
+    dialogs[dialogs.length - 1].resolve(false);
+    await settle();
+  }
+  out = messages;
+"""
+    )
+    images = "Images that visitors give this app are read with the account of your Image analysis connector, and each call counts against the app's daily limit."
+    connectors = "Visitors will read these systems with your connector's account."
+    # Image analysis alone is not "these systems"; with a connector on, both are said.
+    assert out["A"] == images
+    assert out["B"] == connectors + " " + images
+    assert out["C"] == connectors
+    # An administrator changing someone else's app is told whose connector it is.
+    assert out["D"] == "Images that visitors give this app are read with the account of Olive's Image analysis connector, and each call counts against the app's daily limit."
 
 
 def test_a_choice_that_cannot_be_saved_is_held_and_put_back():

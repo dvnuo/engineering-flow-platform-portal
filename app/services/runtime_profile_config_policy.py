@@ -41,8 +41,9 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
     # for that provider. Keeps the persisted canonical config — and everything
     # projected from it into the runtime Secret — on a supported provider/model
     # pair. Runs on every save and via sanitize_all_persisted_runtime_profiles.
-    # The retired image analysis block (llm.vision, inspect-image on AI
-    # Platform) is dropped from every stored profile on save.
+    # The retired llm.vision block is dropped from every stored profile on
+    # save. Image analysis is the image_analysis section now (a connector of
+    # its own), which this function leaves as the sanitizer stored it.
     llm.pop("vision", None)
     if llm.get("provider") or llm.get("model") or llm.get("ai_platform"):
         provider = normalize_provider(llm.get("provider"))

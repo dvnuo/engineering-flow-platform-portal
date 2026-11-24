@@ -460,6 +460,37 @@ def test_update_changes_what_was_sent_and_writes_it_down(harness):
     assert harness.row(app_id).name == "Mind maps" and harness.row(app_id).visibility == "public"
 
 
+def test_image_analysis_is_turned_on_and_off_like_a_connector_and_never_made_writable(harness):
+    app_id = harness.create()["app"]["id"]
+    owner = harness.as_user("owner")
+
+    on = owner.patch(f"/api/apps/{app_id}", json={"connectors_enabled": ["jira", "image_analysis"], "connectors_write": ["jira"]})
+    assert on.status_code == 200, on.text
+    assert on.json()["manage"]["connectors_enabled"] == ["jira", "image_analysis"]
+    assert on.json()["manage"]["connectors_write"] == ["jira"]
+    assert harness.row(app_id).connectors_enabled == ["jira", "image_analysis"]
+    assert harness.actions(app_id)[-1] == "app.updated"
+
+    # It has nothing to write to: asked for, that is refused and nothing changes.
+    refused = owner.patch(f"/api/apps/{app_id}", json={"connectors_write": ["jira", "image_analysis"]})
+    assert refused.status_code == 422 and refused.json()["code"] == "connector_not_writable"
+    assert "image_analysis" in refused.json()["detail"]
+    assert harness.row(app_id).connectors_write == ["jira"]
+
+    # The page sends the list whole: a connector's switch leaves image analysis as it is, and the other way round.
+    owner.patch(f"/api/apps/{app_id}", json={"connectors_enabled": ["image_analysis"]})
+    assert (harness.row(app_id).connectors_enabled, harness.row(app_id).connectors_write) == (["image_analysis"], [])
+    owner.patch(f"/api/apps/{app_id}", json={"connectors_enabled": ["image_analysis", "github"], "connectors_write": ["github"]})
+    assert (harness.row(app_id).connectors_enabled, harness.row(app_id).connectors_write) == (["image_analysis", "github"], ["github"])
+
+    off = owner.patch(f"/api/apps/{app_id}", json={"connectors_enabled": ["github"]})
+    assert off.json()["manage"]["connectors_enabled"] == ["github"] and off.json()["manage"]["connectors_write"] == ["github"]
+
+    # Only who manages the app turns it on.
+    assert harness.as_user("mate").patch(f"/api/apps/{app_id}", json={"connectors_enabled": ["image_analysis"]}).status_code in (403, 404)
+    assert harness.row(app_id).connectors_enabled == ["github"]
+
+
 @pytest.mark.parametrize(
     "body, status, code",
     [
@@ -470,10 +501,12 @@ def test_update_changes_what_was_sent_and_writes_it_down(harness):
         ({"env": {"PATH": "/x"}}, 422, "env_name_reserved"),
         ({"env": {"bad-name": "1"}}, 422, "env_name_invalid"),
         ({"connectors_enabled": ["aws"]}, 422, "connector_unknown"),
+        ({"connectors_write": ["aws"]}, 422, "connector_unknown"),
+        ({"connectors_enabled": ["image_analysis"], "connectors_write": ["image_analysis"]}, 422, "connector_not_writable"),
         ({"repo_ref": "a b"}, 422, "ref_invalid"),
         ({"daily_credits": 5}, 403, "forbidden"),
     ],
-    ids=["blank-name", "visibility", "anyone-off", "token-name", "path-name", "bad-env-name", "connector", "ref", "limits"],
+    ids=["blank-name", "visibility", "anyone-off", "token-name", "path-name", "bad-env-name", "connector", "write-unknown", "write-images", "ref", "limits"],
 )
 def test_update_refusals(harness, body, status, code):
     app_id = harness.create()["app"]["id"]
@@ -819,6 +852,8 @@ def test_settings(harness):
     assert body["anyone_enabled"] is False and body["visibilities"] == ["private", "public", "platform"]
     assert body["github_host"] == "github.com" and body["service_account"] == "efp-bot"
     assert body["connector_types"] == ["jira", "confluence", "github", "jenkins", "nexus", "splunk"]
+    # What an owner may turn on besides the connectors: no address, no write switch.
+    assert body["capability_types"] == ["image_analysis"]
     assert body["app_types"] == ["fastapi", "flask", "streamlit", "gradio", "command", "static"]
     assert "login" in body["reserved_slugs"] and "_efp" in body["reserved_slugs"]
     assert body["default_daily_credits"] == 50.0 and body["default_daily_tokens"] == 2000000

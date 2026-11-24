@@ -461,9 +461,9 @@ def flag_enabled(value: object) -> bool:
 def uses_ai_platform_credentials(llm: dict | None) -> bool:
     """Whether llm.ai_platform.auth is needed: only when AI Platform is the chat provider.
 
-    Image analysis no longer runs on AI Platform (the inspect-image path was
-    retired): attached images and documents go to Productivity Suite through
-    the member's browser, which needs no credential here.
+    Image analysis does run on AI Platform (inspect-image), but as a
+    connector of its own: its account lives in the ``image_analysis``
+    section, whatever the chat provider is, and never here.
     """
     if not isinstance(llm, dict):
         return False

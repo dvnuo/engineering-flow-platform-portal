@@ -1339,6 +1339,11 @@ class K8sService:
             )
             env.append(client.V1EnvVar(name="EFP_MAX_UPLOAD_MB", value=str(upload_policy.max_upload_mb)))
             env.append(client.V1EnvVar(name="EFP_CHAT_UPLOAD_EXTENSIONS", value=upload_policy.env_value))
+            # The operator's switch that lets the chat model see images
+            # (app/config.py chat_vision). Passed only when on: off is the
+            # runtime's default, and the pod template is unchanged otherwise.
+            if getattr(self.settings, "chat_vision", False) is True:
+                env.append(client.V1EnvVar(name="EFP_CHAT_VISION", value="1"))
             # Operator overrides for the runtime's shell tool (how full the
             # container may get before a command is stopped, and how much of a
             # command's output is held). Passed only when set, so the runtime's

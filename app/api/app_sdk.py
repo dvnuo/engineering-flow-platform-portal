@@ -9,6 +9,7 @@ the Portal's public address.
 - ``POST /llm/complete``               a text completion on the owner's model provider.
 - ``GET  /connectors``                 the owner's connectors the app may call.
 - ``POST /connectors/{type}/request``  one HTTP request to one of them.
+- ``POST /images/inspect``             a question about images, on the owner's Image analysis connector.
 
 Every failure, a malformed body and an unknown path below the prefix
 included, answers ``{"error": {"code", "message"}}``; every route answers 404
@@ -19,11 +20,14 @@ while ``APPS_ENABLED`` is off. Each call is checked in this order: the token
 A call the app was allowed to make leaves one ``app_executions`` row, however
 it ended (app/services/apps/executions.py); a call refused at one of the gates
 (the token, the rate, a capability that is off, the daily budget) leaves none.
+Neither does an image call whose body the contract does not allow: that one
+is checked whole before anything is counted, read from the database or sent.
 
 No pooled database connection is held while a provider or a connector is
-being waited for: what a call needs from the database is read first, the
-request's session is given back, and the call's row is written afterwards
-through a session of its own, off the event loop.
+being waited for, nor while the body of an image call arrives: what a call
+needs from the database is read first, the request's session is given back,
+and the call's row is written afterwards through a session of its own, off
+the event loop.
 """
 
 from __future__ import annotations
@@ -47,12 +51,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 import httpx
 from sqlalchemy.orm import Session
+from starlette.requests import ClientDisconnect
 
 from app.db import get_db
 from app.models.app import App
 from app.models.user import User
 from app.services import model_catalog_service
-from app.services.app_sdk import connector_proxy, llm_gateway
+from app.services.app_sdk import connector_proxy, image_analysis, llm_gateway
 from app.services.app_sdk.connector_proxy import ConnectorProxyError
 from app.services.app_sdk.llm_types import LlmGatewayError
 from app.services.apps import budget as app_budget
@@ -67,7 +72,7 @@ from app.services.apps.executions import (
     estimate_tokens,
     record_execution,
 )
-from app.services.apps.names import APP_CONNECTOR_TYPES, DISABLED_OWNER_INACTIVE
+from app.services.apps.names import APP_CONNECTOR_TYPES, APP_IMAGE_ANALYSIS, DISABLED_OWNER_INACTIVE, has_capability
 from app.services.apps.rate_limit import sdk_rate_limiter
 from app.services.apps.visitor import HEADER as VISITOR_HEADER
 from app.services.apps.visitor import visitor_user_id
@@ -142,6 +147,11 @@ def llm_client() -> Optional[httpx.AsyncClient]:
 
 def connector_client() -> Optional[httpx.AsyncClient]:
     """The HTTP client connector requests use; None lets the proxy build its own."""
+    return None
+
+
+def image_client() -> Optional[httpx.AsyncClient]:
+    """The HTTP client image calls use; None lets the call build its own (the proxy assigned to Image analysis, the Portal's CA trust)."""
     return None
 
 
@@ -323,7 +333,11 @@ async def _finish(record: _CallRecord, status: str, **fields: Any) -> None:
 
 
 def _enabled_connectors(app: App, config: dict) -> list[dict]:
-    """The connectors the app may call and its owner has set up: ``{"type", "base_url", "write"}`` each."""
+    """The connectors the app may call and its owner has set up: ``{"type", "base_url", "write"}`` each.
+
+    The proxied types only. Image analysis is turned on in the same list
+    and is never one of these: it has no address an app could call.
+    """
     write = set(app.connectors_write or [])
     found = []
     for kind in APP_CONNECTOR_TYPES:
@@ -333,6 +347,13 @@ def _enabled_connectors(app: App, config: dict) -> list[dict]:
         if described is not None:
             found.append({"type": kind, "base_url": described["base_url"], "write": kind in write})
     return found
+
+
+def _image_analysis_info(app: App, config: dict) -> dict:
+    """``image_analysis`` of section 9.1: on when the owner turned it on for the app and their connector can run."""
+    turned_on = has_capability(app.connectors_enabled, APP_IMAGE_ANALYSIS)
+    model = image_analysis.configured_model(config) if turned_on else None
+    return {"enabled": model is not None, "model": model, **image_analysis.limits()}
 
 
 @router.get("/app")
@@ -354,6 +375,7 @@ def get_app_info(call: SdkCall = Depends(authenticate), db: Session = Depends(ge
             "models": llm_gateway.available_models(config),
         },
         "connectors": [{"type": item["type"], "write": item["write"]} for item in _enabled_connectors(app, config)],
+        "image_analysis": _image_analysis_info(app, config),
         "budget": app_budget.snapshot(db, app),
     }
 
@@ -405,12 +427,67 @@ def _prepare_llm(db: Session, call: SdkCall) -> tuple[dict, dict]:
         db.close()
 
 
+def _prepare_image(db: Session, call: SdkCall) -> tuple[dict, dict]:
+    """``_prepare_llm`` for an image call: the same two things, without the model catalog it never asks.
+
+    The app is read again by its id. The session it was first read through
+    was given back before the body arrived (see ``images_inspect``), and
+    the row with it.
+    """
+    try:
+        app = db.get(App, call.app_id)
+        if app is None:
+            # Removed for good while its upload was arriving.
+            raise SdkApiError("invalid_token", "A valid app token is required: send it as Authorization: Bearer <token>.", 401)
+        return owner_config(db, app), app_budget.snapshot(db, app)
+    finally:
+        db.close()
+
+
 def _prepare_connector(db: Session, app: App) -> dict:
     """The owner's settings for a connector request; the request's session is given back, as in ``_prepare_llm``."""
     try:
         return owner_config(db, app)
     finally:
         db.close()
+
+
+async def _within_budget(
+    db: Session,
+    call: SdkCall,
+    reservation: app_budget.Reservation,
+    prepare: Callable[[Session, SdkCall], tuple[dict, dict]],
+    *,
+    spent: str,
+    crowded: str,
+) -> dict:
+    """The owner's settings, for a call the daily budget lets through.
+
+    The one gate of every call that is counted against the budget, a model
+    call and an image call alike. ``reservation`` is what the call is
+    counted as while it is under way, made before this is asked.
+    ``budget_exceeded`` when the finished calls have used the day's credits
+    or tokens (``spent`` says so, with which of the two), ``rate_limited``
+    when the calls under way take up what is left (``crowded``, with the
+    seconds to wait).
+    """
+    # The calls ahead of this one first, the rows second: one that ends
+    # in between is then counted in both places rather than in neither.
+    ahead = app_budget.in_flight.tokens(call.app_id, before=reservation)
+    config, budget = await run_in_threadpool(prepare, db, call)
+    used_up = app_budget.exceeded(budget)
+    if used_up is not None:
+        raise SdkApiError("budget_exceeded", spent % used_up, 429, retry_after=app_budget.seconds_to_reset())
+    if app_budget.crowded(budget, ahead):
+        # Not spent yet, and it may not come to that: those calls are
+        # counted as the most they can use. Worth another try soon.
+        raise SdkApiError(
+            "rate_limited",
+            crowded % app_budget.IN_FLIGHT_RETRY_SECONDS,
+            429,
+            retry_after=app_budget.IN_FLIGHT_RETRY_SECONDS,
+        )
+    return config
 
 
 def _in_flight_tokens(request_chars: int, max_output_tokens: Any) -> int:
@@ -446,28 +523,14 @@ async def llm_complete(payload: Any = Body(default=None), call: SdkCall = Depend
     # same spent figure and all of them go through.
     reservation = app_budget.in_flight.reserve(call.app_id, _in_flight_tokens(request_chars, body.get("max_output_tokens")))
     try:
-        # The calls ahead of this one first, the rows second: one that ends
-        # in between is then counted in both places rather than in neither.
-        ahead = app_budget.in_flight.tokens(call.app_id, before=reservation)
-        config, budget = await run_in_threadpool(_prepare_llm, db, call)
-        spent = app_budget.exceeded(budget)
-        if spent is not None:
-            raise SdkApiError(
-                "budget_exceeded",
-                "This app has used its daily %s for the owner's model provider. The budget starts again at midnight UTC." % spent,
-                429,
-                retry_after=app_budget.seconds_to_reset(),
-            )
-        if app_budget.crowded(budget, ahead):
-            # Not spent yet, and it may not come to that: those calls are
-            # counted as the most they can use. Worth another try soon.
-            raise SdkApiError(
-                "rate_limited",
-                "The model calls this app has under way take up what is left of its daily tokens. "
-                "Try again in %s seconds." % app_budget.IN_FLIGHT_RETRY_SECONDS,
-                429,
-                retry_after=app_budget.IN_FLIGHT_RETRY_SECONDS,
-            )
+        config = await _within_budget(
+            db,
+            call,
+            reservation,
+            _prepare_llm,
+            spent="This app has used its daily %s for the owner's model provider. The budget starts again at midnight UTC.",
+            crowded="The model calls this app has under way take up what is left of its daily tokens. Try again in %s seconds.",
+        )
         record = _CallRecord(db, call, app_budget.KIND_LLM, reservation=reservation)
     except BaseException:
         # Refused at a gate (or cancelled there): the call is not under way.
@@ -709,6 +772,138 @@ async def connector_request(
             kind,
             _log_text(method, 10).upper(),
             _log_path(path),
+            outcome,
+        )
+
+
+# --- 9.4 -----------------------------------------------------------------------------
+
+BODY_TOO_LARGE = "The request body is larger than an image call can be: four images of 5 MiB each are about 28 MB of JSON."
+
+
+async def _read_body(request: Request, limit: int) -> bytearray:
+    """The request's body, when it holds at most ``limit`` bytes; ``invalid_request`` otherwise.
+
+    The routes above let the framework read their body, whatever its size:
+    theirs are small. This one is sent megabytes by design, so what it reads
+    has a bound of its own. A body that declares more is refused unread;
+    one that declares nothing, or nothing that can be read as a number, is
+    refused at the piece that crosses the bound.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            too_large = int(declared) > limit
+        except ValueError:
+            too_large = False
+        if too_large:
+            raise SdkApiError("invalid_request", BODY_TOO_LARGE, 400)
+    # One buffer that grows: megabytes are not held once as pieces and once joined.
+    body = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > limit:
+                raise SdkApiError("invalid_request", BODY_TOO_LARGE, 400)
+            body += chunk
+    except ClientDisconnect:
+        # The caller went away in the middle of its own upload: nobody reads
+        # this answer, and it is no failure of the Portal's to write down.
+        raise SdkApiError("invalid_request", "The request body did not arrive whole.", 400) from None
+    return body
+
+
+async def _image_request(request: Request) -> image_analysis.InspectRequest:
+    """The body of an image call, read and checked whole; ``invalid_request`` for one section 9.4 does not allow."""
+    raw = await _read_body(request, image_analysis.MAX_BODY_BYTES)
+    try:
+        # Off the event loop: megabytes of JSON and base64 take a moment to read.
+        return await run_in_threadpool(image_analysis.parse_body, raw)
+    except LlmGatewayError as exc:
+        raise _gateway_error(exc) from None
+
+
+def _image_tokens(usage: dict, input_estimate: int, answer_chars: int) -> tuple[int, int]:
+    """The tokens to count for an answered image call: AI Platform's when it reported any.
+
+    When it reported none, the input is what the call was counted as while
+    it was under way (its text and its images) and the output is estimated
+    from the answer, so that such a call does not cost the budget nothing.
+    """
+    reported_in = int(usage.get("input_tokens") or 0)
+    reported_out = int(usage.get("output_tokens") or 0)
+    if reported_in or reported_out:
+        return reported_in, reported_out
+    return input_estimate, estimate_tokens(answer_chars)
+
+
+@router.post("/images/inspect")
+async def images_inspect(request: Request, call: SdkCall = Depends(authenticate), db: Session = Depends(get_db)):
+    # A switch of its own: whether the app may use the model provider (``llm_enabled``) is not asked.
+    if not has_capability(call.app.connectors_enabled, APP_IMAGE_ANALYSIS):
+        raise SdkApiError("connector_disabled", "The owner has not turned on image analysis for this app.", 403)
+    # The body is megabytes and arrives at the caller's pace. The request's
+    # session is given back before it is read, as it is before a provider is
+    # waited for: ``call.app`` is not looked at after this.
+    await run_in_threadpool(db.close)
+    # Read and checked before anything is counted or sent: a request the
+    # contract does not allow costs nothing, and leaves no row.
+    asked = await _image_request(request)
+
+    # Counted as a model call under way: a quarter of the characters of the
+    # text, 1,500 tokens for each image, and the answer it may get.
+    input_estimate = estimate_tokens(asked.text_chars) + image_analysis.IN_FLIGHT_TOKENS_PER_IMAGE * len(asked.images)
+    reservation = app_budget.in_flight.reserve(
+        call.app_id, app_budget.reservation_tokens(input_estimate, asked.max_output_tokens)
+    )
+    try:
+        config = await _within_budget(
+            db,
+            call,
+            reservation,
+            _prepare_image,
+            spent="This app has used its daily %s: image calls count against the same budget as model calls. "
+            "The budget starts again at midnight UTC.",
+            crowded="The calls this app has under way take up what is left of its daily tokens. Try again in %s seconds.",
+        )
+        # A model call of the app, told apart from the others by its connector.
+        record = _CallRecord(db, call, app_budget.KIND_LLM, connector_type=APP_IMAGE_ANALYSIS, reservation=reservation)
+    except BaseException:
+        # Refused at a gate (or cancelled there): the call is not under way.
+        reservation.release()
+        raise
+
+    # From here the record gives the reservation back, when the row is written.
+    outcome = "error"
+    try:
+        # None for a connector that cannot run: the call below then says so.
+        record.model = image_analysis.configured_model(config)
+        result = await image_analysis.inspect(config=config, request=asked, client=image_client())
+    except LlmGatewayError as exc:
+        outcome = exc.code
+        await _finish(record, STATUS_FAILED, error_code=exc.code)
+        raise _gateway_error(exc) from None
+    except Exception:
+        outcome = ERROR_INTERNAL
+        await _finish(record, STATUS_FAILED, error_code=ERROR_INTERNAL)
+        raise
+    except BaseException:
+        # The request was cancelled under us.
+        outcome = ERROR_CLIENT_CLOSED
+        await _finish(record, STATUS_CANCELLED, error_code=ERROR_CLIENT_CLOSED)
+        raise
+    else:
+        outcome = STATUS_SUCCEEDED
+        usage = result.usage.as_dict()
+        tokens_in, tokens_out = _image_tokens(usage, input_estimate, len(result.text))
+        await _finish(record, STATUS_SUCCEEDED, input_tokens=tokens_in, output_tokens=tokens_out, credits=usage["credits"])
+        return {"text": result.text, "model": result.model, "finish_reason": result.finish_reason, "usage": usage}
+    finally:
+        # How many images and how large, never what they hold.
+        logger.info(
+            "app sdk image call app_id=%s images=%s image_bytes=%s status=%s",
+            call.app_id,
+            len(asked.images),
+            asked.image_bytes,
             outcome,
         )
 

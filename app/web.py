@@ -19,9 +19,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
+    AI_PLATFORM_MODELS,
+    AI_PLATFORM_PROVIDER,
     DEFAULT_MAX_STEPS,
     MAX_STEPS_LIMIT,
     PROVIDER_MODELS,
+    coerce_to_provider_model,
     context_size_choices,
     context_size_label,
     context_size_options,
@@ -113,7 +116,7 @@ from app.services.authorization import (
 )
 from app.services.group_service import GroupService
 from app.services.connector_registry import get_connector_spec as _connector_spec_by_type
-from app.services.runtime_profile_references import seed_config_error
+from app.services.runtime_profile_references import image_analysis_account_error, seed_config_error
 from app.services.auth_service import clear_session_cookie, parse_session_token, set_session_cookie
 from app.security.session_cookie import cookies_are_hardened, read_session_token
 from app.security.sso_state import clear_sso_state_cookie, new_sso_state, set_sso_state_cookie, sso_state_is_valid
@@ -1043,6 +1046,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
     proxy_view = _proxy_view(effective_config.get("proxy"))
+    image_analysis = effective_config.get("image_analysis") if isinstance(effective_config.get("image_analysis"), dict) else {}
     mobile = effective_config.get("mobile-auto") if isinstance(effective_config.get("mobile-auto"), dict) else {}
     raw_mobile = raw_config.get("mobile-auto") if isinstance(raw_config.get("mobile-auto"), dict) else {}
     mobile_browserstack = mobile.get("browserstack") if isinstance(mobile.get("browserstack"), dict) else {}
@@ -1069,6 +1073,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "jenkins_instances": jenkins_instances,
         "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
         "raw_github": raw_github,
+        **_image_analysis_view(image_analysis),
         "mobile": mobile,
         "raw_mobile": raw_mobile,
         "mobile_browserstack": mobile_browserstack,
@@ -1607,6 +1612,34 @@ def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dic
     return section, None
 
 
+# The Image analysis connector's form, the same names on a member's panel and
+# on the Default connectors form: the switch, the model and the AI Platform
+# account (image_analysis.ai_platform.auth). There is no provider field (AI
+# Platform is the only one) and no endpoint field (the deployment's).
+IMAGE_ANALYSIS_ENABLED_FIELD = "image_analysis_enabled"
+IMAGE_ANALYSIS_MODEL_FIELD = "image_analysis_model"
+IMAGE_ANALYSIS_ACCOUNT_FORM_FIELDS = (
+    ("username", "image_analysis_ai_platform_username"),
+    ("password", "image_analysis_ai_platform_password"),
+    ("usercase", "image_analysis_ai_platform_usercase"),
+)
+
+
+def _image_analysis_view(section) -> dict:
+    """What the Image analysis panels render: the section, its account, the
+    models on offer (the AI Platform catalogue) and the one selected."""
+
+    section = section if isinstance(section, dict) else {}
+    ai_platform = section.get("ai_platform") if isinstance(section.get("ai_platform"), dict) else {}
+    auth = ai_platform.get("auth") if isinstance(ai_platform.get("auth"), dict) else {}
+    return {
+        "image_analysis": section,
+        "image_analysis_auth": auth,
+        "image_analysis_models": list(AI_PLATFORM_MODELS),
+        "image_analysis_model_selected": coerce_to_provider_model(AI_PLATFORM_PROVIDER, section.get("model")),
+    }
+
+
 def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     """Build the seed from the Default Connections form.
 
@@ -1674,6 +1707,19 @@ def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
         put(llm, "api_key", "llm_api_key")
     if llm:
         seed["llm"] = llm
+
+    # Image analysis: stored once it is offered or carries an account. The
+    # model select always posts a value, so it does not make a section alone.
+    image_analysis_auth: dict = {}
+    for key, form_key in IMAGE_ANALYSIS_ACCOUNT_FORM_FIELDS:
+        put(image_analysis_auth, key, form_key)
+    if flag(IMAGE_ANALYSIS_ENABLED_FIELD) or image_analysis_auth:
+        seed["image_analysis"] = {
+            "enabled": flag(IMAGE_ANALYSIS_ENABLED_FIELD),
+            "model": coerce_to_provider_model(AI_PLATFORM_PROVIDER, text(IMAGE_ANALYSIS_MODEL_FIELD)),
+        }
+        if image_analysis_auth:
+            seed["image_analysis"]["ai_platform"] = {"auth": image_analysis_auth}
 
     jira_instances = _seed_parse_instances(
         form, "jira", ["enabled", "name", "url", "username", "password", "token", "project", "api_version"]
@@ -2334,7 +2380,8 @@ def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = 
         # Portal tests, syncs, or otherwise materializes the runtime config.
         from app.contracts.llm_catalog import normalize_provider
 
-        # The retired image analysis block (llm.vision) is dropped on save.
+        # The retired llm.vision block is dropped on save; image analysis is
+        # the image_analysis section now, read further down.
         llm.pop("vision", None)
 
         provider_is_ai_platform = normalize_provider(llm.get("provider")) == "ai_platform"
@@ -2382,6 +2429,35 @@ def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = 
             config_payload["llm"] = llm
         else:
             config_payload.pop("llm", None)
+
+    if is_section_touched("image_analysis"):
+        # Its own section, whatever the chat provider is. A field the form
+        # did not post keeps its stored value; a posted blank clears it, the
+        # password included, because the panel renders the stored password
+        # back into its input.
+        existing_section = (
+            config_payload.get("image_analysis") if isinstance(config_payload.get("image_analysis"), dict) else {}
+        )
+        existing_ap = existing_section.get("ai_platform") if isinstance(existing_section.get("ai_platform"), dict) else {}
+        existing_auth = existing_ap.get("auth") if isinstance(existing_ap.get("auth"), dict) else {}
+        image_analysis_cfg: dict = {"enabled": as_bool(form.get(IMAGE_ANALYSIS_ENABLED_FIELD))}
+        model_value = (
+            (form.get(IMAGE_ANALYSIS_MODEL_FIELD) or "").strip()
+            if IMAGE_ANALYSIS_MODEL_FIELD in form
+            else str(existing_section.get("model") or "").strip()
+        )
+        image_analysis_cfg["model"] = coerce_to_provider_model(AI_PLATFORM_PROVIDER, model_value)
+        image_analysis_auth: dict = {}
+        for key, form_key in IMAGE_ANALYSIS_ACCOUNT_FORM_FIELDS:
+            value = (form.get(form_key) or "").strip() if form_key in form else str(existing_auth.get(key) or "").strip()
+            if value:
+                image_analysis_auth[key] = value
+        if image_analysis_auth:
+            image_analysis_cfg["ai_platform"] = {"auth": image_analysis_auth}
+        account_error = image_analysis_account_error(image_analysis_cfg)
+        if account_error:
+            return config_payload, account_error
+        config_payload["image_analysis"] = image_analysis_cfg
 
     if is_section_touched("jira"):
         jira = (config_payload.get("jira") if isinstance(config_payload.get("jira"), dict) else {}).copy()
@@ -3363,6 +3439,8 @@ def _default_connections_context(
         "is_system_admin": is_system_admin(user) if user is not None else True,
         # The Proxy connector's cards and table (connectors/_macros.html).
         **_proxy_view(seed.get("proxy"), as_posted=seed_override is not None),
+        # The Image analysis block: its account, the models, the one selected.
+        **_image_analysis_view(seed.get("image_analysis")),
         "pgsql_settings_options": PGSQL_SETTINGS_OPTIONS,
         "guidance": all_guidance(),
         # What a blank BrowserStack Network means (connectors/_macros.html).

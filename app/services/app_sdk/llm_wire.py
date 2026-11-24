@@ -1,6 +1,7 @@
 """The two wire formats the model providers speak: OpenAI Responses and Chat Completions.
 
-Text in, text out. The request bodies are built from a whitelist of keys and
+Text in, text out (and, for an image call on Chat Completions, text and
+images in: see ``chat_body``). The request bodies are built from a whitelist of keys and
 the answers are read the way the runtimes read them (the native runtime's
 ``efp_runtime/llm/adapter.py`` and ``provider.py``): a ``text/event-stream``
 of JSON events, or one JSON object when the provider answers without
@@ -133,8 +134,14 @@ def chat_body(
     forward_max_output_tokens: bool,
     forward_temperature: bool,
 ) -> dict:
-    """A Chat Completions request: the system text first, then the turns."""
-    messages: list[dict[str, str]] = []
+    """A Chat Completions request: the system text first, then the turns.
+
+    A turn's ``content`` is copied as it is. The model gateway only ever
+    hands over text (``llm_gateway._request``); an image call hands over one
+    user turn whose content is a list of text and ``image_url`` parts
+    (``image_analysis.py``).
+    """
+    messages: list[dict[str, Any]] = []
     if request.system:
         messages.append({"role": "system", "content": request.system})
     messages.extend({"role": message["role"], "content": message["content"]} for message in request.messages)
