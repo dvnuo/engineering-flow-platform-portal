@@ -2783,7 +2783,10 @@ function assistantModelBadgeClassName(attribution, usageSummary = null) {
 }
 
 function assistantModelBadgeCredits(usageSummary) {
-  const credits = Number(usageSummary?.estimatedCredits);
+  // null for a turn that carries no credits; Number(null) would make it 0.
+  const raw = usageSummary?.estimatedCredits;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const credits = Number(raw);
   return Number.isFinite(credits) && credits >= 0 ? credits : null;
 }
 
@@ -2940,6 +2943,10 @@ function formatCompactTokens(value) {
 }
 
 function formatCredits(value) {
+  // No figure is not zero: Number(null) is 0, and a run that carries no
+  // credits (one on AI Platform, a model Copilot has no price for) was
+  // shown a credits line of zero.
+  if (value === null || value === undefined || value === "") return "";
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return "";
   if (number >= 100) return String(Math.round(number));
@@ -2981,9 +2988,13 @@ function assistantUsageCostLines(summary, options = {}) {
     lines.push(tier ? t("Credits: ≈ {credits} ({tier})", { credits, tier }) : t("Credits: ≈ {credits}", { credits }));
   }
   if (!lines.length) return lines;
-  lines.push(options.live
-    ? t("Still running; these are the totals so far.")
-    : t("Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill."));
+  if (options.live) {
+    lines.push(t("Still running; these are the totals so far."));
+  } else if (credits) {
+    // The footnote explains the credits line. A run with no credits (one on AI
+    // Platform, or on a model Copilot has no price for) shows its tokens alone.
+    lines.push(t("Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill."));
+  }
   return lines;
 }
 
