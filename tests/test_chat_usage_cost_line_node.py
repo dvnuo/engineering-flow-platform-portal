@@ -95,8 +95,12 @@ const liveEvent = {{ type: "usage.updated", iteration: 7, usage: {{ input_tokens
 const opencodeMessage = {{ info: {{ tokens: {{ input: 1000, output: 200, reasoning: 50, cache: {{ read: 500, write: 100 }} }} }} }};
 const longContext = {{ usage: {{ input_tokens: 300000, output_tokens: 100, estimated_credits: 12, pricing: {{ tier: "long_context" }} }} }};
 const messages = [{{ role: "assistant", content: "a" }}, {{ role: "assistant", content: "b", usage: {{ input_tokens: 10, output_tokens: 2, estimated_credits: 0.5 }} }}, {{ role: "assistant", content: "c" }}];
+const noCredits = {{ usage: {{ input_tokens: 300000, output_tokens: 1000, iterations: 2, estimated_credits: null }} }};
 console.log(JSON.stringify({{
   lines: assistantUsageCostLines(summary),
+  noCreditsLines: assistantUsageCostLines(assistantUsageSummary(noCredits)),
+  noCreditsLiveLines: assistantUsageCostLines(assistantUsageSummary(noCredits), {{ live: true }}),
+  noCreditsHtml: buildAssistantModelBadgeHtml(attribution, assistantUsageSummary(noCredits)),
   liveLines: assistantUsageCostLines(assistantUsageSummary(liveEvent), {{ live: true }}),
   title: assistantModelBadgeTitle(attribution, summary),
   html: buildAssistantModelBadgeHtml(attribution, summary),
@@ -122,6 +126,18 @@ console.log(JSON.stringify({{
         "Credits: ≈ 104 (Default tier)",
         "Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.",
     ]
+    # A run that carries no credits (the runtime reports none on AI Platform,
+    # whatever the model) shows its tokens and no word about credits: neither
+    # the line nor the footnote that explains it, and no tier tint.
+    assert result["noCreditsLines"] == ["Steps: 2", "Input: 300K tokens", "Output: 1K tokens"]
+    assert result["noCreditsLiveLines"] == [
+        "Steps: 2",
+        "Input: 300K tokens",
+        "Output: 1K tokens",
+        "Still running; these are the totals so far.",
+    ]
+    assert "Credits" not in result["noCreditsHtml"] and "data-credits" not in result["noCreditsHtml"]
+    assert "message-model-long-context" not in result["noCreditsHtml"]
     # One hover: the model lines lead, a blank line, then the cost.
     assert result["title"].split("\n") == ["Model: gpt-6-luna", "Requested: auto", "Tier: auto", ""] + result["lines"]
     assert result["html"].startswith('<span class="message-model" title="Model: gpt-6-luna')
