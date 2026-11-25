@@ -50,30 +50,33 @@ COPILOT_MODELS: tuple[str, ...] = (
     "gpt-6-sol",
     "gpt-6.1-sol",
 )
-# As a chat provider the gateway offers gpt-5.4 and the GPT-5.6 line and no
-# GPT-6 model, so the two providers share no model: switching a profile's
-# provider always coerces its model to the target provider's default
-# (coerce_to_provider_model only keeps a model the target provider has).
+# As a chat provider the gateway offers gpt-5.4, the GPT-5.6 line and, since
+# 2026-11-25, GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol (not GPT-6 Astra, and
+# nothing like Copilot's auto ids). Those three are the only ids the two
+# providers share: a profile switched from one provider to the other keeps
+# one of them and has any other model coerced to the target provider's
+# default (coerce_to_provider_model only keeps a model the target provider
+# has). The native runtime mirrors this tuple (src/efp_runtime/llm/models.py
+# AI_PLATFORM_MODEL_IDS) and lands any id outside its copy on gpt-5.4, so a
+# model added here alone is silently replaced in the assistant.
 AI_PLATFORM_MODELS: tuple[str, ...] = (
     "gpt-5.4",
     "gpt-5.6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
-)
-# The models the Image analysis connector offers: the model that reads images
-# on AI Platform, for the inspect-image CLI in an assistant and for an app's
-# image calls. It is the list above plus GPT-6 Luna, GPT-6 Sol and GPT-6.1
-# Sol, added for image analysis on 2026-11-24; the chat provider's list was
-# left as it is, so the two are separate choices. The native runtime mirrors
-# this tuple (src/efp_runtime/llm/models.py IMAGE_ANALYSIS_MODEL_IDS) and
-# lands any id outside its copy on the default, so a model added here alone
-# is silently replaced in the assistant.
-IMAGE_ANALYSIS_MODELS: tuple[str, ...] = (
-    *AI_PLATFORM_MODELS,
     "gpt-6-luna",
     "gpt-6-sol",
     "gpt-6.1-sol",
 )
+# The models the Image analysis connector offers: the model that reads images
+# on AI Platform, for the inspect-image CLI in an assistant and for an app's
+# image calls. The connector got GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol on
+# 2026-11-24, a day before the chat provider did; the two lists now hold the
+# same models. It keeps its own name because the choice is the connector's
+# own (coerce_to_image_analysis_model) and the native runtime mirrors it
+# separately (IMAGE_ANALYSIS_MODEL_IDS), with the same silent replacement for
+# an id only this file knows.
+IMAGE_ANALYSIS_MODELS: tuple[str, ...] = AI_PLATFORM_MODELS
 
 # Since 2026-10-20 a Copilot profile defaults to auto (Balance): Copilot picks
 # the model per turn (the runtimes fall back to gpt-6-sol when the route
@@ -446,9 +449,10 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
 def coerce_to_image_analysis_model(model: str | None) -> str:
     """A model the Image analysis connector offers, falling back to its default.
 
-    The connector's own rule, not the chat provider's: IMAGE_ANALYSIS_MODELS
-    holds ids AI_PLATFORM_MODELS does not, and a Copilot id outside it (an
-    auto id, GPT-6 Astra) is not kept just because Copilot serves it.
+    The connector's own rule, not the chat provider's: the model is judged
+    against IMAGE_ANALYSIS_MODELS whichever provider the member chats with,
+    and a Copilot id outside it (an auto id, GPT-6 Astra) is not kept just
+    because Copilot serves it.
     """
     trimmed = str(model or "").strip()
     return trimmed if trimmed in IMAGE_ANALYSIS_MODELS else DEFAULT_IMAGE_ANALYSIS_MODEL

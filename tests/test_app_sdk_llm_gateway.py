@@ -233,11 +233,21 @@ def test_ai_platform_models_are_its_fixed_list():
     config = ai_config()
 
     assert llm_gateway.provider_id(config) == "ai_platform"
-    assert llm_gateway.available_models(config) == ["gpt-5.4", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]
+    assert llm_gateway.available_models(config) == [
+        "gpt-5.4",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    ]
     assert llm_gateway.default_model(config) == "gpt-5.4"
     assert llm_gateway.default_model(ai_config(model="gpt-5.6-sol")) == "gpt-5.6-sol"
+    # GPT-6 Sol is served by both providers, so the owner's choice of it stands.
+    assert llm_gateway.default_model(ai_config(model="gpt-6-sol")) == "gpt-6-sol"
     # A model the provider does not have (left over from Copilot) falls back to its default.
-    assert llm_gateway.default_model(ai_config(model="gpt-6-sol")) == "gpt-5.4"
+    assert llm_gateway.default_model(ai_config(model="gpt-6-astra")) == "gpt-5.4"
 
 
 @pytest.mark.parametrize(
@@ -262,6 +272,9 @@ def test_resolve_model_names_the_default_when_none_is_asked_for():
     assert llm_gateway.resolve_model(copilot_config(), "  ") == "gpt-6-sol"
     assert llm_gateway.resolve_model(copilot_config(), "GPT-6-Luna ") == "gpt-6-luna"
     assert llm_gateway.resolve_model(ai_config(), "gpt-5.6-terra") == "gpt-5.6-terra"
+    # AI Platform's own since 2026-11-25, so an app of an AI Platform owner may name them.
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert llm_gateway.resolve_model(ai_config(), model) == model
 
 
 @pytest.mark.parametrize("requested", ["auto", "auto-efficiency", "AUTO", "github_copilot/auto"])
@@ -276,7 +289,7 @@ def test_resolve_model_never_hands_an_app_an_auto_id(requested):
     [
         (copilot_config(), "gpt-5.4"),  # retired from Copilot
         (copilot_config(), "not a model"),
-        (ai_config(), "gpt-6-sol"),  # Copilot's, not AI Platform's
+        (ai_config(), "gpt-6-astra"),  # Copilot's, not AI Platform's
         (ai_config(), "auto"),
     ],
 )
