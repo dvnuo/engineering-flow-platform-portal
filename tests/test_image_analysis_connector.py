@@ -639,6 +639,23 @@ def test_the_smoke_test_sends_one_image_to_chat_completions(monkeypatch):
     assert calls[1]["payload"]["messages"][0]["content"] == "ping"
 
 
+def test_the_smoke_test_puts_no_cap_on_the_answer(monkeypatch):
+    # A reasoning model's thinking is counted against the cap. The probe used
+    # to ask for one token, and AI Platform answered GPT-5.6 Luna with HTTP 400
+    # "Could not finish the message because max_tokens or model output limit
+    # was reached": a working account failed its test.
+    svc, calls = _recording_service(monkeypatch, _ai_settings())
+    ok, _message = asyncio.run(svc.run_test("image_analysis", _copilot_profile()))
+    assert ok is True
+    assert set(calls[1]["payload"]) == {"model", "messages", "user"}
+    # The Model provider's test on chat/completions is the same request without the image.
+    llm_only = {"llm": {"provider": "ai_platform", "model": "gpt-5.6-luna", "ai_platform": {"auth": dict(ACCOUNT)}}}
+    svc, calls = _recording_service(monkeypatch, _ai_settings())
+    ok, _message = asyncio.run(svc.run_test("llm", llm_only))
+    assert ok is True
+    assert set(calls[1]["payload"]) == {"model", "messages", "user"}
+
+
 def test_the_smoke_test_leaves_through_the_proxy_assigned_to_image_analysis(monkeypatch):
     profile = _copilot_profile()
     profile["proxy"] = {
