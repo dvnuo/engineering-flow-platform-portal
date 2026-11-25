@@ -17893,7 +17893,8 @@ function updateContextSizeOptions(root) {
   const modelSelect = root.querySelector("#llm_model");
   const contextSelect = root.querySelector('select[name="llm_max_context_tokens"]');
   if (!modelSelect || !contextSelect) return;
-  const options = contextSizeOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  const provider = root.querySelector("#llm_provider")?.value || "";
+  const options = contextSizeOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "", [], provider);
   if (!options.length) return;
   const listed = Array.from(contextSelect.options).map((option) => Number(option.value));
   if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
@@ -17917,7 +17918,8 @@ function updateReasoningEffortOptions(root) {
   const modelSelect = root.querySelector("#llm_model");
   const effortSelect = root.querySelector('select[name="llm_reasoning_effort"]');
   if (!modelSelect || !effortSelect) return;
-  const options = reasoningEffortOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  const provider = root.querySelector("#llm_provider")?.value || "";
+  const options = reasoningEffortOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "", [], provider);
   if (!options.length) return;
   const listed = Array.from(effortSelect.options).map((option) => String(option.value));
   if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
@@ -17975,6 +17977,9 @@ const managedProviderModels = {
     { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { value: "gpt-6-luna", label: "GPT-6 Luna" },
+    { value: "gpt-6-sol", label: "GPT-6 Sol" },
+    { value: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
   ],
 };
 
@@ -18089,13 +18094,25 @@ function inferenceContextLabel(value, fallback = t("Auto")) {
   return tokens > threshold ? t("{size} · Long context 2×", { size: base }) : base;
 }
 
+// The Portal-wide catalog is Copilot's: a row says what a model takes as
+// Copilot serves it. GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol are AI Platform
+// models too, so a row is read only for a Copilot profile, the way
+// model_context_window and reasoning_effort_options in
+// app/contracts/llm_catalog.py check the provider. No provider means Copilot,
+// the default provider.
+function catalogDescribesProvider(provider) {
+  const id = String(provider || "").trim().toLowerCase();
+  return !id || id === "github_copilot";
+}
+
 // Mirrors context_size_options in app/contracts/llm_catalog.py: the presets
 // up to the model's catalog window, the window itself closing the list; the
-// whole ladder for a model whose window no catalog has reported.
-function contextSizeOptionsForModel(model, fallback = []) {
+// whole ladder for a model whose window no catalog has reported, and for any
+// model of a provider the catalog does not describe.
+function contextSizeOptionsForModel(model, fallback = [], provider = "") {
   const source = managedContextSizes.length ? managedContextSizes : (fallback || []);
   const ladder = Array.from(new Set(source.map(Number).filter((value) => Number.isFinite(value) && value > 0))).sort((a, b) => a - b);
-  const id = String(model || "").trim().toLowerCase();
+  const id = catalogDescribesProvider(provider) ? String(model || "").trim().toLowerCase() : "";
   const windowTokens = id && typeof portalModelContextWindows !== "undefined" ? Number(portalModelContextWindows.get(id) || 0) : 0;
   if (!ladder.length || !(windowTokens > 0) || windowTokens >= ladder[ladder.length - 1]) return ladder;
   const options = ladder.filter((size) => size <= windowTokens);
@@ -18106,10 +18123,11 @@ function contextSizeOptionsForModel(model, fallback = []) {
 // Mirrors reasoning_effort_options in app/contracts/llm_catalog.py: the
 // levels of the ladder the model's catalog row lists (xhigh is not offered
 // to a model that takes only low/medium/high); the whole ladder for a model
-// whose row lists none.
-function reasoningEffortOptionsForModel(model, fallback = []) {
+// whose row lists none, and for any model of a provider the catalog does not
+// describe.
+function reasoningEffortOptionsForModel(model, fallback = [], provider = "") {
   const ladder = managedReasoningEfforts.length ? managedReasoningEfforts.slice() : (fallback || []).slice();
-  const id = String(model || "").trim().toLowerCase();
+  const id = catalogDescribesProvider(provider) ? String(model || "").trim().toLowerCase() : "";
   const listed = id && typeof portalModelReasoningEfforts !== "undefined" ? portalModelReasoningEfforts.get(id) : null;
   if (Array.isArray(listed) && listed.length) {
     const offered = ladder.filter((effort) => listed.includes(effort));
@@ -18208,7 +18226,7 @@ function renderComposerModelSelectorForAgent(agentId) {
     // The levels the selected model takes (its catalog row); the whole
     // ladder when nothing is known about it.
     const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
-      ? reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts)
+      ? reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts, chatState.profileProvider)
       : (chatState.profileReasoningEfforts.length
         ? chatState.profileReasoningEfforts
         : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []));
@@ -18234,7 +18252,7 @@ function renderComposerModelSelectorForAgent(agentId) {
   }
 
   if (dom.chatContextSelect && typeof contextSizeOptionsForModel === "function") {
-    const contextSizes = contextSizeOptionsForModel(dom.chatModelSelect.value, chatState.profileContextSizes);
+    const contextSizes = contextSizeOptionsForModel(dom.chatModelSelect.value, chatState.profileContextSizes, chatState.profileProvider);
     dom.chatContextSelect.innerHTML = "";
     const automatic = document.createElement("option");
     automatic.value = "";
@@ -21563,7 +21581,7 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     const profileReasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
     const modelForOptions = initialSettings.model_override || profile?.current_model || "";
     const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
-      ? reasoningEffortOptionsForModel(modelForOptions, profileReasoningEfforts)
+      ? reasoningEffortOptionsForModel(modelForOptions, profileReasoningEfforts, profile?.provider)
       : profileReasoningEfforts;
     reasoningSelect.innerHTML = "";
     appendSelectOption(reasoningSelect, "", t("Agent default ({value})", { value: inferenceReasoningLabel(profile?.current_reasoning_effort) }), !initialSettings.reasoning_effort);
@@ -21573,7 +21591,7 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     root.querySelector("[data-inference-reasoning-field]")?.classList.toggle("hidden", !supportsReasoning);
 
     const selectedModel = initialSettings.model_override || profile?.current_model;
-    const contextSizes = contextSizeOptionsForModel(selectedModel, profile?.context_sizes || []);
+    const contextSizes = contextSizeOptionsForModel(selectedModel, profile?.context_sizes || [], profile?.provider);
     contextSelect.innerHTML = "";
     appendSelectOption(contextSelect, "", profile?.current_max_context_tokens ? t("Agent default ({value})", { value: inferenceContextLabel(profile.current_max_context_tokens) }) : t("Automatic"), !initialSettings.max_context_tokens);
     contextSizes.forEach((tokens, index) => appendSelectOption(

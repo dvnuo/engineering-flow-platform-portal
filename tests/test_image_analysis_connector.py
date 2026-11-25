@@ -920,13 +920,20 @@ def test_view_defaults_and_usage_know_the_section():
     assert _settings_view_payload({"image_analysis": _section(model="gpt-6.1-sol")})["image_analysis_model_selected"] == "gpt-6.1-sol"
 
 
-def test_the_connector_has_its_own_model_list_next_to_the_chat_providers():
-    # Everything the AI Platform chat provider offers, then the three GPT-6 models added for image analysis.
-    assert IMAGE_ANALYSIS_MODELS == (*AI_PLATFORM_MODELS, "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol")
-    # The chat provider's list did not grow with it: there a GPT-6 id is still repaired.
-    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
-        assert model not in AI_PLATFORM_MODELS
-        assert coerce_to_provider_model("ai_platform", model) == "gpt-5.4"
+def test_the_connector_offers_the_models_of_the_ai_platform_chat_provider():
+    # The connector got the three GPT-6 models first, the chat provider later the same day; the lists now hold the same models.
+    assert IMAGE_ANALYSIS_MODELS == (
+        "gpt-5.4",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    )
+    assert IMAGE_ANALYSIS_MODELS == AI_PLATFORM_MODELS
+    # A GPT-6 id AI Platform is not offered with is repaired on both, each to its own default.
+    assert coerce_to_provider_model("ai_platform", "gpt-6-astra") == "gpt-5.4"
     # What the runtime is sent (the materialized section) carries the model as stored.
     settings = _ai_settings()
     for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):

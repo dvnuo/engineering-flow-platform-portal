@@ -15,9 +15,11 @@ from _js_extract_helpers import _extract_js_function
 from app.contracts.llm_catalog import (
     clear_catalog_models,
     coerce_to_provider_model,
+    context_size_options,
     is_plausible_copilot_model_id,
     is_retired_copilot_model,
     is_selectable_model,
+    reasoning_effort_options,
     register_catalog_models,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
@@ -357,9 +359,13 @@ def test_context_size_options_follow_the_models_catalog_window():
 const managedContextSizes = [64000, 128000, 256000, 1000000];
 const portalModelContextWindows = new Map();
 {_extract_js_function(_js(), "rememberModelContextWindows")}
+{_extract_js_function(_js(), "catalogDescribesProvider")}
 {_extract_js_function(_js(), "contextSizeOptionsForModel")}
-rememberModelContextWindows({{ "mai-code-1.1-flash": 256000, "gpt-5.3-codex": 400000, "gpt-6.1-sol": 1050000, "tiny-model": 32000, "": 5, "bad": "lots" }});
+rememberModelContextWindows({{ "mai-code-1.1-flash": 256000, "gpt-5.3-codex": 400000, "gpt-6.1-sol": 1050000, "gpt-6-sol": 400000, "tiny-model": 32000, "": 5, "bad": "lots" }});
 console.log(JSON.stringify({{
+  solOnCopilot: contextSizeOptionsForModel("gpt-6-sol", [], "github_copilot"),
+  solOnAiPlatform: contextSizeOptionsForModel("gpt-6-sol", [], "ai_platform"),
+  tinyOnAiPlatform: contextSizeOptionsForModel("tiny-model", [], "AI_Platform"),
   mai: contextSizeOptionsForModel("MAI-Code-1.1-Flash"),
   codex: contextSizeOptionsForModel("gpt-5.3-codex"),
   sol: contextSizeOptionsForModel("gpt-6.1-sol"),
@@ -377,7 +383,15 @@ console.log(JSON.stringify({{
     assert result["tiny"] == [32000]
     assert result["unknown"] == ladder
     assert result["blank"] == ladder
-    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-5.3-codex", "gpt-6.1-sol", "tiny-model"]
+    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-5.3-codex", "gpt-6.1-sol", "gpt-6-sol", "tiny-model"]
+    # The catalog is Copilot's. GPT-6 Sol is an AI Platform model too, and
+    # there the row says nothing: the whole ladder, which is what
+    # context_size_options offers and what a save is validated against (a
+    # 400K picked from Copilot's row would be refused).
+    assert result["solOnCopilot"] == [64000, 128000, 256000, 400000]
+    assert result["solOnAiPlatform"] == ladder
+    assert result["tinyOnAiPlatform"] == ladder
+    assert list(context_size_options("ai_platform", "gpt-6-sol")) == ladder
 
     source = _js()
     # Both routes that carry the windows are remembered; the connector and
@@ -387,6 +401,12 @@ console.log(JSON.stringify({{
     assert "rememberModelContextWindows(profile.model_context_windows)" in source
     assert "updateContextSizeOptions(root)" in _extract_js_function(source, "updateModelOptions")
     assert 'select[name="llm_max_context_tokens"]' in _extract_js_function(source, "updateContextSizeOptions")
+    # Every caller says whose model it is: the form's provider, the assistant's, the task's assignee's.
+    assert 'root.querySelector("#llm_provider")' in _extract_js_function(source, "updateContextSizeOptions")
+    composer = _extract_js_function(source, "renderComposerModelSelectorForAgent")
+    assert "contextSizeOptionsForModel(dom.chatModelSelect.value, chatState.profileContextSizes, chatState.profileProvider)" in composer
+    task_form = _extract_js_function(source, "populateInferenceSettingsForForm")
+    assert "contextSizeOptionsForModel(selectedModel, profile?.context_sizes || [], profile?.provider)" in task_form
 
 
 def test_thinking_level_options_follow_the_models_catalog_row():
@@ -394,12 +414,17 @@ def test_thinking_level_options_follow_the_models_catalog_row():
 const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
 const portalModelReasoningEfforts = new Map();
 {_extract_js_function(_js(), "rememberModelReasoningEfforts")}
+{_extract_js_function(_js(), "catalogDescribesProvider")}
 {_extract_js_function(_js(), "reasoningEffortOptionsForModel")}
 {_extract_js_function(_js(), "clampReasoningEffort")}
-rememberModelReasoningEfforts({{ "mai-code-1.1-flash": ["minimal", "low", "medium", "high"], "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"], "odd": ["minimal"], "": ["low"] }});
+rememberModelReasoningEfforts({{ "mai-code-1.1-flash": ["minimal", "low", "medium", "high"], "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"], "gpt-6-sol": ["low", "medium", "high", "xhigh"], "odd": ["minimal"], "": ["low"] }});
 const mai = reasoningEffortOptionsForModel("MAI-Code-1.1-Flash");
+const solOnAiPlatform = reasoningEffortOptionsForModel("gpt-6-sol", [], "ai_platform");
 console.log(JSON.stringify({{
   mai,
+  solOnCopilot: reasoningEffortOptionsForModel("gpt-6-sol", [], "github_copilot"),
+  solOnAiPlatform,
+  maxOnAiPlatform: clampReasoningEffort("max", solOnAiPlatform),
   sol: reasoningEffortOptionsForModel("gpt-6.1-sol"),
   odd: reasoningEffortOptionsForModel("odd"),
   unknown: reasoningEffortOptionsForModel("gpt-9-zeta"),
@@ -421,14 +446,27 @@ console.log(JSON.stringify({{
     assert result["kept"] == "low"
     assert result["unknownLevel"] == "medium"
     assert result["clampedUp"] == "xhigh"
-    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-6.1-sol", "odd"]
+    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-6.1-sol", "gpt-6-sol", "odd"]
+    # Copilot's row for a model both providers serve is not AI Platform's: an
+    # AI Platform profile keeps all five levels (reasoning_effort_options),
+    # so its default of Max is not turned into a session override of xhigh.
+    assert result["solOnCopilot"] == ["low", "medium", "high", "xhigh"]
+    assert result["solOnAiPlatform"] == ["low", "medium", "high", "xhigh", "max"]
+    assert result["maxOnAiPlatform"] == "max"
+    assert reasoning_effort_options("ai_platform", "gpt-6-sol") == ("low", "medium", "high", "xhigh", "max")
 
     source = _js()
     assert "rememberModelReasoningEfforts(payload?.model_reasoning_efforts)" in source
     assert "rememberModelReasoningEfforts(portalModelCatalog.model_reasoning_efforts)" in source
     assert "rememberModelReasoningEfforts(profile.model_reasoning_efforts)" in source
     composer = _extract_js_function(source, "renderComposerModelSelectorForAgent")
-    assert "reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts)" in composer
+    assert (
+        "reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts, chatState.profileProvider)"
+        in composer
+    )
+    assert 'root.querySelector("#llm_provider")' in _extract_js_function(source, "updateReasoningEffortOptions")
+    task_form = _extract_js_function(source, "populateInferenceSettingsForForm")
+    assert "reasoningEffortOptionsForModel(modelForOptions, profileReasoningEfforts, profile?.provider)" in task_form
     assert "clampReasoningEffort(wantedReasoning, reasoningEfforts)" in composer
     assert "updateReasoningEffortOptions(root)" in _extract_js_function(source, "updateModelOptions")
     assert 'select[name="llm_reasoning_effort"]' in _extract_js_function(source, "updateReasoningEffortOptions")

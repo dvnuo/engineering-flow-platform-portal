@@ -59,8 +59,13 @@ def test_coerce_model_is_provider_aware():
     assert coerce_to_provider_model("ai_platform", "gpt-9-bogus") == "gpt-5.4"
     # ...but one both providers offer now survives the switch between them.
     assert coerce_to_provider_model("ai_platform", "gpt-5.6-terra") == "gpt-5.6-terra"
-    # The GPT-6 line is Copilot-only, so it is coerced away on AI Platform.
-    assert coerce_to_provider_model("ai_platform", "gpt-6-sol") == "gpt-5.4"
+    # GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol are served by both providers
+    # (AI Platform since 2026-11-24), so each survives a switch either way.
+    for shared in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert coerce_to_provider_model("ai_platform", shared) == shared
+        assert coerce_to_provider_model("github_copilot", shared) == shared
+    # GPT-6 Astra stays Copilot-only, so it is coerced away on AI Platform.
+    assert coerce_to_provider_model("ai_platform", "gpt-6-astra") == "gpt-5.4"
     assert coerce_to_provider_model("ai_platform", "gpt-5.4") == "gpt-5.4"
     # gpt-5.4 and gpt-5.5 left Copilot with the GPT-6 release: a profile still
     # holding one is repaired to the Copilot default (auto since 2026-10-20),
@@ -94,14 +99,31 @@ def test_auto_is_a_copilot_only_selection():
     assert "auto" not in RuntimeProfileService.managed_model_values_for_provider("ai_platform")
 
 
-def test_gpt_6_1_sol_is_offered_on_copilot_only():
-    # GPT-6.1 Sol reached Copilot on 2026-09-29. The gateway does not serve
-    # the GPT-6 line, so switching a profile to AI Platform repairs it to that
-    # provider's default instead of sending an id the gateway rejects.
+def test_ai_platform_offers_gpt_6_luna_sol_and_6_1_sol_but_not_astra():
+    # GPT-6.1 Sol reached Copilot on 2026-09-29, and AI Platform got GPT-6
+    # Luna, GPT-6 Sol and GPT-6.1 Sol as chat models on 2026-11-24. GPT-6
+    # Astra is not among them: a profile switched to AI Platform with it is
+    # repaired to that provider's default instead of sending an id the
+    # gateway does not offer.
+    ai_platform = RuntimeProfileService.managed_model_values_for_provider("ai_platform")
+    assert ai_platform == (
+        "gpt-5.4",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    )
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert RuntimeProfileService.is_managed_model_allowed("ai_platform", model) is True
     assert "gpt-6.1-sol" in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
-    assert "gpt-6.1-sol" not in RuntimeProfileService.managed_model_values_for_provider("ai_platform")
     assert coerce_to_provider_model("github_copilot", "gpt-6.1-sol") == "gpt-6.1-sol"
-    assert coerce_to_provider_model("ai_platform", "gpt-6.1-sol") == "gpt-5.4"
+    assert coerce_to_provider_model("ai_platform", "gpt-6.1-sol") == "gpt-6.1-sol"
+    assert "gpt-6-astra" not in ai_platform
+    assert coerce_to_provider_model("ai_platform", "gpt-6-astra") == "gpt-5.4"
+    # The repair value did not move with the new entries.
+    assert coerce_to_provider_model("ai_platform", "") == "gpt-5.4"
 
 
 def test_canonicalize_keeps_only_ai_platform_profile_credentials_and_coerces_model():
