@@ -8,10 +8,9 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from app.contracts.llm_catalog import (
-    AI_PLATFORM_PROVIDER,
     MAX_CONTEXT_SIZE,
     SUPPORTED_REASONING_EFFORTS,
-    coerce_to_provider_model,
+    coerce_to_image_analysis_model,
     parse_max_steps,
 )
 
@@ -1201,8 +1200,9 @@ IMAGE_ANALYSIS_AUTH_FIELDS = ("username", "password", "usercase")
 def sanitize_runtime_profile_image_analysis(value) -> dict:
     """The Image analysis connector: the switch, the model and the AI Platform account.
 
-    ``enabled`` is a bool and ``model`` always an AI Platform catalogue model
-    (anything else, a Copilot id included, becomes the AI Platform default);
+    ``enabled`` is a bool and ``model`` always one the connector offers
+    (``IMAGE_ANALYSIS_MODELS``; anything else, a Copilot auto id included,
+    becomes the connector's default);
     the account keeps its non-blank fields, trimmed. A section that says
     nothing (no switch, no model, no account) stays empty and is dropped. The
     section does not look at ``llm``: it is kept whatever the chat provider is.
@@ -1222,7 +1222,7 @@ def sanitize_runtime_profile_image_analysis(value) -> dict:
         return {}
     out: dict = {
         "enabled": _runtime_profile_bool(value.get("enabled")),
-        "model": coerce_to_provider_model(AI_PLATFORM_PROVIDER, model),
+        "model": coerce_to_image_analysis_model(model),
     }
     if auth:
         out["ai_platform"] = {"auth": auth}
