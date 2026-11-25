@@ -622,10 +622,16 @@ class RuntimeProfileTestService:
                     {"type": "text", "text": "ping"},
                     {"type": "image_url", "image_url": {"url": image_data_uri}},
                 ]
+            # No cap on the answer. This probe used to ask for one token, and a
+            # reasoning model cannot finish in one: its thinking is counted
+            # against the cap, so AI Platform answered HTTP 400 "Could not
+            # finish the message because max_tokens or model output limit was
+            # reached" and a working account failed its test (GPT-5.6 Luna,
+            # 2026-11-24). The answer to "ping" is a few tokens anyway, and
+            # neither the runtime nor the Responses probe above sends a cap.
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": content}],
-                "max_completion_tokens": 1,
             }
             if usercase:
                 payload["user"] = usercase

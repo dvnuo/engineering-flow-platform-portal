@@ -63,8 +63,11 @@ DEFAULT_TRACKING_PREFIX = "EFP"
 TOKEN_TTL_SECONDS = 30
 TOKEN_REFRESH_MARGIN_SECONDS = 5
 
-# The Portal's Test button caps its chat/completions probe with
-# max_completion_tokens, so the gateway is known to take that key; the
+# The gateway reads max_completion_tokens on chat/completions: until
+# 2026-11-24 the Portal's Test button capped its probe at one token, and a
+# reasoning model answered that with "max_tokens or model output limit was
+# reached" (which is why the probe sends no cap any more). On a reasoning
+# model the cap covers the thinking as well as the answer. The
 # Responses name for it (max_output_tokens) is not proven there. Either is
 # sent until the gateway refuses it by name: the request is then repeated once
 # without it and it is left out for that endpoint for the rest of the process
