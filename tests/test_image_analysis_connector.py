@@ -904,7 +904,7 @@ def test_view_defaults_and_usage_know_the_section():
 
 
 def test_the_connector_offers_the_models_of_the_ai_platform_chat_provider():
-    # The connector got the three GPT-6 models a day before the chat provider did; the lists now hold the same models.
+    # The connector got the three GPT-6 models first, the chat provider later the same day; the lists now hold the same models.
     assert IMAGE_ANALYSIS_MODELS == (
         "gpt-5.4",
         "gpt-5.6-luna",

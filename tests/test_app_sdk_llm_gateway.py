@@ -272,7 +272,7 @@ def test_resolve_model_names_the_default_when_none_is_asked_for():
     assert llm_gateway.resolve_model(copilot_config(), "  ") == "gpt-6-sol"
     assert llm_gateway.resolve_model(copilot_config(), "GPT-6-Luna ") == "gpt-6-luna"
     assert llm_gateway.resolve_model(ai_config(), "gpt-5.6-terra") == "gpt-5.6-terra"
-    # AI Platform's own since 2026-11-25, so an app of an AI Platform owner may name them.
+    # AI Platform's own since 2026-11-24, so an app of an AI Platform owner may name them.
     for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
         assert llm_gateway.resolve_model(ai_config(), model) == model
 

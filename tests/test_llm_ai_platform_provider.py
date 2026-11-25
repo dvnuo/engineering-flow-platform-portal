@@ -60,7 +60,7 @@ def test_coerce_model_is_provider_aware():
     # ...but one both providers offer now survives the switch between them.
     assert coerce_to_provider_model("ai_platform", "gpt-5.6-terra") == "gpt-5.6-terra"
     # GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol are served by both providers
-    # (AI Platform since 2026-11-25), so each survives a switch either way.
+    # (AI Platform since 2026-11-24), so each survives a switch either way.
     for shared in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
         assert coerce_to_provider_model("ai_platform", shared) == shared
         assert coerce_to_provider_model("github_copilot", shared) == shared
@@ -101,7 +101,7 @@ def test_auto_is_a_copilot_only_selection():
 
 def test_ai_platform_offers_gpt_6_luna_sol_and_6_1_sol_but_not_astra():
     # GPT-6.1 Sol reached Copilot on 2026-09-29, and AI Platform got GPT-6
-    # Luna, GPT-6 Sol and GPT-6.1 Sol as chat models on 2026-11-25. GPT-6
+    # Luna, GPT-6 Sol and GPT-6.1 Sol as chat models on 2026-11-24. GPT-6
     # Astra is not among them: a profile switched to AI Platform with it is
     # repaired to that provider's default instead of sending an id the
     # gateway does not offer.

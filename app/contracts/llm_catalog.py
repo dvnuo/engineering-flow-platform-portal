@@ -51,7 +51,7 @@ COPILOT_MODELS: tuple[str, ...] = (
     "gpt-6.1-sol",
 )
 # As a chat provider the gateway offers gpt-5.4, the GPT-5.6 line and, since
-# 2026-11-25, GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol (not GPT-6 Astra, and
+# 2026-11-24, GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol (not GPT-6 Astra, and
 # nothing like Copilot's auto ids). Those three are the only ids the two
 # providers share: a profile switched from one provider to the other keeps
 # one of them and has any other model coerced to the target provider's
@@ -70,9 +70,9 @@ AI_PLATFORM_MODELS: tuple[str, ...] = (
 )
 # The models the Image analysis connector offers: the model that reads images
 # on AI Platform, for the inspect-image CLI in an assistant and for an app's
-# image calls. The connector got GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol on
-# 2026-11-24, a day before the chat provider did; the two lists now hold the
-# same models. It keeps its own name because the choice is the connector's
+# image calls. The connector got GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol first
+# and the chat provider later the same day (2026-11-24); the two lists now
+# hold the same models. It keeps its own name because the choice is the connector's
 # own (coerce_to_image_analysis_model) and the native runtime mirrors it
 # separately (IMAGE_ANALYSIS_MODEL_IDS), with the same silent replacement for
 # an id only this file knows.
