@@ -19,6 +19,7 @@ import pytest
 from starlette.datastructures import FormData
 
 from app.config import Settings
+from app.contracts.llm_catalog import AI_PLATFORM_MODELS, IMAGE_ANALYSIS_MODELS, coerce_to_provider_model
 from app.schemas.runtime_profile import (
     ALLOWED_RUNTIME_PROFILE_SECTIONS,
     PORTAL_MANAGED_FIELD_TREE,
@@ -210,10 +211,14 @@ def test_sanitize_keeps_the_section_on_a_copilot_profile_and_coerces_the_model()
     assert "ai_platform" not in cleaned["llm"] and "vision" not in cleaned["llm"]
     assert canon(cleaned)["image_analysis"] == cleaned["image_analysis"]
 
-    # The model is always an AI Platform catalogue model: a Copilot id, junk and blank become the default.
-    for model in ("gpt-6-sol", "auto", "gpt-9-bogus", "", None):
+    # The model is always one the connector offers: a Copilot id outside its list, junk and blank become the default.
+    for model in ("gpt-6-astra", "auto", "gpt-9-bogus", "", None):
         assert sanitize({"image_analysis": {"enabled": True, "model": model}})["image_analysis"]["model"] == "gpt-5.4"
     assert sanitize({"image_analysis": {"enabled": True, "model": " gpt-5.6-terra "}})["image_analysis"]["model"] == "gpt-5.6-terra"
+    # GPT-6 Luna, GPT-6 Sol and GPT-6.1 Sol are the connector's own additions to the AI Platform list.
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert sanitize({"image_analysis": {"enabled": True, "model": model}})["image_analysis"]["model"] == model
+        assert canon({"image_analysis": {"enabled": True, "model": model}})["image_analysis"]["model"] == model
 
 
 def test_sanitize_normalizes_the_switch_and_drops_a_section_that_says_nothing():
@@ -278,8 +283,10 @@ def test_settings_merge_stores_the_section_from_the_form():
     # The model provider is not touched by this connector's save.
     assert merged["llm"]["api_key"] == "ghu_token" and "ai_platform" not in merged["llm"]
 
-    coerced, error = _settings_merge_payload({}, _member_form(image_analysis_model="gpt-6-sol"))
+    coerced, error = _settings_merge_payload({}, _member_form(image_analysis_model="gpt-6-astra"))
     assert error is None and coerced["image_analysis"]["model"] == "gpt-5.4"
+    kept, error = _settings_merge_payload({}, _member_form(image_analysis_model="gpt-6.1-sol"))
+    assert error is None and kept["image_analysis"]["model"] == "gpt-6.1-sol"
 
 
 @pytest.mark.parametrize(
@@ -379,11 +386,13 @@ def test_seed_form_reads_the_switch_the_model_and_the_shared_account():
 
     # The model select always posts a value; alone it does not make a section.
     assert _seed_config_from_form(_form({"image_analysis_model": "gpt-5.4"})) == {}
-    # An account without the switch is kept (offered later), a blank field left out, a Copilot model repaired.
+    # An account without the switch is kept (offered later), a blank field left out, a model outside the list repaired.
     parked = _seed_config_from_form(
-        _form({"image_analysis_model": "gpt-6-sol", "image_analysis_ai_platform_username": "svc", "image_analysis_ai_platform_password": " "})
+        _form({"image_analysis_model": "gpt-6-astra", "image_analysis_ai_platform_username": "svc", "image_analysis_ai_platform_password": " "})
     )
     assert parked == {"image_analysis": {"enabled": False, "model": "gpt-5.4", "ai_platform": {"auth": {"username": "svc"}}}}
+    offered = _seed_config_from_form(_form({"image_analysis_enabled": "on", "image_analysis_model": "gpt-6-luna"}))
+    assert offered["image_analysis"]["model"] == "gpt-6-luna"
     # Offered without an account is what the save then refuses.
     assert seed_config_error(_seed_config_from_form(_form({"image_analysis_enabled": "on"}))) == REQUIRED_MESSAGE
 
@@ -400,10 +409,14 @@ def test_the_default_connectors_panel_renders_the_block_and_the_stored_values():
     ):
         assert f'name="{name}"' in blank, name
     assert 'type="password" name="image_analysis_ai_platform_password"' in blank
-    # The AI Platform catalogue, the default preselected while nothing is seeded.
+    # The connector's own list, the default preselected while nothing is seeded.
     assert '<option value="gpt-5.4" selected>gpt-5.4</option>' in blank
     assert '<option value="gpt-5.6-sol" >gpt-5.6-sol</option>' in blank
-    assert '<option value="gpt-6-sol"' not in blank.split('name="image_analysis_model"', 1)[1].split("</select>", 1)[0]
+    options = blank.split('name="image_analysis_model"', 1)[1].split("</select>", 1)[0]
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert f'<option value="{model}" >{model}</option>' in options, model
+    # Not every Copilot model: GPT-6 Astra and the auto ids are not offered.
+    assert '<option value="gpt-6-astra"' not in options and '<option value="auto"' not in options
     # No provider and no endpoint field: AI Platform is the only provider, the endpoints are the deployment's.
     assert 'name="image_analysis_provider"' not in blank and "image_analysis_ai_platform_chat" not in blank
 
@@ -460,8 +473,8 @@ def test_materialize_adds_the_deployment_endpoints_and_never_the_responses_endpo
     assert "responses" not in section["ai_platform"]
     assert image_analysis_configured(section)
 
-    # Endpoints a section tries to carry itself are ignored; a Copilot or junk model becomes the default.
-    stored = _section(model="gpt-6-sol")
+    # Endpoints a section tries to carry itself are ignored; a model outside the connector's list becomes the default.
+    stored = _section(model="gpt-6-astra")
     stored["ai_platform"].update({"chat": {"host": "https://stored.invalid"}, "responses": {"uri": "/x"}})
     forced = materialize_image_analysis_config(stored, settings=settings)
     assert forced["model"] == "gpt-5.4"
@@ -700,6 +713,9 @@ def test_the_panel_renders_the_form_and_only_its_own_fields(monkeypatch):
         assert 'type="password" name="image_analysis_ai_platform_password" value="pw"' in text
         assert 'name="image_analysis_ai_platform_usercase" value="uc"' in text
         assert '<option value="gpt-5.6-sol" selected>gpt-5.6-sol</option>' in text
+        # The member's own select offers the connector's list, the GPT-6 models included.
+        member_options = text.split('name="image_analysis_model"', 1)[1].split("</select>", 1)[0]
+        assert [part.split('"', 1)[0] for part in member_options.split('<option value="')[1:]] == list(IMAGE_ANALYSIS_MODELS)
         assert 'data-test-target="image_analysis"' in text and 'data-test-result="image_analysis"' in text
         assert "How to set this up" in text and 'href="#/help/connect-image_analysis"' in text
         # As few controls as possible: no provider, no endpoints, and nothing of another connector.
@@ -780,11 +796,11 @@ def test_saving_the_panel_stores_the_section_and_refuses_a_half_filled_account(m
         assert REQUIRED_MESSAGE in refused.text and 'data-settings-status="error"' in refused.text
         assert "image_analysis" not in _saved(env.db, profile) and env.calls["apply"] == 0
 
-        saved = env.client.post("/app/connectors/image_analysis/save", data=_member_form(image_analysis_model="gpt-6-sol"))
+        saved = env.client.post("/app/connectors/image_analysis/save", data=_member_form(image_analysis_model="gpt-6-astra"))
         assert saved.status_code == 200 and 'data-settings-status="success"' in saved.text
         assert saved.headers["HX-Trigger"] == "connectorsChanged"
         stored = _saved(env.db, profile)
-        # The Copilot model the form posted was repaired to an AI Platform one; the model provider is untouched.
+        # The model the form posted is not one the connector offers, so it was repaired; the model provider is untouched.
         assert stored["image_analysis"] == _section(model="gpt-5.4")
         assert stored["llm"] == {"provider": "github_copilot", "model": "gpt-6-luna", "api_key": "ghu_token"}
         assert env.calls["apply"] == 1
@@ -872,10 +888,33 @@ def test_view_defaults_and_usage_know_the_section():
     view = _settings_view_payload({})
     assert view["image_analysis"] == {"enabled": False}
     assert view["image_analysis_auth"] == {}
-    assert view["image_analysis_models"] == ["gpt-5.4", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]
+    assert view["image_analysis_models"] == [
+        "gpt-5.4",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    ]
     assert view["image_analysis_model_selected"] == "gpt-5.4"
     stored = _settings_view_payload({"image_analysis": _section()})
     assert stored["image_analysis_auth"] == ACCOUNT and stored["image_analysis_model_selected"] == "gpt-5.6-sol"
+    assert _settings_view_payload({"image_analysis": _section(model="gpt-6.1-sol")})["image_analysis_model_selected"] == "gpt-6.1-sol"
+
+
+def test_the_connector_has_its_own_model_list_next_to_the_chat_providers():
+    # Everything the AI Platform chat provider offers, then the three GPT-6 models added for image analysis.
+    assert IMAGE_ANALYSIS_MODELS == (*AI_PLATFORM_MODELS, "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol")
+    # The chat provider's list did not grow with it: there a GPT-6 id is still repaired.
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert model not in AI_PLATFORM_MODELS
+        assert coerce_to_provider_model("ai_platform", model) == "gpt-5.4"
+    # What the runtime is sent (the materialized section) carries the model as stored.
+    settings = _ai_settings()
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert materialize_image_analysis_config(_section(model=model), settings=settings)["model"] == model
+    assert materialize_image_analysis_config(_section(model="gpt-6-astra"), settings=settings)["model"] == "gpt-5.4"
 
 
 def test_the_contracts_document_the_connector():

@@ -6,8 +6,7 @@ from urllib.parse import quote
 
 from app.config import Settings, get_settings
 from app.contracts.llm_catalog import (
-    AI_PLATFORM_PROVIDER,
-    coerce_to_provider_model,
+    coerce_to_image_analysis_model,
     flag_enabled,
     normalize_provider,
     uses_ai_platform_credentials,
@@ -175,7 +174,7 @@ def materialize_image_analysis_config(section: Any, *, settings: Any = None) -> 
 
     materialized: dict[str, Any] = {
         "enabled": True,
-        "model": coerce_to_provider_model(AI_PLATFORM_PROVIDER, source.get("model")),
+        "model": coerce_to_image_analysis_model(source.get("model")),
     }
     if ai_platform:
         materialized["ai_platform"] = ai_platform

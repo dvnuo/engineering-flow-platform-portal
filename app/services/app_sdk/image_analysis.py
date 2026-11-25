@@ -325,7 +325,7 @@ def _model_of(section: dict | None) -> str | None:
     """The model of a materialized section that can run; None for one that is off or incomplete."""
     if section is None or not image_analysis_configured(section):
         return None
-    # Always a catalogue model: the section is coerced when it is materialized.
+    # Always a model the connector offers: the section is coerced when it is materialized.
     return str(section.get("model") or "").strip() or None
 
 

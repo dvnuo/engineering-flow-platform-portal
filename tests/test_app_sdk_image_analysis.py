@@ -382,9 +382,13 @@ def test_a_request_never_shows_its_images_or_its_text_when_printed():
 
 def test_the_model_is_the_connectors_and_only_while_it_can_run(monkeypatch):
     assert image_analysis.configured_model(owner_config()) == "gpt-5.6-sol"
-    # A model the catalogue does not list is repaired when the section is materialized.
+    # A model the connector does not offer is repaired when the section is materialized.
     assert image_analysis.configured_model(owner_config(model="gpt-4-vision")) == "gpt-5.4"
+    assert image_analysis.configured_model(owner_config(model="gpt-6-astra")) == "gpt-5.4"
     assert image_analysis.configured_model(owner_config(model=None)) == "gpt-5.4"
+    # The GPT-6 models the connector offers on top of the AI Platform chat list reach the call as chosen.
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"):
+        assert image_analysis.configured_model(owner_config(model=model)) == model
 
     for config in (
         {},

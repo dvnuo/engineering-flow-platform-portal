@@ -50,8 +50,8 @@ COPILOT_MODELS: tuple[str, ...] = (
     "gpt-6-sol",
     "gpt-6.1-sol",
 )
-# The gateway fronts gpt-5.4 and the GPT-5.6 line and does not serve GPT-6,
-# so the two providers no longer share a model: switching a profile's
+# As a chat provider the gateway offers gpt-5.4 and the GPT-5.6 line and no
+# GPT-6 model, so the two providers share no model: switching a profile's
 # provider always coerces its model to the target provider's default
 # (coerce_to_provider_model only keeps a model the target provider has).
 AI_PLATFORM_MODELS: tuple[str, ...] = (
@@ -59,6 +59,20 @@ AI_PLATFORM_MODELS: tuple[str, ...] = (
     "gpt-5.6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
+)
+# The models the Image analysis connector offers: the model that reads images
+# on AI Platform, for the inspect-image CLI in an assistant and for an app's
+# image calls. It is the list above plus GPT-6 Luna, GPT-6 Sol and GPT-6.1
+# Sol, added for image analysis on 2026-11-24; the chat provider's list was
+# left as it is, so the two are separate choices. The native runtime mirrors
+# this tuple (src/efp_runtime/llm/models.py IMAGE_ANALYSIS_MODEL_IDS) and
+# lands any id outside its copy on the default, so a model added here alone
+# is silently replaced in the assistant.
+IMAGE_ANALYSIS_MODELS: tuple[str, ...] = (
+    *AI_PLATFORM_MODELS,
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-6.1-sol",
 )
 
 # Since 2026-10-20 a Copilot profile defaults to auto (Balance): Copilot picks
@@ -70,6 +84,10 @@ DEFAULT_COPILOT_MODEL = COPILOT_AUTO_MODEL
 # falls back to for an unrecognized model, not a recommendation, and moving it
 # would silently change which model an existing broken profile lands on.
 DEFAULT_AI_PLATFORM_MODEL = "gpt-5.4"
+# What a connector that names no model, or one this file does not list, reads
+# images with. Unchanged by the GPT-6 entries: a stored section keeps the
+# model it had.
+DEFAULT_IMAGE_ANALYSIS_MODEL = DEFAULT_AI_PLATFORM_MODEL
 
 PROVIDER_MODELS: dict[str, tuple[str, ...]] = {
     COPILOT_PROVIDER: COPILOT_MODELS,
@@ -423,6 +441,17 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
     if canon == COPILOT_PROVIDER and is_selectable_model(canon, trimmed):
         return trimmed
     return PROVIDER_DEFAULT_MODEL.get(canon, DEFAULT_COPILOT_MODEL)
+
+
+def coerce_to_image_analysis_model(model: str | None) -> str:
+    """A model the Image analysis connector offers, falling back to its default.
+
+    The connector's own rule, not the chat provider's: IMAGE_ANALYSIS_MODELS
+    holds ids AI_PLATFORM_MODELS does not, and a Copilot id outside it (an
+    auto id, GPT-6 Astra) is not kept just because Copilot serves it.
+    """
+    trimmed = str(model or "").strip()
+    return trimmed if trimmed in IMAGE_ANALYSIS_MODELS else DEFAULT_IMAGE_ANALYSIS_MODEL
 
 
 def coerce_to_copilot_model(model: str | None) -> str:

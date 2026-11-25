@@ -19,12 +19,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
-    AI_PLATFORM_MODELS,
-    AI_PLATFORM_PROVIDER,
     DEFAULT_MAX_STEPS,
+    IMAGE_ANALYSIS_MODELS,
     MAX_STEPS_LIMIT,
     PROVIDER_MODELS,
-    coerce_to_provider_model,
+    coerce_to_image_analysis_model,
     context_size_choices,
     context_size_label,
     context_size_options,
@@ -1627,7 +1626,8 @@ IMAGE_ANALYSIS_ACCOUNT_FORM_FIELDS = (
 
 def _image_analysis_view(section) -> dict:
     """What the Image analysis panels render: the section, its account, the
-    models on offer (the AI Platform catalogue) and the one selected."""
+    models on offer (the connector's own list, IMAGE_ANALYSIS_MODELS) and the
+    one selected."""
 
     section = section if isinstance(section, dict) else {}
     ai_platform = section.get("ai_platform") if isinstance(section.get("ai_platform"), dict) else {}
@@ -1635,8 +1635,8 @@ def _image_analysis_view(section) -> dict:
     return {
         "image_analysis": section,
         "image_analysis_auth": auth,
-        "image_analysis_models": list(AI_PLATFORM_MODELS),
-        "image_analysis_model_selected": coerce_to_provider_model(AI_PLATFORM_PROVIDER, section.get("model")),
+        "image_analysis_models": list(IMAGE_ANALYSIS_MODELS),
+        "image_analysis_model_selected": coerce_to_image_analysis_model(section.get("model")),
     }
 
 
@@ -1716,7 +1716,7 @@ def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     if flag(IMAGE_ANALYSIS_ENABLED_FIELD) or image_analysis_auth:
         seed["image_analysis"] = {
             "enabled": flag(IMAGE_ANALYSIS_ENABLED_FIELD),
-            "model": coerce_to_provider_model(AI_PLATFORM_PROVIDER, text(IMAGE_ANALYSIS_MODEL_FIELD)),
+            "model": coerce_to_image_analysis_model(text(IMAGE_ANALYSIS_MODEL_FIELD)),
         }
         if image_analysis_auth:
             seed["image_analysis"]["ai_platform"] = {"auth": image_analysis_auth}
@@ -2446,7 +2446,7 @@ def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = 
             if IMAGE_ANALYSIS_MODEL_FIELD in form
             else str(existing_section.get("model") or "").strip()
         )
-        image_analysis_cfg["model"] = coerce_to_provider_model(AI_PLATFORM_PROVIDER, model_value)
+        image_analysis_cfg["model"] = coerce_to_image_analysis_model(model_value)
         image_analysis_auth: dict = {}
         for key, form_key in IMAGE_ANALYSIS_ACCOUNT_FORM_FIELDS:
             value = (form.get(form_key) or "").strip() if form_key in form else str(existing_auth.get(key) or "").strip()
